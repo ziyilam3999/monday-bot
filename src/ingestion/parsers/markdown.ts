@@ -41,9 +41,18 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
         continue;
       }
 
-      // Setext heading: non-blank text line immediately followed by === or ---
+      // Setext heading: non-blank text line immediately followed by === or ---.
+      // Also requires the PREVIOUS line to be blank (or start of file) so YAML
+      // front matter, list-item trailers, and paragraph continuations don't
+      // promote their tail line to a heading.
       const next = lines[i + 1];
-      if (line.trim().length > 0 && next !== undefined && (/^=+\s*$/.test(next) || /^-+\s*$/.test(next))) {
+      const prevIsBlank = i === 0 || lines[i - 1].trim() === "";
+      if (
+        prevIsBlank &&
+        line.trim().length > 0 &&
+        next !== undefined &&
+        (/^=+\s*$/.test(next) || /^-+\s*$/.test(next))
+      ) {
         flush();
         currentHeading = line.trim();
         i++;

@@ -121,6 +121,49 @@ describe("ingestFile", () => {
     }
   });
 
+  it("does NOT treat the closing --- of YAML front matter as a setext heading underline", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-yaml-front-matter.md");
+    const content = [
+      "---",
+      "title: My Doc",
+      "author: Alice",
+      "---",
+      "",
+      "# Real content",
+      "",
+      "body paragraph",
+    ].join("\n");
+    fs.writeFileSync(tmpFile, content);
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const headings = chunks.map((c) => c.heading).filter(Boolean);
+      expect(headings).not.toContain("author: Alice");
+      expect(headings).not.toContain("title: My Doc");
+      expect(headings).toContain("Real content");
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it("does NOT promote a list item trailer as a setext heading", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-list-trailer.md");
+    const content = ["- item one", "- item two", "---", "", "after"].join("\n");
+    fs.writeFileSync(tmpFile, content);
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const headings = chunks.map((c) => c.heading).filter(Boolean);
+      expect(headings).not.toContain("- item two");
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
   it("recognizes setext-style Markdown headings (=== for H1 and --- for H2)", async () => {
     const pathMod = require("path");
     const fs = require("fs");
