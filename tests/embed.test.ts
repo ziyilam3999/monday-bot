@@ -1,4 +1,4 @@
-import { embed } from "../src/embeddings/embed";
+import { embed, _resetExtractorForTests } from "../src/embeddings/embed";
 
 jest.setTimeout(120_000);
 
@@ -43,5 +43,14 @@ describe("embed", () => {
     const vec = await embed("");
     expect(Array.isArray(vec)).toBe(true);
     expect(vec.length).toBeGreaterThan(0);
+  });
+
+  it("_resetExtractorForTests() clears the cached pipeline without breaking subsequent calls", async () => {
+    const before = await embed("hello world");
+    expect(before.length).toBeGreaterThan(0);
+    _resetExtractorForTests();
+    const after = await embed("hello world");
+    expect(after.length).toBe(before.length);
+    expect(after).toEqual(before);
   });
 });
