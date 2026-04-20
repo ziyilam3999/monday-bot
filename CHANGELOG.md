@@ -5,6 +5,28 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2](https://github.com/ziyilam3999/monday-bot/compare/v0.3.1...v0.3.2) (2026-04-20)
+
+US-01 scaffold hygiene — fold three non-blocking enhancements from the PR #1
+ship-review into a small chore PR.
+
+### Miscellaneous
+
+- **env**: `validateEnv()` now returns trimmed token values
+  (`env.SLACK_BOT_TOKEN!.trim()` / `env.SLACK_APP_TOKEN!.trim()`) so stray
+  whitespace cannot leak into Slack client initialization
+  ([#32](https://github.com/ziyilam3999/monday-bot/pull/32), closes
+  [#2](https://github.com/ziyilam3999/monday-bot/issues/2))
+- **env**: collapse the two-part filter `!env[key] || env[key]?.trim() === ""`
+  into the single expression `!env[key]?.trim()` — same semantics, handles
+  undefined/null/empty/whitespace in one optional-chain (closes
+  [#3](https://github.com/ziyilam3999/monday-bot/issues/3))
+- **jest**: replace deprecated `preset: "ts-jest"` with
+  `...createDefaultPreset()` per ts-jest 29.x guidance; transform behavior
+  preserved (closes [#6](https://github.com/ziyilam3999/monday-bot/issues/6))
+- **tests**: 2 new jest specs covering whitespace-only rejection and
+  trim-on-return (25/25 pass)
+
 ## [0.3.1](https://github.com/ziyilam3999/monday-bot/compare/v0.3.0...v0.3.1) (2026-04-20)
 
 US-03 polish — fold two non-blocking enhancements from the PR #21 ship-review
