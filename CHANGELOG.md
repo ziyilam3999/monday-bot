@@ -5,6 +5,25 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/ziyilam3999/monday-bot/compare/v0.3.0...v0.3.1) (2026-04-20)
+
+US-03 polish — fold two non-blocking enhancements from the PR #21 ship-review
+into a small chore PR.
+
+### Miscellaneous
+
+- **vectorIndex**: `VectorIndex.load()` now throws a clear error when the
+  loaded `index.json` has `chunks.length !== vectors.length`, preventing
+  silent NaN cosine scores on corrupt / hand-edited files
+  ([#31](https://github.com/ziyilam3999/monday-bot/pull/31), closes
+  [#22](https://github.com/ziyilam3999/monday-bot/issues/22))
+- **tests**: add clarifying header comment to
+  `tests/__stubs__/xenova-transformers.js` disclosing it as a test-only
+  fake; the real ONNX model is exercised by US-03 AC inline commands
+  (closes [#25](https://github.com/ziyilam3999/monday-bot/issues/25))
+- **tests**: 1 new jest spec covering the length-mismatch rejection path
+  (23/23 pass)
+
 ## [0.3.0](https://github.com/ziyilam3999/monday-bot/compare/v0.2.0...v0.3.0) (2026-04-20)
 
 Embeddings + vector index + persistence — US-03 shipped. Monday now turns text
