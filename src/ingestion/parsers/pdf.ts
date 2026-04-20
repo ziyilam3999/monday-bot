@@ -11,24 +11,26 @@ export async function parsePdf(filePath: string, source: string): Promise<Chunk[
   const loadingTask = pdfjs.getDocument({ data, useWorkerFetch: false, isEvalSupported: false });
   const doc = await loadingTask.promise;
 
-  const chunks: Chunk[] = [];
-  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
-    const page = await doc.getPage(pageNum);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item: unknown) => {
-        const it = item as { str?: string };
-        return typeof it.str === "string" ? it.str : "";
-      })
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
+  try {
+    const chunks: Chunk[] = [];
+    for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+      const page = await doc.getPage(pageNum);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item: unknown) => {
+          const it = item as { str?: string };
+          return typeof it.str === "string" ? it.str : "";
+        })
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
 
-    if (pageText.length > 0) {
-      chunks.push({ text: pageText, source, section: `page-${pageNum}` });
+      if (pageText.length > 0) {
+        chunks.push({ text: pageText, source, section: `page-${pageNum}` });
+      }
     }
+    return chunks;
+  } finally {
+    await doc.destroy();
   }
-
-  await doc.destroy();
-  return chunks;
 }

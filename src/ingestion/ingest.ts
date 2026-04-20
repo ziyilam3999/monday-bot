@@ -31,7 +31,6 @@ export async function ingestFile(filePath: string): Promise<Chunk[]> {
       rawChunks = await parseTxt(filePath, absSource);
       break;
     case ".md":
-    case ".markdown":
       rawChunks = await parseMarkdown(filePath, absSource);
       break;
     case ".pdf":

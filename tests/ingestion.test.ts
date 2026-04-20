@@ -47,4 +47,39 @@ describe("ingestFile", () => {
       UnsupportedFileTypeError
     );
   });
+
+  it("rejects .markdown alias (contract is .md only)", async () => {
+    await expect(ingestFile("test-fixtures/nope.markdown")).rejects.toBeInstanceOf(
+      UnsupportedFileTypeError
+    );
+  });
+
+  it("does not treat # lines inside fenced code blocks as headings", async () => {
+    const path = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = path.join(os.tmpdir(), "monday-fence-test.md");
+    const content = [
+      "# Real Heading",
+      "",
+      "Body paragraph.",
+      "",
+      "```bash",
+      "# this is a shell comment, not a heading",
+      "echo hi",
+      "```",
+      "",
+      "More body.",
+    ].join("\n");
+    fs.writeFileSync(tmpFile, content);
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const headings = chunks.map((c) => c.heading).filter(Boolean);
+      expect(headings).toEqual(["Real Heading"]);
+      const hasShellComment = chunks.some((c) => c.text.includes("this is a shell comment"));
+      expect(hasShellComment).toBe(true);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
 });

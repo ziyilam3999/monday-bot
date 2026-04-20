@@ -8,6 +8,7 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
   const chunks: Chunk[] = [];
   let currentHeading: string | undefined;
   let buffer: string[] = [];
+  let inCodeFence = false;
 
   const flush = () => {
     const text = buffer.join("\n").trim();
@@ -23,12 +24,21 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
   };
 
   for (const line of lines) {
-    const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (headingMatch) {
-      flush();
-      currentHeading = headingMatch[2];
+    if (/^\s*(```|~~~)/.test(line)) {
+      inCodeFence = !inCodeFence;
+      buffer.push(line);
       continue;
     }
+
+    if (!inCodeFence) {
+      const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+      if (headingMatch) {
+        flush();
+        currentHeading = headingMatch[2];
+        continue;
+      }
+    }
+
     buffer.push(line);
   }
   flush();
