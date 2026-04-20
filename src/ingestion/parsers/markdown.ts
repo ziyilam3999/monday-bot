@@ -2,7 +2,7 @@ import * as fs from "fs/promises";
 import type { Chunk } from "../ingest";
 
 export async function parseMarkdown(filePath: string, source: string): Promise<Chunk[]> {
-  const raw = await fs.readFile(filePath, "utf8");
+  const raw = (await fs.readFile(filePath, "utf8")).replace(/^\uFEFF/, "");
   const lines = raw.split(/\r?\n/);
 
   const chunks: Chunk[] = [];

@@ -2,7 +2,7 @@ import * as fs from "fs/promises";
 import type { Chunk } from "../ingest";
 
 export async function parseTxt(filePath: string, source: string): Promise<Chunk[]> {
-  const raw = await fs.readFile(filePath, "utf8");
+  const raw = (await fs.readFile(filePath, "utf8")).replace(/^\uFEFF/, "");
   const paragraphs = raw
     .split(/\n\s*\n/)
     .map((p) => p.trim())
