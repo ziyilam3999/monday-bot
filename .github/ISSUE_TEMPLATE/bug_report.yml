@@ -1,0 +1,66 @@
+name: Bug Report
+description: Report a defect in Monday (the Slack bot)
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. The more concrete the report, the faster the fix.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior. Include exact error messages or Slack response text.
+      placeholder: e.g. "Asked '/ask vpn setup' in #general — Monday replied with 'undefined' instead of an answer."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Step-by-step. Include the question text, channel, and any relevant config.
+      placeholder: |
+        1. Have Confluence sync enabled with 50+ pages indexed
+        2. Type `/ask <question text>` in #channel-name
+        3. Observe response
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Monday version / commit
+      description: Output of `git rev-parse HEAD` or release tag
+    validations:
+      required: false
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment context
+      options:
+        - Local dev (npm start)
+        - Free-tier ARM (Oracle Cloud / equivalent)
+        - Other (specify in "How to reproduce")
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste the relevant log lines (redact tokens). Server stderr is most useful.
+      render: text
+    validations:
+      required: false

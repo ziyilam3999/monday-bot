@@ -1,0 +1,55 @@
+name: Feature Request
+description: Propose new behavior for Monday
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check the PRD at `docs/PLAN_MONDAY_BOT.md` §6 (Out of Scope) — some asks are deliberately excluded from v1.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the user need, not the proposed solution.
+      placeholder: e.g. "Team members can't tell when an answer is from a stale Confluence page vs a freshly synced one."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should Monday do?
+      placeholder: e.g. "Append a freshness indicator to each citation: [1] (synced 2h ago)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you think about?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope-check
+    attributes:
+      label: Scope check
+      description: Is this in or out of scope per PRD §6?
+      options:
+        - In scope (related to ask-and-answer, freshness, admin, retrieval quality)
+        - Out of scope but still useful (Web UI, CLI, non-Slack channels, fine-tuning, multi-tenant)
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: success
+    attributes:
+      label: How would we know it works?
+      description: A binary, observable test — what command or user action proves this is delivered?
+    validations:
+      required: false

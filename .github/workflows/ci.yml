@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # The very first commit on master sets up CI before any package.json
+      # exists. Skip the npm steps on that commit so CI is green from day 1.
+      - name: Detect package.json presence
+        id: precheck
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            echo "has_pkg=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_pkg=false" >> $GITHUB_OUTPUT
+            echo "package.json not present yet — skipping npm steps."
+          fi
+
+      - name: Install dependencies
+        if: steps.precheck.outputs.has_pkg == 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Build (tsc → dist/)
+        if: steps.precheck.outputs.has_pkg == 'true'
+        run: npm run build
+
+      - name: dist/ build artifact present
+        if: steps.precheck.outputs.has_pkg == 'true'
+        shell: bash
+        run: |
+          if [ ! -f dist/index.js ]; then
+            echo "ERROR: dist/index.js missing after npm run build"
+            exit 1
+          fi
+          echo "dist/index.js present — PASS"
+
+      - name: Tests (jest)
+        if: steps.precheck.outputs.has_pkg == 'true'
+        run: npm test
+
+      - name: Validate commit message (Conventional Commits)
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          if echo "$COMMIT_MSG" | grep -qE "^Merge "; then exit 0; fi
+          if ! echo "$COMMIT_MSG" | grep -qE "^(feat|fix|docs|chore|refactor|test|style|perf|ci|build|revert)(\(.+\))?(!)?: .+"; then
+            echo "ERROR: HEAD commit message does not follow Conventional Commits format."
+            echo "  Got: $COMMIT_MSG"
+            echo "  Expected prefix: feat|fix|docs|chore|refactor|test|style|perf|ci|build|revert"
+            exit 1
+          fi
+          echo "Commit message OK: $COMMIT_MSG"
