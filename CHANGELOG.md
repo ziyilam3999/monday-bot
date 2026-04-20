@@ -5,6 +5,46 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4](https://github.com/ziyilam3999/monday-bot/compare/v0.3.3...v0.3.4) (2026-04-20)
+
+US-03 polish — fold three non-blocking enhancements from the PR #21
+ship-review into a small chore PR.
+
+### Miscellaneous
+
+- **index**: `VectorIndex.add()` emits a `console.warn` when skipping a
+  duplicate chunk id so callers see an observability signal instead of
+  silent no-op re-indexing ([#34](https://github.com/ziyilam3999/monday-bot/pull/34),
+  closes [#23](https://github.com/ziyilam3999/monday-bot/issues/23))
+- **tests**: new jest spec asserts that `search()` ranking order AND
+  per-result scores are preserved across a `VectorIndex.save()` plus
+  fresh `VectorIndex.load()` round-trip. Catches future regressions
+  where JSON serialization could drift vector values (float precision
+  loss, array truncation, quantization) (closes
+  [#24](https://github.com/ziyilam3999/monday-bot/issues/24))
+- **embeddings**: expose `_resetExtractorForTests()` that clears the
+  module-level `pipelinePromise` cache. Enables future tests
+  (notably US-11 model-swap scenarios) to re-initialize the pipeline
+  without tearing down the whole test process. Named with a leading
+  underscore to signal test-only intent (closes
+  [#26](https://github.com/ziyilam3999/monday-bot/issues/26))
+- **tests**: 3 new jest specs covering the duplicate-id warn path,
+  ranking-preservation across save/load, and the reset-and-re-embed
+  happy path (33/33 pass)
+
+### Known follow-ups (non-blocking)
+
+PR #34 review found 0 bugs and 3 enhancements, filed as issues:
+
+- [#35](https://github.com/ziyilam3999/monday-bot/issues/35) gate
+  `_resetExtractorForTests` behind `NODE_ENV` or move to a
+  test-helpers module for stronger isolation
+- [#36](https://github.com/ziyilam3999/monday-bot/issues/36)
+  strengthen the reset spec to observe a cache-miss side effect
+- [#37](https://github.com/ziyilam3999/monday-bot/issues/37) consider
+  a per-run summary counter instead of per-chunk duplicate-id warn
+  at larger scale
+
 ## [0.3.3](https://github.com/ziyilam3999/monday-bot/compare/v0.3.2...v0.3.3) (2026-04-20)
 
 US-02 parser polish — fold three non-blocking enhancements from the PR #8
