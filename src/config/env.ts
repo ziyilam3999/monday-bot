@@ -22,7 +22,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
     throw new MissingEnvVarError(missing);
   }
   return {
-    slackBotToken: env.SLACK_BOT_TOKEN!,
-    slackAppToken: env.SLACK_APP_TOKEN!,
+    slackBotToken: env.SLACK_BOT_TOKEN!.trim(),
+    slackAppToken: env.SLACK_APP_TOKEN!.trim(),
   };
 }
