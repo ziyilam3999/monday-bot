@@ -15,4 +15,6 @@ function main(): void {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
