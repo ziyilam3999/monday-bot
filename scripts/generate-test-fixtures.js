@@ -18,7 +18,7 @@ async function generatePdf() {
     doc
       .fontSize(11)
       .text(
-        "This PDF is used as an ingestion fixture. It contains enough text to verify that pdf-parse can extract content and that ingestFile returns a chunk with non-empty text."
+        "This PDF is used as an ingestion fixture. It contains enough text to verify that the PDF parser can extract content and that ingestFile returns a chunk with non-empty text."
       );
     doc.end();
     stream.on("finish", () => resolve(pdfPath));
