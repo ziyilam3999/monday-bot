@@ -5,6 +5,42 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3](https://github.com/ziyilam3999/monday-bot/compare/v0.3.2...v0.3.3) (2026-04-20)
+
+US-02 parser polish — fold three non-blocking enhancements from the PR #8
+ship-review into a small chore PR. Stateless reviewer iter 1 caught a real
+regression (setext underline firing on YAML front matter); iter 2 fix landed
+in the same PR before merge.
+
+### Miscellaneous
+
+- **ingestion**: strip UTF-8 BOM (U+FEFF) from TXT and MD inputs before
+  parsing so the marker character cannot leak into chunk text
+  ([#33](https://github.com/ziyilam3999/monday-bot/pull/33), closes
+  [#9](https://github.com/ziyilam3999/monday-bot/issues/9))
+- **ingestion (md)**: support setext-style headings — `=== ` for H1 and
+  `---` for H2. Detector peeks at the next line and, critically, requires
+  the PREVIOUS line to be blank (or start-of-file) so YAML front-matter
+  terminators, list-item trailers, and paragraph continuations are not
+  misread as headings (closes
+  [#11](https://github.com/ziyilam3999/monday-bot/issues/11))
+- **tests**: tighten `UnsupportedFileTypeError` specs to assert
+  `err.name === "UnsupportedFileTypeError"` in addition to `instanceof`,
+  guarding against silent error-class drift (closes
+  [#16](https://github.com/ziyilam3999/monday-bot/issues/16))
+- **tests**: 5 new jest specs — BOM strip on TXT, BOM strip on MD,
+  setext happy path, YAML-front-matter regression guard, list-trailer
+  regression guard (30/30 pass)
+
+### Bug Fixes
+
+- **ingestion (md)**: setext detector no longer promotes the last YAML
+  field value to a chunk heading when the closing `---` of a YAML front
+  matter block follows it. The fix requires the line before the candidate
+  heading to be blank, which also blocks analogous list-item trailer and
+  paragraph-continuation false positives. Caught by the stateless
+  reviewer iter 1 on PR #33.
+
 ## [0.3.2](https://github.com/ziyilam3999/monday-bot/compare/v0.3.1...v0.3.2) (2026-04-20)
 
 US-01 scaffold hygiene — fold three non-blocking enhancements from the PR #1
