@@ -126,4 +126,49 @@ describe("VectorIndex", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("warns and skips when add() sees a duplicate chunk id", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const idx = new VectorIndex();
+      await idx.add([
+        { id: "dup", text: "first", source: "a.txt" },
+        { id: "dup", text: "second but same id", source: "b.txt" },
+      ]);
+      const results = await idx.search("first", 5);
+      expect(results.length).toBe(1);
+      expect(results[0].text).toBe("first");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/duplicate id "dup"/));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("preserves multi-chunk ranking order across save/load round-trip", async () => {
+    const dir = path.join(os.tmpdir(), `monday-idx-ranking-${Date.now()}`);
+    try {
+      const original = new VectorIndex();
+      await original.add([
+        { id: "vpn", text: "VPN setup requires Cisco AnyConnect on your laptop.", source: "vpn.txt" },
+        { id: "hr", text: "Annual leave is fourteen days per year for permanent staff.", source: "hr.txt" },
+        { id: "refund", text: "Refund requests must be submitted within thirty days.", source: "refund.txt" },
+      ]);
+      const beforeResults = await original.search("how to connect to VPN", 3);
+      const beforeOrder = beforeResults.map((r) => r.id);
+
+      await original.save(dir);
+      const reloaded = new VectorIndex();
+      await reloaded.load(dir);
+      const afterResults = await reloaded.search("how to connect to VPN", 3);
+      const afterOrder = afterResults.map((r) => r.id);
+
+      expect(afterOrder).toEqual(beforeOrder);
+      expect(afterOrder.length).toBe(3);
+      const beforeScores = beforeResults.map((r) => r.score);
+      const afterScores = afterResults.map((r) => r.score);
+      expect(afterScores).toEqual(beforeScores);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

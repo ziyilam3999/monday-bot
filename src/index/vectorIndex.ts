@@ -56,7 +56,10 @@ export class VectorIndex {
         throw new TypeError("VectorIndex.add: each chunk must have text and source");
       }
       const id = c.id ?? autoId(c);
-      if (this.chunks.some((existing) => existing.id === id)) continue;
+      if (this.chunks.some((existing) => existing.id === id)) {
+        console.warn(`VectorIndex.add: skipping duplicate id "${id}" (source: ${c.source})`);
+        continue;
+      }
       const vec = await embed(c.text);
       this.chunks.push({ ...c, id });
       this.vectors.push(vec);

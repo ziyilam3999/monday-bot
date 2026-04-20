@@ -18,6 +18,10 @@ async function getExtractor() {
   return pipelinePromise;
 }
 
+export function _resetExtractorForTests(): void {
+  pipelinePromise = null;
+}
+
 export async function embed(text: string): Promise<number[]> {
   if (typeof text !== "string") {
     throw new TypeError("embed() requires a string input");
