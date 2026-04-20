@@ -5,6 +5,56 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/ziyilam3999/monday-bot/compare/v0.2.0...v0.3.0) (2026-04-20)
+
+Embeddings + vector index + persistence — US-03 shipped. Monday now turns text
+into 384-dim semantic vectors via a CPU-local sentence-transformer and answers
+"which of these chunks is most similar to this query" via brute-force cosine
+similarity. This is the retrieval foundation for US-04 (LLM answer generation).
+
+### Features
+
+- **embeddings (US-03)**: `embed(text) → Promise<number[]>` via
+  `@xenova/transformers` (`Xenova/all-MiniLM-L6-v2`, 384-dim)
+  ([#21](https://github.com/ziyilam3999/monday-bot/pull/21))
+  - CPU-only, no remote API, no API key
+  - Lazy-loads the ONNX pipeline on first call (~23MB download, cached to
+    `~/.cache/huggingface/`); same instance reused across calls
+  - Promise-cached constructor races handled — concurrent cold-start calls
+    do not double-load the model
+- **vector index (US-03)**: `VectorIndex` class —
+  `add(chunks[])` / `search(query, k)` / `save(dir)` / `load(dir)` /
+  `remove(id)`
+  - Holds `Chunk[]` + `number[][]` in memory; cosine brute-force retrieval
+    (O(n·d) — fine at PRD single-process scale)
+  - Persistence: single-file `index.json` at `save(dir)`. Model-id stamped
+    in the file so `load()` fails fast on model mismatch (belt-and-braces
+    for US-04)
+  - Auto-generates sha1 chunk IDs for chunks added without an explicit id
+    (US-02 Chunks don't carry IDs; AC-04 requires `remove(id)`)
+- **jest ESM workaround**: `@xenova/transformers` is ESM-only but monday-bot
+  is CJS + ts-jest. Added a deterministic hash-based stub at
+  `tests/__stubs__/xenova-transformers.js` wired via `jest.config.js`
+  `moduleNameMapper`. Tests exercise VectorIndex logic + ranking structure;
+  real model is exercised by the US-03 AC inline commands.
+- **jest suite**: 22 specs total (4 new for embed, 6 new for vectorIndex) —
+  all pass. 5/5 US-03 ACs PASS trusted via `forge_evaluate`.
+
+### Known follow-ups (non-blocking)
+
+PR #21 review found 0 bugs in iteration 1 and 5 enhancements, filed as issues:
+
+- [#22](https://github.com/ziyilam3999/monday-bot/issues/22) `VectorIndex.load`
+  should assert `chunks.length === vectors.length`
+- [#23](https://github.com/ziyilam3999/monday-bot/issues/23) duplicate-id
+  silent-skip hides hash collisions — add debug log / strict mode
+- [#24](https://github.com/ziyilam3999/monday-bot/issues/24) add vector
+  byte-equality or multi-chunk ranking assertion to save/load round-trip test
+- [#25](https://github.com/ziyilam3999/monday-bot/issues/25) add clarifying
+  comment to `tests/__stubs__/xenova-transformers.js`
+- [#26](https://github.com/ziyilam3999/monday-bot/issues/26) expose
+  `_resetExtractorForTests()` for US-11 model hot-swap
+
 ## [0.2.0](https://github.com/ziyilam3999/monday-bot/compare/v0.1.0...v0.2.0) (2026-04-20)
 
 Document ingestion pipeline — US-02 shipped. Monday can now read TXT, MD, PDF,
