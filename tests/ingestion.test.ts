@@ -43,15 +43,23 @@ describe("ingestFile", () => {
   });
 
   it("rejects unsupported file extensions", async () => {
-    await expect(ingestFile("test-fixtures/nope.xyz")).rejects.toBeInstanceOf(
-      UnsupportedFileTypeError
-    );
+    expect.assertions(2);
+    try {
+      await ingestFile("test-fixtures/nope.xyz");
+    } catch (err) {
+      expect(err).toBeInstanceOf(UnsupportedFileTypeError);
+      expect((err as Error).name).toBe("UnsupportedFileTypeError");
+    }
   });
 
   it("rejects .markdown alias (contract is .md only)", async () => {
-    await expect(ingestFile("test-fixtures/nope.markdown")).rejects.toBeInstanceOf(
-      UnsupportedFileTypeError
-    );
+    expect.assertions(2);
+    try {
+      await ingestFile("test-fixtures/nope.markdown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(UnsupportedFileTypeError);
+      expect((err as Error).name).toBe("UnsupportedFileTypeError");
+    }
   });
 
   it("does not treat # lines inside fenced code blocks as headings", async () => {
@@ -78,6 +86,65 @@ describe("ingestFile", () => {
       expect(headings).toEqual(["Real Heading"]);
       const hasShellComment = chunks.some((c) => c.text.includes("this is a shell comment"));
       expect(hasShellComment).toBe(true);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it("strips UTF-8 BOM from TXT input without leaking into chunk text", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-bom-test.txt");
+    fs.writeFileSync(tmpFile, "\uFEFFhello world\n\nsecond paragraph");
+    try {
+      const chunks = await ingestFile(tmpFile);
+      expect(chunks[0].text.startsWith("\uFEFF")).toBe(false);
+      expect(chunks[0].text).toBe("hello world");
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it("strips UTF-8 BOM from Markdown input before parsing headings", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-bom-test.md");
+    fs.writeFileSync(tmpFile, "\uFEFF# Real Heading\n\nbody");
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const headings = chunks.map((c) => c.heading).filter(Boolean);
+      expect(headings).toEqual(["Real Heading"]);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it("recognizes setext-style Markdown headings (=== for H1 and --- for H2)", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-setext-test.md");
+    const content = [
+      "My Big Title",
+      "============",
+      "",
+      "Intro paragraph.",
+      "",
+      "Subsection",
+      "----------",
+      "",
+      "Subsection body.",
+    ].join("\n");
+    fs.writeFileSync(tmpFile, content);
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const headings = chunks.map((c) => c.heading).filter(Boolean);
+      expect(headings).toContain("My Big Title");
+      expect(headings).toContain("Subsection");
+      expect(chunks.some((c) => c.text.includes("============"))).toBe(false);
+      expect(chunks.some((c) => c.text.includes("----------"))).toBe(false);
     } finally {
       fs.unlinkSync(tmpFile);
     }
