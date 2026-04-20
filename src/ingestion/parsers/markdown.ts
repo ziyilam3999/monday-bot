@@ -2,7 +2,8 @@ import * as fs from "fs/promises";
 import type { Chunk } from "../ingest";
 
 export async function parseMarkdown(filePath: string, source: string): Promise<Chunk[]> {
-  const raw = await fs.readFile(filePath, "utf8");
+  let raw = await fs.readFile(filePath, "utf8");
+  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
   const lines = raw.split(/\r?\n/);
 
   const chunks: Chunk[] = [];
@@ -23,7 +24,9 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
     buffer = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
     if (/^\s*(```|~~~)/.test(line)) {
       inCodeFence = !inCodeFence;
       buffer.push(line);
@@ -35,6 +38,24 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
       if (headingMatch) {
         flush();
         currentHeading = headingMatch[2];
+        continue;
+      }
+
+      // Setext heading: non-blank text line immediately followed by === or ---.
+      // Also requires the PREVIOUS line to be blank (or start of file) so YAML
+      // front matter, list-item trailers, and paragraph continuations don't
+      // promote their tail line to a heading.
+      const next = lines[i + 1];
+      const prevIsBlank = i === 0 || lines[i - 1].trim() === "";
+      if (
+        prevIsBlank &&
+        line.trim().length > 0 &&
+        next !== undefined &&
+        (/^=+\s*$/.test(next) || /^-+\s*$/.test(next))
+      ) {
+        flush();
+        currentHeading = line.trim();
+        i++;
         continue;
       }
     }
