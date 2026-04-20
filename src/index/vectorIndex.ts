@@ -101,8 +101,15 @@ export class VectorIndex {
         `VectorIndex.load: index model "${parsed.model}" does not match loaded model "${EMBEDDING_MODEL}"`,
       );
     }
-    this.chunks = parsed.chunks ?? [];
-    this.vectors = parsed.vectors ?? [];
+    const chunks = parsed.chunks ?? [];
+    const vectors = parsed.vectors ?? [];
+    if (chunks.length !== vectors.length) {
+      throw new Error(
+        `VectorIndex.load: corrupt index — chunks.length (${chunks.length}) !== vectors.length (${vectors.length})`,
+      );
+    }
+    this.chunks = chunks;
+    this.vectors = vectors;
   }
 
   size(): number {

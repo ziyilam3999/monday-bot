@@ -1,3 +1,8 @@
+// Test-only fake of @xenova/transformers — hash-based deterministic embedder.
+// Wired in via jest.config.js moduleNameMapper. The real ONNX model runs in
+// production and is exercised end-to-end by the US-03 AC inline node commands,
+// not by jest specs.
+
 const DIM = 384;
 
 function tokenize(text) {

@@ -104,4 +104,26 @@ describe("VectorIndex", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("rejects loading a corrupt index with chunks.length !== vectors.length", async () => {
+    const dir = path.join(os.tmpdir(), `monday-idx-corrupt-${Date.now()}`);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "index.json"),
+        JSON.stringify({
+          chunks: [
+            { id: "a", text: "one", source: "a.txt" },
+            { id: "b", text: "two", source: "b.txt" },
+          ],
+          vectors: [new Array(384).fill(0.1)],
+        }),
+        "utf-8",
+      );
+      const idx = new VectorIndex();
+      await expect(idx.load(dir)).rejects.toThrow(/corrupt index/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
