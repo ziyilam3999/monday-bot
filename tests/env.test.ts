@@ -39,4 +39,19 @@ describe("validateEnv", () => {
       expect(msg.toLowerCase()).toContain("missing");
     }
   });
+
+  it("throws MissingEnvVarError when a token is whitespace-only", () => {
+    expect(() =>
+      validateEnv({ SLACK_BOT_TOKEN: BOT_TOKEN_PLACEHOLDER, SLACK_APP_TOKEN: "   \t  " })
+    ).toThrow(MissingEnvVarError);
+  });
+
+  it("trims leading/trailing whitespace from returned token values", () => {
+    const env = validateEnv({
+      SLACK_BOT_TOKEN: `  ${BOT_TOKEN_PLACEHOLDER}  `,
+      SLACK_APP_TOKEN: `\t${APP_TOKEN_PLACEHOLDER}\n`,
+    });
+    expect(env.slackBotToken).toBe(BOT_TOKEN_PLACEHOLDER);
+    expect(env.slackAppToken).toBe(APP_TOKEN_PLACEHOLDER);
+  });
 });

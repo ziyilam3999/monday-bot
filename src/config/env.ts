@@ -17,12 +17,12 @@ export class MissingEnvVarError extends Error {
 }
 
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
-  const missing = REQUIRED_ENV_VARS.filter((key) => !env[key] || env[key]?.trim() === "");
+  const missing = REQUIRED_ENV_VARS.filter((key) => !env[key]?.trim());
   if (missing.length > 0) {
     throw new MissingEnvVarError(missing);
   }
   return {
-    slackBotToken: env.SLACK_BOT_TOKEN!,
-    slackAppToken: env.SLACK_APP_TOKEN!,
+    slackBotToken: env.SLACK_BOT_TOKEN!.trim(),
+    slackAppToken: env.SLACK_APP_TOKEN!.trim(),
   };
 }
