@@ -5,6 +5,77 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/ziyilam3999/monday-bot/compare/v0.1.0...v0.2.0) (2026-04-20)
+
+Document ingestion pipeline — US-02 shipped. Monday can now read TXT, MD, PDF,
+and DOCX files and turn them into structured chunks with source and heading
+metadata. This is the foundation layer for US-03 (embeddings) and US-04 (LLM
+retrieval).
+
+### Features
+
+- **ingestion (US-02)**: `ingestFile(path) → Promise<Chunk[]>` routes by
+  extension to dedicated parsers
+  ([#8](https://github.com/ziyilam3999/monday-bot/pull/8))
+  - **TXT**: paragraph-split on blank lines, one chunk per paragraph
+  - **Markdown**: heading-aware via `#`/`##`/`###` line scan; each section
+    becomes a chunk with `heading` + `section` metadata. Code fences (```
+    and `~~~`) are respected — heading-like lines inside fenced blocks are
+    NOT promoted
+  - **PDF**: `pdfjs-dist@3.11.174` (legacy CJS build) — one chunk per page,
+    `doc.destroy()` called in a `finally` block so worker resources always
+    release
+  - **DOCX**: `mammoth` raw-text extraction, paragraph-split
+  - `UnsupportedFileTypeError` thrown on unknown extensions (only `.txt`,
+    `.md`, `.pdf`, `.docx` are accepted — `.markdown` is deliberately
+    rejected to keep the contract tight)
+  - Empty/whitespace-only chunks filtered at the router level
+- **test fixtures**: 4 sample files (`sample.{txt,md,pdf,docx}`) plus a
+  generator script at `scripts/generate-test-fixtures.js` using `pdfkit` +
+  `docx` libraries so fixtures can be regenerated deterministically
+- **jest suite**: 12 specs total (6 new for ingestion) — all pass
+
+### Bug Fixes
+
+PR #8 review iteration 1 flagged 3 bugs, all fixed in iteration 2 before merge:
+
+- PDF parser no longer leaks `pdfjs` worker resources if page extraction
+  throws mid-loop
+- Markdown parser correctly ignores `#` lines inside fenced code blocks
+  (previously they were promoted to real headings and split the block)
+- `.markdown` extension alias removed — was accepted silently while the
+  error message claimed it wasn't supported
+
+### Known follow-ups (non-blocking)
+
+PR #8 review found 0 bugs in iteration 2 after fixes and 12 enhancements,
+filed as issues:
+
+- [#9](https://github.com/ziyilam3999/monday-bot/issues/9) strip BOM from
+  TXT/MD inputs
+- [#10](https://github.com/ziyilam3999/monday-bot/issues/10) surface mammoth
+  warnings from DOCX parser
+- [#11](https://github.com/ziyilam3999/monday-bot/issues/11) support
+  setext-style MD headings (`===` / `---`)
+- [#12](https://github.com/ziyilam3999/monday-bot/issues/12) replace
+  `require()` with ES import for pdfjs-dist
+- [#13](https://github.com/ziyilam3999/monday-bot/issues/13) pin pdfjs-dist
+  exact version or use `~3.11.0`
+- [#14](https://github.com/ziyilam3999/monday-bot/issues/14) path validation
+  for future Slack/Confluence ingestion
+- [#15](https://github.com/ziyilam3999/monday-bot/issues/15) inject parser
+  map for easier router unit tests
+- [#16](https://github.com/ziyilam3999/monday-bot/issues/16) tighten
+  UnsupportedFileTypeError test to also assert error name
+- [#17](https://github.com/ziyilam3999/monday-bot/issues/17) streaming parse
+  to avoid OOM on large PDFs (free-tier ARM target)
+- [#18](https://github.com/ziyilam3999/monday-bot/issues/18) update fixture
+  PDF body text — references `pdf-parse` not `pdfjs-dist`
+- [#19](https://github.com/ziyilam3999/monday-bot/issues/19) wrap pdfjs
+  `PasswordException` with friendly error message
+- [#20](https://github.com/ziyilam3999/monday-bot/issues/20) MD parser sets
+  `heading` and `section` to identical value — diverge or collapse
+
 ## [0.1.0](https://github.com/ziyilam3999/monday-bot/releases/tag/v0.1.0) (2026-04-20)
 
 First scaffolded release. Establishes the TypeScript project skeleton, jest test
