@@ -7,3 +7,4 @@ dist/
 .forge/
 .ai-workspace/
 .claude/
+tmp/

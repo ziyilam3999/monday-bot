@@ -1,0 +1,6 @@
+Monday is a team Slack knowledge assistant.
+
+It answers questions from internal documents with cited, fact-based summaries.
+The corpus includes local folders and Confluence pages.
+
+Every answer carries inline citations so claims are traceable.
