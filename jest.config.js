@@ -1,5 +1,7 @@
+const { createDefaultPreset } = require("ts-jest");
+
 module.exports = {
-  preset: "ts-jest",
+  ...createDefaultPreset(),
   testEnvironment: "node",
   testMatch: ["<rootDir>/tests/**/*.test.ts"],
   moduleFileExtensions: ["ts", "js"],
