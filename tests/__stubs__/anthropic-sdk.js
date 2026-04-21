@@ -11,6 +11,30 @@ class Anthropic {
     const self = this;
     this.messages = {
       async create(_req) {
+        if (!_req || typeof _req !== "object") {
+          throw new Error("Anthropic SDK stub: messages.create requires a request object");
+        }
+        if (typeof _req.model !== "string" || _req.model.length === 0) {
+          throw new Error("Anthropic SDK stub: _req.model must be a non-empty string");
+        }
+        if (typeof _req.max_tokens !== "number" || _req.max_tokens <= 0) {
+          throw new Error("Anthropic SDK stub: _req.max_tokens must be a positive number");
+        }
+        if (!Array.isArray(_req.messages) || _req.messages.length === 0) {
+          throw new Error("Anthropic SDK stub: _req.messages must be a non-empty array");
+        }
+        for (let i = 0; i < _req.messages.length; i++) {
+          const m = _req.messages[i];
+          if (!m || typeof m !== "object") {
+            throw new Error("Anthropic SDK stub: _req.messages[" + i + "] must be an object");
+          }
+          if (typeof m.role !== "string" || m.role.length === 0) {
+            throw new Error("Anthropic SDK stub: _req.messages[" + i + "].role must be a non-empty string");
+          }
+          if (m.content === undefined || m.content === null) {
+            throw new Error("Anthropic SDK stub: _req.messages[" + i + "].content is required");
+          }
+        }
         // Canonical response the tests can assert on. [1] keeps AC-01 happy;
         // the word count keeps AC-04 happy if a real call somehow hits the stub.
         const text =
