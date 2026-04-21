@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+
 let client: Anthropic | null = null;
 let clientExpiresAt: number | null = null;
 
@@ -20,7 +22,7 @@ function readOAuthToken(): { accessToken: string; expiresAt: number } | null {
       return null;
     }
     const remainingMs = oauth.expiresAt - Date.now();
-    if (remainingMs < 5 * 60 * 1000) return null;
+    if (remainingMs < EXPIRY_BUFFER_MS) return null;
     return { accessToken: oauth.accessToken, expiresAt: oauth.expiresAt };
   } catch {
     return null;
@@ -36,7 +38,7 @@ export function getClient(): Anthropic {
   if (
     client &&
     clientExpiresAt !== null &&
-    Date.now() >= clientExpiresAt - 5 * 60 * 1000
+    Date.now() >= clientExpiresAt - EXPIRY_BUFFER_MS
   ) {
     client = null;
     clientExpiresAt = null;
