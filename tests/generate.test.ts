@@ -1,9 +1,24 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+let currentHome = tmpdir();
+
+jest.mock("node:os", () => {
+  const actual = jest.requireActual("node:os") as typeof import("node:os");
+  return {
+    ...actual,
+    homedir: () => currentHome,
+  };
+});
+
 import { generateAnswer, Chunk } from "../src/llm/generate";
 
 describe("generateAnswer", () => {
   const originalEnv = process.env.ANTHROPIC_API_KEY;
 
   beforeAll(() => {
+    currentHome = mkdtempSync(join(tmpdir(), "monday-gen-"));
     process.env.ANTHROPIC_API_KEY = "test-stub-key";
   });
 
