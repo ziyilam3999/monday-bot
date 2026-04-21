@@ -5,6 +5,38 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/ziyilam3999/monday-bot/compare/v0.3.4...v0.4.0) (2026-04-21)
+
+US-04 — Monday can now answer team questions using an LLM, citing only
+the retrieval chunks it was given. Ships the Anthropic SDK wiring, the
+credential-resolution chain (OAuth-first, API-key fallback), and a
+stubbed jest harness so unit tests never make network calls.
+
+### Features
+
+- **llm**: `generateAnswer(question, chunks)` calls Claude Haiku 4.5
+  with a numbered-context prompt and returns `{ answer, citations }`.
+  Empty-chunks short-circuits to a deterministic "couldn't find"
+  response without invoking the SDK, so US-02/03 retrieval misses
+  never fabricate (closes US-04,
+  [#41](https://github.com/ziyilam3999/monday-bot/pull/41))
+- **llm**: OAuth-first `getClient()` reads `~/.claude/.credentials.json`
+  with a 5-minute expiry buffer, falls through to
+  `ANTHROPIC_API_KEY`, and throws a single error message naming both
+  paths when neither resolves. `resetClient()` exported for credential
+  rotation in long-running processes (US-08/US-13).
+
+### Bug Fixes
+
+- **ingestion**: replace `require()` with ES import for `pdfjs-dist`
+  so the TypeScript build picks up the legacy bundle cleanly
+  ([#38](https://github.com/ziyilam3999/monday-bot/pull/38))
+- **ingestion**: pin `pdfjs-dist` to exact `3.11.174` to stop
+  transitive upgrades from breaking the parser
+  ([#39](https://github.com/ziyilam3999/monday-bot/pull/39))
+- **tests**: drop dead `pdf-parse` reference in the PDF fixture body
+  ([#40](https://github.com/ziyilam3999/monday-bot/pull/40))
+
 ## [0.3.4](https://github.com/ziyilam3999/monday-bot/compare/v0.3.3...v0.3.4) (2026-04-20)
 
 US-03 polish — fold three non-blocking enhancements from the PR #21
