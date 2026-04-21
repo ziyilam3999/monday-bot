@@ -1,8 +1,6 @@
 import * as fs from "fs/promises";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.js";
 import type { Chunk } from "../ingest";
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfjs = require("pdfjs-dist/legacy/build/pdf.js");
 
 export async function parsePdf(filePath: string, source: string): Promise<Chunk[]> {
   const buffer = await fs.readFile(filePath);
