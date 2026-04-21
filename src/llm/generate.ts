@@ -1,6 +1,6 @@
 import { getClient } from "./anthropicClient";
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 1024;
 
 const SYSTEM_PROMPT =
