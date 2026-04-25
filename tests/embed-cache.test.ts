@@ -7,11 +7,11 @@
  * stay free of module mocks.
  */
 
-let pipelineInvocations = 0;
+let mockPipelineInvocations = 0;
 
 jest.mock("@xenova/transformers", () => ({
   pipeline: jest.fn(async () => {
-    pipelineInvocations += 1;
+    mockPipelineInvocations += 1;
     // Return a stub extractor that yields a deterministic 4-d vector.
     return async (_text: string, _opts?: unknown) => ({
       data: new Float32Array([0.1, 0.2, 0.3, 0.4]),
@@ -23,25 +23,25 @@ import { embed, _resetExtractorForTests } from "../src/embeddings/embed";
 
 describe("embed cache lifecycle", () => {
   beforeEach(() => {
-    pipelineInvocations = 0;
+    mockPipelineInvocations = 0;
     _resetExtractorForTests();
-    pipelineInvocations = 0;
+    mockPipelineInvocations = 0;
   });
 
   it("first call invokes pipeline once; second call hits cache", async () => {
-    expect(pipelineInvocations).toBe(0);
+    expect(mockPipelineInvocations).toBe(0);
     await embed("warm");
-    expect(pipelineInvocations).toBe(1);
+    expect(mockPipelineInvocations).toBe(1);
     await embed("cached");
-    expect(pipelineInvocations).toBe(1);
+    expect(mockPipelineInvocations).toBe(1);
   });
 
   it("_resetExtractorForTests() forces a fresh pipeline build on next call", async () => {
     await embed("warm");
-    expect(pipelineInvocations).toBe(1);
+    expect(mockPipelineInvocations).toBe(1);
     _resetExtractorForTests();
     await embed("after-reset");
-    expect(pipelineInvocations).toBe(2);
+    expect(mockPipelineInvocations).toBe(2);
   });
 
   it("_resetExtractorForTests() throws when NODE_ENV is not test", () => {
