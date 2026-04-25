@@ -80,6 +80,10 @@ export async function generateAnswer(
     .join("")
     .trim();
 
+  if (text.length === 0) {
+    return { answer: NO_CONTEXT_ANSWER, citations: [] };
+  }
+
   return {
     answer: text,
     citations: buildCitations(chunks),
