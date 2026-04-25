@@ -5,6 +5,18 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6](https://github.com/ziyilam3999/monday-bot/compare/v0.4.5...v0.4.6) (2026-04-25)
+
+### Miscellaneous
+
+- **chore(polish): ship-review rollup v0.4.6** (#61) — bundles four small ship-review enhancements:
+  - **#44** `fix(generate)`: empty model text (tool-use / refusal blocks only) now falls through to `NO_CONTEXT_ANSWER` with empty citations instead of an empty Slack message.
+  - **#45** `fix(anthropicClient)`: `readOAuthToken` distinguishes `SyntaxError` from `ENOENT`/`EACCES` — malformed JSON now logs at warn level so operators see the misconfiguration; missing/unreadable creds still silent fall-through.
+  - **#58** `test(embed-cache)`: rename `pipelineInvocations` → `mockPipelineInvocations` for `babel-plugin-jest-hoist` forward-compat.
+  - **#59** `fix(embed)`: rephrase `_resetExtractorForTests()` NODE_ENV gate error away from "Set NODE_ENV=test to call it" footgun. New message describes the constraint without suggesting a worse fix.
+
+3 follow-up enhancements filed: #62 (one-shot warn), #63 (deeper jest mock refactor), #64 (refusal-block observability).
+
 ## [0.4.5](https://github.com/ziyilam3999/monday-bot/compare/v0.4.4...v0.4.5) (2026-04-25)
 
 ### Bug Fixes
