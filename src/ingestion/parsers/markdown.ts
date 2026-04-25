@@ -7,7 +7,11 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
   const lines = raw.split(/\r?\n/);
 
   const chunks: Chunk[] = [];
+  // heading = nearest heading at any level (where the chunk lives).
+  // section = nearest H1 only (which top-level group the chunk is under).
+  // They diverge under sub-headings; equal under top-level.
   let currentHeading: string | undefined;
+  let currentSection: string | undefined;
   let buffer: string[] = [];
   let inCodeFence = false;
 
@@ -15,10 +19,8 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
     const text = buffer.join("\n").trim();
     if (text.length > 0) {
       const chunk: Chunk = { text, source };
-      if (currentHeading) {
-        chunk.heading = currentHeading;
-        chunk.section = currentHeading;
-      }
+      if (currentHeading) chunk.heading = currentHeading;
+      if (currentSection) chunk.section = currentSection;
       chunks.push(chunk);
     }
     buffer = [];
@@ -38,6 +40,7 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
       if (headingMatch) {
         flush();
         currentHeading = headingMatch[2];
+        if (headingMatch[1].length === 1) currentSection = headingMatch[2];
         continue;
       }
 
@@ -55,6 +58,8 @@ export async function parseMarkdown(filePath: string, source: string): Promise<C
       ) {
         flush();
         currentHeading = line.trim();
+        // === underline = setext H1; --- underline = setext H2.
+        if (/^=+\s*$/.test(next)) currentSection = currentHeading;
         i++;
         continue;
       }
