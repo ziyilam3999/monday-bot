@@ -21,7 +21,7 @@ async function getExtractor() {
 export function _resetExtractorForTests(): void {
   if (process.env.NODE_ENV !== "test") {
     throw new Error(
-      "_resetExtractorForTests() is a test-only seam. Set NODE_ENV=test to call it.",
+      "_resetExtractorForTests() must only be called from Jest tests; production code should not import it.",
     );
   }
   pipelinePromise = null;

@@ -48,7 +48,9 @@ describe("embed cache lifecycle", () => {
     const original = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     try {
-      expect(() => _resetExtractorForTests()).toThrow(/test-only seam/);
+      expect(() => _resetExtractorForTests()).toThrow(
+        /must only be called from Jest tests/,
+      );
     } finally {
       process.env.NODE_ENV = original;
     }
