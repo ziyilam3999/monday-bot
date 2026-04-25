@@ -7,6 +7,7 @@ const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 let client: Anthropic | null = null;
 let clientExpiresAt: number | null = null;
+let warnedOnceForMalformedCreds = false;
 
 function readOAuthToken(): { accessToken: string; expiresAt: number } | null {
   const credPath = join(homedir(), ".claude", ".credentials.json");
@@ -20,9 +21,12 @@ function readOAuthToken(): { accessToken: string; expiresAt: number } | null {
   try {
     creds = JSON.parse(raw);
   } catch (err) {
-    console.warn(
-      `[anthropicClient] Malformed JSON at ${credPath} — falling back to ANTHROPIC_API_KEY: ${(err as Error).message}`,
-    );
+    if (!warnedOnceForMalformedCreds) {
+      warnedOnceForMalformedCreds = true;
+      console.warn(
+        `[anthropicClient] Malformed JSON at ${credPath} — falling back to ANTHROPIC_API_KEY: ${(err as Error).message}`,
+      );
+    }
     return null;
   }
   const oauth = (creds as { claudeAiOauth?: unknown }).claudeAiOauth as
