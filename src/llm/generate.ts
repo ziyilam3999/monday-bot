@@ -81,6 +81,10 @@ export async function generateAnswer(
     .trim();
 
   if (text.length === 0) {
+    const blockTypes = response.content.map((block) => block.type);
+    console.warn(
+      `[generateAnswer] model returned non-text-only response: block_types=${JSON.stringify(blockTypes)} stop_reason=${response.stop_reason ?? "unknown"}`,
+    );
     return { answer: NO_CONTEXT_ANSWER, citations: [] };
   }
 
