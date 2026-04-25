@@ -5,6 +5,13 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3](https://github.com/ziyilam3999/monday-bot/compare/v0.4.2...v0.4.3) (2026-04-25)
+
+### Bug Fixes
+
+- **`main()` catches all errors with a friendly one-line message + `exit 1`** instead of re-throwing as a raw Node stack trace. Set `MONDAY_DEBUG=1` to print the stack — preserves debugging escape hatch. Closes #4. (#56)
+- **`tsconfig.test.json` covers `tests/`** plus a new `npm run typecheck` script that runs both src and test passes. Test files are now type-checked; the AC-01 `tsc --noEmit` against the default config remains green. Closes #7. (#56)
+
 ## [0.4.2](https://github.com/ziyilam3999/monday-bot/compare/v0.4.1...v0.4.2) (2026-04-25)
 
 ### Bug Fixes
