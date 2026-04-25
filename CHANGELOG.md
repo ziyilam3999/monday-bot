@@ -5,6 +5,18 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5](https://github.com/ziyilam3999/monday-bot/compare/v0.4.4...v0.4.5) (2026-04-25)
+
+### Bug Fixes
+
+- **`parseDocx` logs mammoth `result.messages` when `MONDAY_DEBUG=1`** so conversion warnings (ignored elements, etc.) surface during debugging instead of silent discard. Closes #10. (#60)
+- **`parseMarkdown` diverges `heading` and `section`**: `heading` tracks the nearest heading at any level (where the chunk lives), `section` tracks only the most recent H1 (which top-level group). Setext rule: `===` underline → H1 (updates section), `---` → H2 (heading only). Closes #20. (#60)
+
+### Closed without code change
+
+- **#14** (CORPUS_ROOT path validation) — deferred per its own forward-looking text; revisit when US-07/US-08 expose external-source ingestion.
+- **#15** (parser-map injection for router tests) — deferred; current 4-parser surface is fine with `jest.mock()`.
+
 ## [0.4.4](https://github.com/ziyilam3999/monday-bot/compare/v0.4.3...v0.4.4) (2026-04-25)
 
 ### Bug Fixes
