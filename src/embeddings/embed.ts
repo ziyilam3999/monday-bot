@@ -19,6 +19,11 @@ async function getExtractor() {
 }
 
 export function _resetExtractorForTests(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(
+      "_resetExtractorForTests() is a test-only seam. Set NODE_ENV=test to call it.",
+    );
+  }
   pipelinePromise = null;
 }
 
