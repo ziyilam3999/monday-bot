@@ -192,4 +192,40 @@ describe("ingestFile", () => {
       fs.unlinkSync(tmpFile);
     }
   });
+
+  it("Markdown heading and section diverge: section tracks H1 only, heading tracks any level", async () => {
+    const pathMod = require("path");
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = pathMod.join(os.tmpdir(), "monday-heading-section-divergence.md");
+    const content = [
+      "# Top Title",
+      "",
+      "intro paragraph",
+      "",
+      "## Sub Topic",
+      "",
+      "sub paragraph",
+      "",
+      "### Deeper",
+      "",
+      "deeper paragraph",
+    ].join("\n");
+    fs.writeFileSync(tmpFile, content);
+    try {
+      const chunks = await ingestFile(tmpFile);
+      const intro = chunks.find((c) => c.text.includes("intro paragraph"))!;
+      const sub = chunks.find((c) => c.text.includes("sub paragraph"))!;
+      const deep = chunks.find((c) => c.text.includes("deeper paragraph"))!;
+      expect(intro.heading).toBe("Top Title");
+      expect(intro.section).toBe("Top Title");
+      expect(sub.heading).toBe("Sub Topic");
+      expect(sub.section).toBe("Top Title");
+      expect(deep.heading).toBe("Deeper");
+      expect(deep.section).toBe("Top Title");
+      expect(sub.heading).not.toBe(sub.section);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
 });
