@@ -5,6 +5,13 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2](https://github.com/ziyilam3999/monday-bot/compare/v0.4.1...v0.4.2) (2026-04-25)
+
+### Bug Fixes
+
+- **pdfjs-extractor: narrow `doc` variable type** via `let doc!: Awaited<typeof loadingTask.promise>;` instead of `let doc;` (implicit `any`). Closes #53. (#55)
+- **pdfjs-extractor: add regression test for PasswordException discriminator.** Mocks pdfjs to throw `name === "PasswordException"` and asserts `parsePdf` rethrows the friendly `<filePath> is password-protected` form. Locks the contract against silent renames in pdfjs upgrades. Closes #54. (#55)
+
 ## [0.4.1](https://github.com/ziyilam3999/monday-bot/compare/v0.4.0...v0.4.1) (2026-04-25)
 
 ### Bug Fixes

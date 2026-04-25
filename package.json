@@ -1,6 +1,6 @@
 {
   "name": "monday-bot",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Team Slack knowledge assistant — answers from internal documents with cited, fact-based summaries.",
   "private": true,
   "type": "commonjs",
