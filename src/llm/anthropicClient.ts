@@ -9,24 +9,34 @@ let client: Anthropic | null = null;
 let clientExpiresAt: number | null = null;
 
 function readOAuthToken(): { accessToken: string; expiresAt: number } | null {
+  const credPath = join(homedir(), ".claude", ".credentials.json");
+  let raw: string;
   try {
-    const credPath = join(homedir(), ".claude", ".credentials.json");
-    const creds = JSON.parse(readFileSync(credPath, "utf-8"));
-    const oauth = creds.claudeAiOauth as
-      | { accessToken?: unknown; expiresAt?: unknown }
-      | undefined;
-    if (
-      typeof oauth?.accessToken !== "string" ||
-      typeof oauth?.expiresAt !== "number"
-    ) {
-      return null;
-    }
-    const remainingMs = oauth.expiresAt - Date.now();
-    if (remainingMs < EXPIRY_BUFFER_MS) return null;
-    return { accessToken: oauth.accessToken, expiresAt: oauth.expiresAt };
+    raw = readFileSync(credPath, "utf-8");
   } catch {
     return null;
   }
+  let creds: unknown;
+  try {
+    creds = JSON.parse(raw);
+  } catch (err) {
+    console.warn(
+      `[anthropicClient] Malformed JSON at ${credPath} — falling back to ANTHROPIC_API_KEY: ${(err as Error).message}`,
+    );
+    return null;
+  }
+  const oauth = (creds as { claudeAiOauth?: unknown }).claudeAiOauth as
+    | { accessToken?: unknown; expiresAt?: unknown }
+    | undefined;
+  if (
+    typeof oauth?.accessToken !== "string" ||
+    typeof oauth?.expiresAt !== "number"
+  ) {
+    return null;
+  }
+  const remainingMs = oauth.expiresAt - Date.now();
+  if (remainingMs < EXPIRY_BUFFER_MS) return null;
+  return { accessToken: oauth.accessToken, expiresAt: oauth.expiresAt };
 }
 
 export function resetClient(): void {
