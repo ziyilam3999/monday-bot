@@ -5,6 +5,17 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/ziyilam3999/monday-bot/compare/v0.4.3...v0.4.4) (2026-04-25)
+
+### Bug Fixes
+
+- **`_resetExtractorForTests()` gated by `NODE_ENV === "test"`.** Production callers that import the test seam by mistake now get a clear error instead of silently wiping the embedding cache. Closes #35. (#57)
+- **New `tests/embed-cache.test.ts` proves cache lifecycle is real** by mocking `@xenova/transformers`, counting pipeline-builder invocations, and asserting cache hit on the second call + cache miss after reset. Plus a third test pins the NODE_ENV gate from the test side. Net +3 jest tests (43 → 46). Closes #36. (#57)
+
+### Closed without code change
+
+- **#37 (per-chunk duplicate-id warn → per-run summary counter)** closed as deferred. Issue text explicitly marks it as forward-looking — fine at PRD scale, will revisit at US-04/US-06 corpus expansion when duplicates become expected.
+
 ## [0.4.3](https://github.com/ziyilam3999/monday-bot/compare/v0.4.2...v0.4.3) (2026-04-25)
 
 ### Bug Fixes
