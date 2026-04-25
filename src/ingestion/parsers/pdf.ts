@@ -7,7 +7,7 @@ export async function parsePdf(filePath: string, source: string): Promise<Chunk[
   const data = new Uint8Array(buffer);
 
   const loadingTask = pdfjs.getDocument({ data, useWorkerFetch: false, isEvalSupported: false });
-  let doc;
+  let doc!: Awaited<typeof loadingTask.promise>;
   try {
     doc = await loadingTask.promise;
   } catch (err: unknown) {
