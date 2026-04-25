@@ -7,7 +7,15 @@ export async function parsePdf(filePath: string, source: string): Promise<Chunk[
   const data = new Uint8Array(buffer);
 
   const loadingTask = pdfjs.getDocument({ data, useWorkerFetch: false, isEvalSupported: false });
-  const doc = await loadingTask.promise;
+  let doc;
+  try {
+    doc = await loadingTask.promise;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "PasswordException") {
+      throw new Error(`${filePath} is password-protected`);
+    }
+    throw err;
+  }
 
   try {
     const chunks: Chunk[] = [];
