@@ -11,7 +11,12 @@ function main(): void {
       console.error(`\nMonday cannot start: ${err.message}\n`);
       process.exit(1);
     }
-    throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`\nMonday cannot start: ${message}\n`);
+    if (process.env.MONDAY_DEBUG === "1" && err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
+    process.exit(1);
   }
 }
 
