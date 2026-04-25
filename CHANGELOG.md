@@ -5,6 +5,16 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1](https://github.com/ziyilam3999/monday-bot/compare/v0.4.0...v0.4.1) (2026-04-25)
+
+### Bug Fixes
+
+- **pdfjs PasswordException wrapped with friendly error.** `parsePdf` now detects `err.name === "PasswordException"` from pdfjs and rethrows as `Error('<filePath> is password-protected')` so encrypted PDFs surface a usable message instead of pdfjs's internal stack. Closes #19. (#52)
+- **`ANTHROPIC_MODEL` env override accepted.** Makes the LLM model configurable per-run without code changes. Closes #18. (#51)
+- **`EXPIRY_BUFFER_MS` extracted as named constant.** Clarifies intent at the API-key fallback site. Closes #17. (#50)
+- **`node:os` mock added for deterministic API-key fallback test.** Stops the test reading the real homedir. (#49)
+- **SDK stub request shape validated.** Catches drift in test harness assertions. (#48)
+
 ## [0.4.0](https://github.com/ziyilam3999/monday-bot/compare/v0.3.4...v0.4.0) (2026-04-21)
 
 US-04 — Monday can now answer team questions using an LLM, citing only
