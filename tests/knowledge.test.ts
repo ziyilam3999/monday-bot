@@ -7,12 +7,21 @@ import { Chunk as LlmChunk, Citation } from "../src/llm/generate";
 
 jest.setTimeout(60_000);
 
+const tmpDirs: string[] = [];
+
 function mkTempFile(name: string, body: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monday-svc-test-"));
+  tmpDirs.push(dir);
   const file = path.join(dir, name);
   fs.writeFileSync(file, body, "utf-8");
   return file;
 }
+
+afterAll(() => {
+  for (const dir of tmpDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("KnowledgeService", () => {
   describe("query without indexed documents", () => {
