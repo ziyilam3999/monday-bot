@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/ziyilam3999/monday-bot/compare/v0.4.7...v0.5.0) (2026-04-26)
+
+### Features
+
+* **US-05:** knowledge service facade — orchestrates ingestion + vector search + LLM generation behind a platform-agnostic `KnowledgeService` (`query` / `indexFile` / `getStatus`). Slack-free in/out so a future non-Slack adapter is a thin shim. ([#72](https://github.com/ziyilam3999/monday-bot/pull/72))
+
 ## [0.4.7](https://github.com/ziyilam3999/monday-bot/compare/v0.4.6...v0.4.7) (2026-04-26)
 
 ### Bug Fixes
