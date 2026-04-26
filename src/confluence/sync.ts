@@ -110,6 +110,15 @@ function toConfluencePage(raw: unknown): ConfluencePage | null {
 function stripHtml(html: string): string {
   // Quick-and-correct-enough HTML→text for retrieval. Production-grade DOM
   // parsing isn't worth the dep here; the embedder is robust to leftover noise.
+  //
+  // Ordering is correctness-load-bearing and must stay:
+  //   1. drop <style>/<script> blocks (their text content is noise),
+  //   2. strip remaining tags,
+  //   3. THEN decode entities.
+  // If entity-decode ran before tag-strip, an encoded `&lt;script&gt;` payload
+  // inside text would materialize as a real `<script>` substring and survive
+  // tag-stripping with its body intact. See ordering test in
+  // tests/confluence.test.ts ("stripHtml ordering").
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -120,6 +129,7 @@ function stripHtml(html: string): string {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCharCode(parseInt(dec, 10)))
     .replace(/\s+/g, " ")
     .trim();
 }

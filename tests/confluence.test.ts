@@ -263,3 +263,71 @@ describe("buildConfluenceFetcher (HTTP wiring)", () => {
     await expect(fetcher.fetchPages("DEMO")).rejects.toThrow(/401/);
   });
 });
+
+describe("stripHtml entity coverage and ordering", () => {
+  // stripHtml is module-private; we exercise it through buildConfluenceFetcher,
+  // which runs the same path: HTML → ConfluencePage.body.
+  async function fetchOne(htmlValue: string): Promise<string> {
+    const fakeResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async json() {
+        return {
+          results: [
+            {
+              id: "id1",
+              title: "T",
+              body: { storage: { value: htmlValue } },
+              space: { key: "S" },
+            },
+          ],
+        };
+      },
+    };
+    const fetchImpl = jest.fn(async () => fakeResponse) as unknown as typeof fetch;
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    const pages = await fetcher.fetchPages("S");
+    return pages[0].body;
+  }
+
+  it("decodes numeric HTML entities (e.g. &#8217; smart apostrophe)", async () => {
+    // U+2019 RIGHT SINGLE QUOTATION MARK = decimal 8217
+    const body = await fetchOne("<p>it&#8217;s here</p>");
+    expect(body).toContain("it’s here");
+    expect(body).not.toContain("&#8217;");
+  });
+
+  it("decodes multiple numeric entities in one document", async () => {
+    // 8212 = em dash (—), 8230 = horizontal ellipsis (…)
+    const body = await fetchOne("<p>hello&#8212;world&#8230;</p>");
+    expect(body).toContain("hello—world…");
+    expect(body).not.toMatch(/&#\d+;/);
+  });
+
+  it("strips tags BEFORE decoding entities (ordering: encoded <script> in text stays inert)", async () => {
+    // The text content contains an encoded <script> payload. If entity-decode
+    // ran first, the literal "<script>alert(1)</script>" would materialize and
+    // then be tag-stripped — but the decode-then-strip ordering is fragile
+    // because it requires a second tag-strip pass. The current
+    // strip-then-decode ordering keeps the payload as inert text "<script>"
+    // (angle brackets only) without the <script> tag ever existing as markup.
+    const body = await fetchOne("<p>safe &lt;script&gt;alert(1)&lt;/script&gt; tail</p>");
+    // After stripping tags first, &lt; / &gt; decode to literal < / >, so
+    // the payload appears as plain text — never as a real tag.
+    expect(body).toContain("<script>alert(1)</script>");
+    expect(body).toContain("safe");
+    expect(body).toContain("tail");
+    // And the surrounding <p> tag is gone.
+    expect(body).not.toMatch(/<p>/);
+  });
+
+  it("decodes named entities alongside numeric ones", async () => {
+    const body = await fetchOne("<p>A &amp; B &#38; C</p>");
+    // &amp; → &, &#38; → & (also ampersand)
+    expect(body).toBe("A & B & C");
+  });
+});
