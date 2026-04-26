@@ -1,5 +1,5 @@
-export {
-  KnowledgeService,
+export { KnowledgeService } from "./service";
+export type {
   KnowledgeServiceOptions,
   QueryResult,
   ServiceStatus,
