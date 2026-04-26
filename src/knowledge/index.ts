@@ -5,4 +5,5 @@ export {
   ServiceStatus,
   AnswerGenerator,
   FileIngestor,
+  ConfluencePageInput,
 } from "./service";

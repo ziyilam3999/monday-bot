@@ -15,6 +15,18 @@ export interface QueryResult {
   citations: Citation[];
 }
 
+/**
+ * Shape passed to `KnowledgeService.indexConfluencePage`. Only `id` and `body`
+ * are strictly required; `source` defaults to `confluence:<id>` if omitted.
+ */
+export interface ConfluencePageInput {
+  id: string;
+  title?: string;
+  body: string;
+  source?: string;
+  spaceKey?: string;
+}
+
 export interface ServiceStatus {
   documentCount: number;
   watcherAlive: boolean;
@@ -112,6 +124,51 @@ export class KnowledgeService {
     if (chunks.length === 0) return;
     await this.index.add(chunks);
     for (const c of chunks) this.indexedSources.add(c.source);
+  }
+
+  /**
+   * Index a Confluence page. The page's `source` field is treated as the canonical
+   * identifier (e.g. `"confluence:page-001"`); any prior chunks with the same
+   * `source` are removed first so a re-sync replaces (rather than duplicates) the
+   * previous version. Title becomes `heading`; spaceKey becomes `section`.
+   */
+  async indexConfluencePage(page: ConfluencePageInput): Promise<void> {
+    if (!page || typeof page !== "object") {
+      throw new TypeError("KnowledgeService.indexConfluencePage: page must be an object");
+    }
+    if (typeof page.id !== "string" || page.id.length === 0) {
+      throw new TypeError("KnowledgeService.indexConfluencePage: page.id must be a non-empty string");
+    }
+    if (typeof page.body !== "string") {
+      throw new TypeError("KnowledgeService.indexConfluencePage: page.body must be a string");
+    }
+    const source =
+      typeof page.source === "string" && page.source.length > 0
+        ? page.source
+        : `confluence:${page.id}`;
+
+    // Replace-on-resync: drop any prior version under the same source first so
+    // we don't accumulate stale chunks (US-06's removeBySource is the same path
+    // the file watcher uses on change events).
+    await this.index.removeBySource(source);
+
+    const text = page.body.trim();
+    if (text.length === 0) {
+      this.indexedSources.delete(source);
+      return;
+    }
+
+    const chunk: IngestChunk = { text, source };
+    if (typeof page.title === "string" && page.title.length > 0) chunk.heading = page.title;
+    if (typeof page.spaceKey === "string" && page.spaceKey.length > 0) chunk.section = page.spaceKey;
+
+    await this.index.add([chunk]);
+    this.indexedSources.add(source);
+  }
+
+  /** Return the number of chunks currently indexed under `source`. */
+  getChunkCountForSource(source: string): number {
+    return this.index.getChunkCountForSource(source);
   }
 
   /**

@@ -1,0 +1,19 @@
+# Monday-bot runtime configuration.
+#
+# This file holds non-secret operational tuning. Secrets (API tokens, OAuth
+# creds) live in `.env` and are loaded by `src/config/env.ts`.
+#
+# US-07 introduced the `confluence` section. The sync module reads `schedule`
+# (a cron expression in standard 5-field form) to decide how often to refresh
+# pages. Set to `"0 */6 * * *"` (every 6 hours) by default; tighten for
+# fast-moving spaces, loosen for static reference docs.
+
+confluence:
+  # Cron expression — minute hour day month weekday. Defaults to every 6 hours.
+  schedule: "0 */6 * * *"
+  # Confluence space keys to sync. Empty list disables scheduled sync; on-demand
+  # syncSpace(...) calls still work.
+  spaces: []
+  # Cap on pages fetched per sync run; protects against runaway fan-out on huge
+  # spaces. The REST API call uses ?limit=<this> per page.
+  pageLimit: 100
