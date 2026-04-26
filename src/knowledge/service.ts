@@ -92,6 +92,7 @@ export class KnowledgeService {
   private readonly watcherFactory: WatcherFactory;
   private readonly watcherOptions: FolderWatcherOptions;
   private readonly watchers: Array<{ start(): void; close(): void; isAlive(): boolean }> = [];
+  private readonly watchedDirs = new Set<string>();
 
   constructor(opts: KnowledgeServiceOptions = {}) {
     this.vectorIndex = opts.index ?? new VectorIndex();
@@ -197,6 +198,9 @@ export class KnowledgeService {
     if (typeof dir !== "string" || dir.length === 0) {
       throw new TypeError("KnowledgeService.watchFolder: dir must be a non-empty string");
     }
+    const path = require("node:path") as typeof import("node:path");
+    const resolved = path.resolve(dir);
+    if (this.watchedDirs.has(resolved)) return;
     const watcher = this.watcherFactory(
       dir,
       {
@@ -230,6 +234,7 @@ export class KnowledgeService {
     );
     watcher.start();
     this.watchers.push(watcher);
+    this.watchedDirs.add(resolved);
   }
 
   /** Stop all watchers. Useful in tests and on shutdown. */
@@ -242,6 +247,7 @@ export class KnowledgeService {
       }
     }
     this.watchers.length = 0;
+    this.watchedDirs.clear();
   }
 
   getStatus(): ServiceStatus {
