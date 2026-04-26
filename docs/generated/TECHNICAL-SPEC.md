@@ -112,23 +112,29 @@ stories:
 ### api-contracts
 
 - `KnowledgeService`: new public class exported from `src/knowledge/index.ts`
-- `KnowledgeService.search(query: string): Promise<KnowledgeResult[]>`: searches indexed knowledge base
-- `KnowledgeService.index(doc: KnowledgeDocument): Promise<void>`: adds a document to the knowledge store
-- `KnowledgeService.delete(id: string): Promise<void>`: removes a document by id from the knowledge store
+- `KnowledgeService.query(question: string): Promise<QueryResult>`: orchestrates vector search + LLM answer generation against the indexed corpus
+- `KnowledgeService.indexFile(absolutePath: string): Promise<void>`: ingests a single file from disk into the in-memory vector index
+- `KnowledgeService.getStatus(): ServiceStatus`: returns synchronous service health snapshot
 
 ### data-models
 
-- `KnowledgeDocument`: persisted shape with at minimum `id: string`, `content: string`, and metadata fields
-- `KnowledgeResult`: wire-format response shape returned by `search`, wrapping `KnowledgeDocument` with a relevance score
+- `QueryResult`: `{ answer: string; citations: Citation[] }` — `Citation` shape is reused from `src/llm/generate.ts` (US-04)
+- `ServiceStatus`: `{ documentCount: number; watcherAlive: boolean; uptimeSeconds: number }`
+- `KnowledgeServiceOptions`: optional DI surface — `{ index?, ingest?, generator?, topK?, now? }` — used by tests to inject stubs
 
 ### invariants
 
-- `KnowledgeService.search` MUST return results sorted by descending relevance score
-- `KnowledgeService.index` MUST be idempotent on `id` (re-indexing same id overwrites, no duplicates)
-- `KnowledgeService.delete` MUST NOT throw if the given `id` does not exist
-- `src/knowledge/index.ts` MUST re-export all public surfaces of `src/knowledge/service.ts`
+- `KnowledgeService.query` MUST short-circuit to a fixed no-documents answer with `citations: []` when the index is empty (no embedding, no generator call)
+- `KnowledgeService.query` MUST throw `TypeError` when `question` is not a string
+- `KnowledgeService.indexFile` MUST throw `TypeError` when `absolutePath` is not a non-empty string
+- `KnowledgeService.indexFile` MUST be a no-op when the ingestor returns zero chunks (no index mutation)
+- `KnowledgeService.getStatus().documentCount` counts unique source files, NOT individual chunks
+- `KnowledgeService.getStatus().uptimeSeconds` is monotonic non-negative seconds since constructor, derived from the injected `now()` clock
+- `KnowledgeService.getStatus().watcherAlive` is `false` in this slice — wired by US-06 (file watcher)
+- The facade MUST stay platform-agnostic: no Slack-specific types appear in its in/out shapes
+- `src/knowledge/index.ts` MUST re-export the public class and types
 
 ### test-surface
 
-- `tests/knowledge.test.ts`: new file, 123 lines covering `KnowledgeService` index / search / delete behaviour
-- Test file matched by Jest pattern `--testPathPattern=knowledge`; MUST remain passing (AC-04 ratchet)
+- `tests/knowledge.test.ts`: covers `query` / `indexFile` / `getStatus` behaviour across empty-index, end-to-end index→query, source-file dedupe, type guards, and clock-driven uptime
+- Matched by Jest pattern `--testPathPattern=knowledge`; MUST remain passing (AC-04 ratchet)
