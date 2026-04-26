@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/ziyilam3999/monday-bot/compare/v0.6.0...v0.7.0) (2026-04-26)
+
+### Features
+
+* **US-07:** Confluence sync — fetch and index pages via REST API (#93)
+
 ## [0.6.0](https://github.com/ziyilam3999/monday-bot/compare/v0.5.0...v0.6.0) (2026-04-26)
 
 ### Features
