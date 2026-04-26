@@ -1,6 +1,6 @@
 ---
 schemaVersion: "1.0.0"
-lastUpdated: "2026-04-25T16:14:26.405Z"
+lastUpdated: "2026-04-26T05:14:39.001Z"
 stories:
   - id: "US-01"
     lastUpdated: "2026-04-25T16:06:52.426Z"
@@ -14,6 +14,9 @@ stories:
   - id: "US-04"
     lastUpdated: "2026-04-25T16:14:26.405Z"
     lastGitSha: "484cee16abbc983923c66324f60701179a9d451b"
+  - id: "US-05"
+    lastUpdated: "2026-04-26T05:14:39.001Z"
+    lastGitSha: "9fecce531c1a7445a071190299fdafa15f98e5b3"
 ---
 
 ## story: US-01
@@ -37,6 +40,7 @@ stories:
 
 
 
+
 ## story: US-02
 
 ### api-contracts
@@ -55,6 +59,7 @@ stories:
 ### test-surface
 
 - Existing ingestion test suite (`jest --testPathPattern=ingestion`) used as regression gate for `anthropicClient` changes
+
 
 
 
@@ -82,6 +87,7 @@ stories:
 - `tests/vectorIndex.test.ts`: covers index reload and deletion correctness
 
 
+
 ## story: US-04
 
 ### api-contracts
@@ -99,3 +105,36 @@ stories:
 ### test-surface
 
 (none)
+
+
+## story: US-05
+
+### api-contracts
+
+- `KnowledgeService`: new public class exported from `src/knowledge/index.ts`
+- `KnowledgeService.query(question: string): Promise<QueryResult>`: orchestrates vector search + LLM answer generation against the indexed corpus
+- `KnowledgeService.indexFile(absolutePath: string): Promise<void>`: ingests a single file from disk into the in-memory vector index
+- `KnowledgeService.getStatus(): ServiceStatus`: returns synchronous service health snapshot
+
+### data-models
+
+- `QueryResult`: `{ answer: string; citations: Citation[] }` — `Citation` shape is reused from `src/llm/generate.ts` (US-04)
+- `ServiceStatus`: `{ documentCount: number; watcherAlive: boolean; uptimeSeconds: number }`
+- `KnowledgeServiceOptions`: optional DI surface — `{ index?, ingest?, generator?, topK?, now? }` — used by tests to inject stubs
+
+### invariants
+
+- `KnowledgeService.query` MUST short-circuit to a fixed no-documents answer with `citations: []` when the index is empty (no embedding, no generator call)
+- `KnowledgeService.query` MUST throw `TypeError` when `question` is not a string
+- `KnowledgeService.indexFile` MUST throw `TypeError` when `absolutePath` is not a non-empty string
+- `KnowledgeService.indexFile` MUST be a no-op when the ingestor returns zero chunks (no index mutation)
+- `KnowledgeService.getStatus().documentCount` counts unique source files, NOT individual chunks
+- `KnowledgeService.getStatus().uptimeSeconds` is monotonic non-negative seconds since constructor, derived from the injected `now()` clock
+- `KnowledgeService.getStatus().watcherAlive` is `false` in this slice — wired by US-06 (file watcher)
+- The facade MUST stay platform-agnostic: no Slack-specific types appear in its in/out shapes
+- `src/knowledge/index.ts` MUST re-export the public class and types
+
+### test-surface
+
+- `tests/knowledge.test.ts`: covers `query` / `indexFile` / `getStatus` behaviour across empty-index, end-to-end index→query, source-file dedupe, type guards, and clock-driven uptime
+- Matched by Jest pattern `--testPathPattern=knowledge`; MUST remain passing (AC-04 ratchet)
