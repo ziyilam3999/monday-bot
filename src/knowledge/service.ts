@@ -1,6 +1,10 @@
 import { ingestFile, Chunk as IngestChunk } from "../ingestion/ingest";
 import { VectorIndex, SearchResult } from "../index/vectorIndex";
 import { generateAnswer, Chunk as LlmChunk, Citation } from "../llm/generate";
+import {
+  FolderWatcher,
+  FolderWatcherOptions,
+} from "../watcher/folderWatcher";
 
 const DEFAULT_TOP_K = 5;
 const NO_DOCUMENTS_ANSWER =
@@ -25,12 +29,29 @@ export interface FileIngestor {
   (absolutePath: string): Promise<IngestChunk[]>;
 }
 
+export interface WatcherFactory {
+  (
+    dir: string,
+    callbacks: {
+      onAdd: (p: string) => Promise<void>;
+      onChange: (p: string) => Promise<void>;
+      onUnlink: (p: string) => Promise<void>;
+      onError?: (e: Error) => void;
+    },
+    opts?: FolderWatcherOptions,
+  ): { start(): void; close(): void; isAlive(): boolean };
+}
+
 export interface KnowledgeServiceOptions {
   index?: VectorIndex;
   ingest?: FileIngestor;
   generator?: AnswerGenerator;
   topK?: number;
   now?: () => number;
+  /** Inject a watcher factory for tests. Defaults to `FolderWatcher`. */
+  watcherFactory?: WatcherFactory;
+  /** Forwarded to the watcher (e.g. debounceMs). Defaults `{}`. */
+  watcherOptions?: FolderWatcherOptions;
 }
 
 function toLlmChunk(result: SearchResult): LlmChunk {
@@ -45,6 +66,9 @@ function toLlmChunk(result: SearchResult): LlmChunk {
   return out;
 }
 
+const defaultWatcherFactory: WatcherFactory = (dir, callbacks, opts) =>
+  new FolderWatcher(dir, callbacks, opts);
+
 export class KnowledgeService {
   private readonly index: VectorIndex;
   private readonly ingest: FileIngestor;
@@ -53,6 +77,9 @@ export class KnowledgeService {
   private readonly now: () => number;
   private readonly startedAt: number;
   private readonly indexedSources = new Set<string>();
+  private readonly watcherFactory: WatcherFactory;
+  private readonly watcherOptions: FolderWatcherOptions;
+  private readonly watchers: Array<{ start(): void; close(): void; isAlive(): boolean }> = [];
 
   constructor(opts: KnowledgeServiceOptions = {}) {
     this.index = opts.index ?? new VectorIndex();
@@ -61,6 +88,8 @@ export class KnowledgeService {
     this.topK = opts.topK ?? DEFAULT_TOP_K;
     this.now = opts.now ?? Date.now;
     this.startedAt = this.now();
+    this.watcherFactory = opts.watcherFactory ?? defaultWatcherFactory;
+    this.watcherOptions = opts.watcherOptions ?? {};
   }
 
   async query(question: string): Promise<QueryResult> {
@@ -85,10 +114,83 @@ export class KnowledgeService {
     for (const c of chunks) this.indexedSources.add(c.source);
   }
 
+  /**
+   * Remove a file's chunks from the in-memory index. The path is resolved against
+   * whatever the ingest pipeline used as `chunk.source` (absolute path via
+   * `path.resolve`). No-op if the source isn't currently indexed.
+   */
+  async unindexFile(absolutePath: string): Promise<void> {
+    if (typeof absolutePath !== "string" || absolutePath.length === 0) {
+      throw new TypeError("KnowledgeService.unindexFile: absolutePath must be a non-empty string");
+    }
+    // chunk.source is set by the ingestion layer to path.resolve(filePath).
+    // Resolve here too so callers passing a non-resolved path still hit.
+    const path = require("node:path") as typeof import("node:path");
+    const resolved = path.resolve(absolutePath);
+    await this.index.removeBySource(resolved);
+    this.indexedSources.delete(resolved);
+  }
+
+  /**
+   * Start watching `dir` for new/changed/deleted files and keep the in-memory
+   * index in sync. Returns immediately; events are processed asynchronously.
+   * Safe to call multiple times with different directories.
+   */
+  watchFolder(dir: string): void {
+    if (typeof dir !== "string" || dir.length === 0) {
+      throw new TypeError("KnowledgeService.watchFolder: dir must be a non-empty string");
+    }
+    const watcher = this.watcherFactory(
+      dir,
+      {
+        onAdd: async (p) => {
+          try {
+            await this.indexFile(p);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error(`KnowledgeService watcher onAdd failed for ${p}:`, err);
+          }
+        },
+        onChange: async (p) => {
+          try {
+            await this.unindexFile(p);
+            await this.indexFile(p);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error(`KnowledgeService watcher onChange failed for ${p}:`, err);
+          }
+        },
+        onUnlink: async (p) => {
+          try {
+            await this.unindexFile(p);
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error(`KnowledgeService watcher onUnlink failed for ${p}:`, err);
+          }
+        },
+      },
+      this.watcherOptions,
+    );
+    watcher.start();
+    this.watchers.push(watcher);
+  }
+
+  /** Stop all watchers. Useful in tests and on shutdown. */
+  stopWatching(): void {
+    for (const w of this.watchers) {
+      try {
+        w.close();
+      } catch {
+        // best-effort
+      }
+    }
+    this.watchers.length = 0;
+  }
+
   getStatus(): ServiceStatus {
     return {
       documentCount: this.indexedSources.size,
-      watcherAlive: false,
+      watcherAlive: this.watchers.some((w) => w.isAlive()),
       uptimeSeconds: Math.max(0, Math.floor((this.now() - this.startedAt) / 1000)),
     };
   }

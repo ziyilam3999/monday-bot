@@ -1,6 +1,6 @@
 ---
 schemaVersion: "1.0.0"
-lastUpdated: "2026-04-26T05:14:39.001Z"
+lastUpdated: "2026-04-26T10:54:08.210Z"
 stories:
   - id: "US-01"
     lastUpdated: "2026-04-25T16:06:52.426Z"
@@ -17,6 +17,9 @@ stories:
   - id: "US-05"
     lastUpdated: "2026-04-26T05:14:39.001Z"
     lastGitSha: "9fecce531c1a7445a071190299fdafa15f98e5b3"
+  - id: "US-06"
+    lastUpdated: "2026-04-26T10:54:08.210Z"
+    lastGitSha: "6fa4f9301df97dd0372bf915c6c64fb157c64456"
 ---
 
 ## story: US-01
@@ -41,6 +44,8 @@ stories:
 
 
 
+
+
 ## story: US-02
 
 ### api-contracts
@@ -59,6 +64,8 @@ stories:
 ### test-surface
 
 - Existing ingestion test suite (`jest --testPathPattern=ingestion`) used as regression gate for `anthropicClient` changes
+
+
 
 
 
@@ -88,6 +95,8 @@ stories:
 
 
 
+
+
 ## story: US-04
 
 ### api-contracts
@@ -105,6 +114,8 @@ stories:
 ### test-surface
 
 (none)
+
+
 
 
 ## story: US-05
@@ -138,3 +149,30 @@ stories:
 
 - `tests/knowledge.test.ts`: covers `query` / `indexFile` / `getStatus` behaviour across empty-index, end-to-end index→query, source-file dedupe, type guards, and clock-driven uptime
 - Matched by Jest pattern `--testPathPattern=knowledge`; MUST remain passing (AC-04 ratchet)
+
+
+
+## story: US-06
+
+### api-contracts
+
+- `FolderWatcher.start`: begins watching a directory; accepts `FolderWatcherOptions` and `FolderWatcherCallbacks`, returns void
+- `FolderWatcher.close`: stops the watcher and releases resources
+- `FolderWatcher.isAlive`: returns boolean indicating whether the watcher is currently active
+- `WatcherEvent`: exported value enumerating event kinds (add, change, unlink, error)
+
+### data-models
+
+- `FolderWatcherOptions`: shape `{ debounceMs?: number, existsSync?: fn, filter?: fn, watch?: fn }` — all fields optional
+- `FolderWatcherCallbacks`: shape `{ onAdd, onChange, onUnlink, onError }` — all fields are event-handler functions
+
+### invariants
+
+- `FolderWatcher.isAlive` MUST return `false` after `close()` is called
+- `FolderWatcher.isAlive` MUST return `true` between a successful `start()` and any `close()` call
+- `FolderWatcherCallbacks.onError` MUST be invoked instead of throwing when a watch error occurs
+- Debounce interval defined by `FolderWatcherOptions.debounceMs` MUST delay repeated callbacks for the same path
+
+### test-surface
+
+- `tests/watcher.test.ts`: new file, 374 lines; covers `FolderWatcher` start/close lifecycle, `isAlive` state transitions, debounce behaviour, filter predicate, and all four callback paths
