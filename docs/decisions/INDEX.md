@@ -15,3 +15,4 @@ Stories whose PASS recorded no material architectural decisions. One row per sto
 | US-02 | no new decisions | 484cee16abbc983923c66324f60701179a9d451b |
 | US-03 | no new decisions | 484cee16abbc983923c66324f60701179a9d451b |
 | US-04 | no new decisions | 484cee16abbc983923c66324f60701179a9d451b |
+| US-05 | no new decisions | 9fecce531c1a7445a071190299fdafa15f98e5b3 |
