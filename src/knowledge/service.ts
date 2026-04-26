@@ -82,7 +82,7 @@ const defaultWatcherFactory: WatcherFactory = (dir, callbacks, opts) =>
   new FolderWatcher(dir, callbacks, opts);
 
 export class KnowledgeService {
-  private readonly index: VectorIndex;
+  private readonly vectorIndex: VectorIndex;
   private readonly ingest: FileIngestor;
   private readonly generator: AnswerGenerator;
   private readonly topK: number;
@@ -94,7 +94,7 @@ export class KnowledgeService {
   private readonly watchers: Array<{ start(): void; close(): void; isAlive(): boolean }> = [];
 
   constructor(opts: KnowledgeServiceOptions = {}) {
-    this.index = opts.index ?? new VectorIndex();
+    this.vectorIndex = opts.index ?? new VectorIndex();
     this.ingest = opts.ingest ?? ingestFile;
     this.generator = opts.generator ?? generateAnswer;
     this.topK = opts.topK ?? DEFAULT_TOP_K;
@@ -108,10 +108,10 @@ export class KnowledgeService {
     if (typeof question !== "string") {
       throw new TypeError("KnowledgeService.query: question must be a string");
     }
-    if (this.index.size() === 0) {
+    if (this.vectorIndex.size() === 0) {
       return { answer: NO_DOCUMENTS_ANSWER, citations: [] };
     }
-    const hits = await this.index.search(question, this.topK);
+    const hits = await this.vectorIndex.search(question, this.topK);
     const chunks = hits.map(toLlmChunk);
     return this.generator(question, chunks);
   }
@@ -122,7 +122,7 @@ export class KnowledgeService {
     }
     const chunks = await this.ingest(absolutePath);
     if (chunks.length === 0) return;
-    await this.index.add(chunks);
+    await this.vectorIndex.add(chunks);
     for (const c of chunks) this.indexedSources.add(c.source);
   }
 
