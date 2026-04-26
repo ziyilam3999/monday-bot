@@ -1,6 +1,6 @@
 ---
 schemaVersion: "1.0.0"
-lastUpdated: "2026-04-26T10:54:08.210Z"
+lastUpdated: "2026-04-26T14:38:07.713Z"
 stories:
   - id: "US-01"
     lastUpdated: "2026-04-25T16:06:52.426Z"
@@ -20,6 +20,9 @@ stories:
   - id: "US-06"
     lastUpdated: "2026-04-26T10:54:08.210Z"
     lastGitSha: "6fa4f9301df97dd0372bf915c6c64fb157c64456"
+  - id: "US-07"
+    lastUpdated: "2026-04-26T14:38:07.713Z"
+    lastGitSha: "8ed171074dc7bb5703596a9e5124fb46537305bf"
 ---
 
 ## story: US-01
@@ -46,6 +49,7 @@ stories:
 
 
 
+
 ## story: US-02
 
 ### api-contracts
@@ -64,6 +68,7 @@ stories:
 ### test-surface
 
 - Existing ingestion test suite (`jest --testPathPattern=ingestion`) used as regression gate for `anthropicClient` changes
+
 
 
 
@@ -97,6 +102,7 @@ stories:
 
 
 
+
 ## story: US-04
 
 ### api-contracts
@@ -114,6 +120,7 @@ stories:
 ### test-surface
 
 (none)
+
 
 
 
@@ -152,6 +159,7 @@ stories:
 
 
 
+
 ## story: US-06
 
 ### api-contracts
@@ -176,3 +184,31 @@ stories:
 ### test-surface
 
 - `tests/watcher.test.ts`: new file, 374 lines; covers `FolderWatcher` start/close lifecycle, `isAlive` state transitions, debounce behaviour, filter predicate, and all four callback paths
+
+
+## story: US-07
+
+### api-contracts
+
+- `ConfluenceSync.syncSpace`: accepts `spaceKey: string` and `ConfluenceSyncOptions`; returns `Promise<ConfluenceSyncResult>`
+- `buildConfluenceFetcher`: accepts `ConfluenceClientConfig`; returns `ConfluenceFetcher`
+- `ConfluenceSyncOptions.fetcher`: optional override of default `ConfluenceFetcher` for DI/testing
+- `ConfluenceSyncOptions.logger`: optional logger injected at call-site
+- `ConfluenceSyncOptions.knowledge`: required knowledge-service handle for indexing pages
+
+### data-models
+
+- `ConfluencePage`: wire shape `{ id: string, body: string }` fetched from Confluence REST API
+- `ConfluenceClientConfig`: `{ apiToken: string, baseUrl: string, email: string }` — all fields required
+- `ConfluenceSyncResult`: persisted summary `{ spaceKey: string, pagesIndexed: number, pagesFailed: number }`
+
+### invariants
+
+- `ConfluenceSyncResult.pagesIndexed + ConfluenceSyncResult.pagesFailed` MUST equal total pages returned by `ConfluenceFetcher.fetchPages`
+- `buildConfluenceFetcher` MUST return an object satisfying `ConfluenceFetcher` (has `fetchPages`)
+- `ConfluenceSync` MUST be exported from `src/confluence/index.ts`
+- Sync schedule entry MUST exist in `config.yaml` referencing the confluence sync job
+
+### test-surface
+
+- `tests/confluence.test.ts`: added 265-line test file covering `ConfluenceSync.syncSpace` happy-path, partial-failure, and `buildConfluenceFetcher` construction
