@@ -99,6 +99,23 @@ export class VectorIndex {
     return removed;
   }
 
+  /**
+   * Count chunks currently in the index that share the given `source` identifier.
+   * Used by callers (e.g. Confluence sync) to verify dedup/replace semantics.
+   */
+  getChunkCountForSource(sourcePath: string): number {
+    if (typeof sourcePath !== "string" || sourcePath.length === 0) {
+      throw new TypeError(
+        "VectorIndex.getChunkCountForSource: sourcePath must be a non-empty string",
+      );
+    }
+    let n = 0;
+    for (const c of this.chunks) {
+      if (c.source === sourcePath) n++;
+    }
+    return n;
+  }
+
   async save(dir: string): Promise<void> {
     fs.mkdirSync(dir, { recursive: true });
     const payload: IndexFile = {
