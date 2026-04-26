@@ -84,6 +84,21 @@ export class VectorIndex {
     this.vectors.splice(idx, 1);
   }
 
+  async removeBySource(sourcePath: string): Promise<number> {
+    if (typeof sourcePath !== "string" || sourcePath.length === 0) {
+      throw new TypeError("VectorIndex.removeBySource: sourcePath must be a non-empty string");
+    }
+    let removed = 0;
+    for (let i = this.chunks.length - 1; i >= 0; i--) {
+      if (this.chunks[i].source === sourcePath) {
+        this.chunks.splice(i, 1);
+        this.vectors.splice(i, 1);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async save(dir: string): Promise<void> {
     fs.mkdirSync(dir, { recursive: true });
     const payload: IndexFile = {
