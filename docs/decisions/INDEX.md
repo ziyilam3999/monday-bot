@@ -4,6 +4,7 @@
 
 | ADR | Story | Title | Date | Status |
 | --- | --- | --- | --- | --- |
+| ADR-0001 | US-08 | Adopt @slack/bolt with Socket Mode for the Slack adapter | 2026-04-27 | Accepted |
 
 ## No-decisions registry
 
