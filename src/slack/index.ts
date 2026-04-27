@@ -11,3 +11,12 @@ export type {
   SlackSectionBlock,
   SlackTextObject,
 } from "./formatter";
+export {
+  commandHandlers,
+  statusCommand,
+  syncConfluenceCommand,
+  reindexCommand,
+  helpCommand,
+  feedbackCommand,
+} from "./commands";
+export type { AdminService, AdminServiceStatus, CommandHandler } from "./commands";

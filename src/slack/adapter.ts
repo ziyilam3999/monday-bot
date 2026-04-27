@@ -1,5 +1,13 @@
 import { App, LogLevel } from "@slack/bolt";
 import { formatAnswer } from "./formatter";
+import {
+  AdminService,
+  statusCommand,
+  syncConfluenceCommand,
+  reindexCommand,
+  helpCommand,
+  feedbackCommand,
+} from "./commands";
 
 /**
  * Minimal contract the adapter requires from the knowledge layer. We don't import
@@ -20,6 +28,12 @@ export interface SlackAdapterOptions {
   appToken: string;
   /** Knowledge service used to answer questions. Required. */
   knowledgeService: AnswerProvider | null | undefined;
+  /**
+   * Optional admin surface used by /status, /sync-confluence, /reindex,
+   * /feedback. May be the same object as `knowledgeService` if it implements
+   * both contracts. Missing methods degrade to "not configured" responses.
+   */
+  adminService?: AdminService;
   /**
    * Optional override for the Bolt `App` constructor. Used by tests to inject a
    * fake without monkey-patching the SDK at runtime.
@@ -51,6 +65,7 @@ export class SlackAdapter {
   private readonly botToken: string;
   private readonly appToken: string;
   private readonly knowledgeService: AnswerProvider;
+  private readonly adminService: AdminService;
   private readonly app: App;
 
   constructor(opts: SlackAdapterOptions) {
@@ -76,6 +91,10 @@ export class SlackAdapter {
     this.botToken = opts.botToken.trim();
     this.appToken = opts.appToken.trim();
     this.knowledgeService = opts.knowledgeService;
+    // Default: if the knowledgeService object also exposes admin methods (e.g.
+    // KnowledgeService's getStatus()), use it for /status. Otherwise the admin
+    // surface is empty and individual handlers degrade to "not configured".
+    this.adminService = opts.adminService ?? (opts.knowledgeService as unknown as AdminService) ?? {};
 
     const factory: AppFactory = opts.appFactory ?? ((appOpts) => new App(appOpts));
     this.app = factory({
@@ -165,6 +184,52 @@ export class SlackAdapter {
         });
       } catch (err) {
         logger.error?.("SlackAdapter /ask handler failed:", err);
+        await respond?.({
+          response_type: "ephemeral",
+          text: DEFAULT_FALLBACK_TEXT,
+        });
+      }
+    });
+
+    this.registerAdminCommand("/status", (_args, _text) => statusCommand(this.adminService));
+    this.registerAdminCommand("/sync-confluence", (_args, text) =>
+      syncConfluenceCommand(this.adminService, text),
+    );
+    this.registerAdminCommand("/reindex", (_args, _text) => reindexCommand(this.adminService));
+    this.registerAdminCommand("/help", (_args, _text) => helpCommand(this.adminService));
+    this.registerAdminCommand("/feedback", (_args, text) =>
+      feedbackCommand(this.adminService, text),
+    );
+  }
+
+  /**
+   * Generic glue for admin commands: ack immediately, run the handler, post the
+   * result ephemerally. Errors are logged and surfaced as a fallback message
+   * rather than crashing the Bolt event loop.
+   */
+  private registerAdminCommand(
+    name: string,
+    runner: (args: unknown, text: string) => string | Promise<string>,
+  ): void {
+    this.app.command(name, async (args: any) => {
+      const ack = args?.ack;
+      const respond = args?.respond;
+      const command = args?.command ?? {};
+      const logger = args?.logger ?? console;
+      try {
+        await ack?.();
+      } catch (err) {
+        logger.error?.(`SlackAdapter ${name} ack failed:`, err);
+      }
+      const text = typeof command.text === "string" ? command.text.trim() : "";
+      try {
+        const reply = await runner(args, text);
+        await respond?.({
+          response_type: "ephemeral",
+          text: reply,
+        });
+      } catch (err) {
+        logger.error?.(`SlackAdapter ${name} handler failed:`, err);
         await respond?.({
           response_type: "ephemeral",
           text: DEFAULT_FALLBACK_TEXT,

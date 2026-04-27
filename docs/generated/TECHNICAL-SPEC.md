@@ -1,6 +1,6 @@
 ---
 schemaVersion: "1.0.0"
-lastUpdated: "2026-04-27T03:07:56.654Z"
+lastUpdated: "2026-04-27T14:17:04.337Z"
 stories:
   - id: "US-01"
     lastUpdated: "2026-04-25T16:06:52.426Z"
@@ -26,6 +26,9 @@ stories:
   - id: "US-08"
     lastUpdated: "2026-04-27T03:07:56.654Z"
     lastGitSha: "4a44c8937071b02dd6af8891e0dd9bc9251ad82c"
+  - id: "US-09"
+    lastUpdated: "2026-04-27T14:17:04.337Z"
+    lastGitSha: "6059593519286d6b06f6d46bff1b05485c7445ea"
 ---
 
 ## story: US-01
@@ -54,6 +57,7 @@ stories:
 
 
 
+
 ## story: US-02
 
 ### api-contracts
@@ -72,6 +76,7 @@ stories:
 ### test-surface
 
 - Existing ingestion test suite (`jest --testPathPattern=ingestion`) used as regression gate for `anthropicClient` changes
+
 
 
 
@@ -109,6 +114,7 @@ stories:
 
 
 
+
 ## story: US-04
 
 ### api-contracts
@@ -126,6 +132,7 @@ stories:
 ### test-surface
 
 (none)
+
 
 
 
@@ -168,6 +175,7 @@ stories:
 
 
 
+
 ## story: US-06
 
 ### api-contracts
@@ -192,6 +200,7 @@ stories:
 ### test-surface
 
 - `tests/watcher.test.ts`: new file, 374 lines; covers `FolderWatcher` start/close lifecycle, `isAlive` state transitions, debounce behaviour, filter predicate, and all four callback paths
+
 
 
 
@@ -221,6 +230,7 @@ stories:
 ### test-surface
 
 - `tests/confluence.test.ts`: added 265-line test file covering `ConfluenceSync.syncSpace` happy-path, partial-failure, and `buildConfluenceFetcher` construction
+
 
 
 ## story: US-08
@@ -264,3 +274,30 @@ stories:
 - `tests/slack-adapter.test.ts`: 210-line suite; covers config-error path, `start`/`stop` lifecycle, `app_mention` happy-path, and `AnswerProvider` integration (21 tests total across both suites)
 - `tests/slack-formatter.test.ts`: 95-line suite; covers block count, answer block content, citation blocks, divider presence, and plain-text fallback
 - `jest.config.js`: updated `testPathPattern` default or added `slack|adapter|formatter` pattern entry
+
+
+## story: US-09
+
+### api-contracts
+
+- `commandHandlers`: exported `Record<string, CommandHandler>` covering keys `status`, `syncconfluence`, `reindex`, `help`, `feedback`
+- `statusCommand`: calls `AdminService.getStatus`, returns formatted string with `documentCount`, `uptimeSeconds`, `watcherAlive`
+- `syncConfluenceCommand`: calls `AdminService.syncConfluence`, returns confirmation string
+- `reindexCommand`: calls `AdminService.reindex`, returns confirmation string
+- `helpCommand`: returns static help string (length 382)
+- `feedbackCommand`: calls `AdminService.recordFeedback`, returns acknowledgement string
+
+### data-models
+
+(none)
+
+### invariants
+
+- `commandHandlers` MUST contain exactly the keys: `status`, `syncconfluence`, `reindex`, `help`, `feedback`
+- Every value in `commandHandlers` MUST satisfy the `CommandHandler` type
+- `statusCommand` output MUST include all three fields from `AdminServiceStatus`: `documentCount`, `uptimeSeconds`, `watcherAlive`
+- `feedbackCommand` MUST return a non-empty acknowledgement string on success
+
+### test-surface
+
+- `tests/commands.test.ts`: added; covers registry shape — asserts all five command keys present in `commandHandlers`
