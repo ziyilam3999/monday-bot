@@ -5,6 +5,18 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/ziyilam3999/monday-bot/compare/v0.7.0...v0.8.0) (2026-04-27)
+
+### Features
+
+* **US-08:** Slack adapter — Socket Mode, @mention + /ask, Block Kit formatter with citations (#100)
+
+### Bug Fixes
+
+* split re-exports for isolatedModules compat (#83)
+* rename KnowledgeService.index to vectorIndex (#82)
+* clean up mkTempFile tmp dirs in knowledge.test.ts (#81)
+
 ## [0.7.0](https://github.com/ziyilam3999/monday-bot/compare/v0.6.0...v0.7.0) (2026-04-26)
 
 ### Features
