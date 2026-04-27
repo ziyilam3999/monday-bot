@@ -96,8 +96,8 @@ export class SlackAdapter {
       const logger = args?.logger ?? console;
       const text: string = typeof event.text === "string" ? event.text : "";
       const channel: string = typeof event.channel === "string" ? event.channel : "";
-      // Strip the leading <@U123456> mention so the question is clean.
-      const question = text.replace(/^\s*<@[^>]+>\s*/, "").trim();
+      // Strip ALL <@U123456> mentions (leading and interior) so the question is clean.
+      const question = text.replace(/<@[^>]+>/g, "").replace(/\s+/g, " ").trim();
       const threadTs: string | undefined = event.thread_ts ?? event.ts;
 
       if (!question) {
