@@ -94,7 +94,7 @@ export class SlackAdapter {
     // Default: if the knowledgeService object also exposes admin methods (e.g.
     // KnowledgeService's getStatus()), use it for /status. Otherwise the admin
     // surface is empty and individual handlers degrade to "not configured".
-    this.adminService = opts.adminService ?? (opts.knowledgeService as unknown as AdminService) ?? {};
+    this.adminService = opts.adminService ?? (opts.knowledgeService as unknown as AdminService);
 
     const factory: AppFactory = opts.appFactory ?? ((appOpts) => new App(appOpts));
     this.app = factory({
