@@ -5,6 +5,16 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/ziyilam3999/monday-bot/compare/v0.8.0...v0.8.1) (2026-04-27)
+
+### Bug Fixes
+
+* strip all `<@USER>` mentions in app_mention handler (#108)
+
+### Miscellaneous
+
+* backfill US-08 ADR + INDEX after forge-harness v0.39.6 W2 recovery (#109)
+
 ## [0.8.0](https://github.com/ziyilam3999/monday-bot/compare/v0.7.0...v0.8.0) (2026-04-27)
 
 ### Features
