@@ -8,5 +8,6 @@ module.exports = {
   moduleNameMapper: {
     "^@xenova/transformers$": "<rootDir>/tests/__stubs__/xenova-transformers.js",
     "^@anthropic-ai/sdk$": "<rootDir>/tests/__stubs__/anthropic-sdk.js",
+    "^@slack/bolt$": "<rootDir>/tests/__stubs__/slack-bolt.js",
   },
 };

@@ -1,6 +1,6 @@
 ---
 schemaVersion: "1.0.0"
-lastUpdated: "2026-04-26T14:38:07.713Z"
+lastUpdated: "2026-04-27T03:07:56.654Z"
 stories:
   - id: "US-01"
     lastUpdated: "2026-04-25T16:06:52.426Z"
@@ -23,6 +23,9 @@ stories:
   - id: "US-07"
     lastUpdated: "2026-04-26T14:38:07.713Z"
     lastGitSha: "8ed171074dc7bb5703596a9e5124fb46537305bf"
+  - id: "US-08"
+    lastUpdated: "2026-04-27T03:07:56.654Z"
+    lastGitSha: "4a44c8937071b02dd6af8891e0dd9bc9251ad82c"
 ---
 
 ## story: US-01
@@ -50,6 +53,7 @@ stories:
 
 
 
+
 ## story: US-02
 
 ### api-contracts
@@ -68,6 +72,7 @@ stories:
 ### test-surface
 
 - Existing ingestion test suite (`jest --testPathPattern=ingestion`) used as regression gate for `anthropicClient` changes
+
 
 
 
@@ -103,6 +108,7 @@ stories:
 
 
 
+
 ## story: US-04
 
 ### api-contracts
@@ -120,6 +126,7 @@ stories:
 ### test-surface
 
 (none)
+
 
 
 
@@ -160,6 +167,7 @@ stories:
 
 
 
+
 ## story: US-06
 
 ### api-contracts
@@ -184,6 +192,7 @@ stories:
 ### test-surface
 
 - `tests/watcher.test.ts`: new file, 374 lines; covers `FolderWatcher` start/close lifecycle, `isAlive` state transitions, debounce behaviour, filter predicate, and all four callback paths
+
 
 
 ## story: US-07
@@ -212,3 +221,46 @@ stories:
 ### test-surface
 
 - `tests/confluence.test.ts`: added 265-line test file covering `ConfluenceSync.syncSpace` happy-path, partial-failure, and `buildConfluenceFetcher` construction
+
+
+## story: US-08
+
+### api-contracts
+
+- `SlackAdapter.start`: public method; initialises Bolt app, registers `app_mention` handler, starts socket-mode listener
+- `SlackAdapter.stop`: public method; gracefully shuts down the Bolt app
+- `SlackAdapterOptions.appFactory`: optional `AppFactory` injection point for testing
+- `SlackAdapterOptions.appToken`: required string; socket-mode app token
+- `SlackAdapterOptions.botToken`: required string; bot OAuth token — absent/empty throws `SlackConfigError`
+- `SlackAdapterOptions.knowledgeService`: required `AnswerProvider` used to resolve queries
+- `SlackAdapterOptions.logLevel`: optional Bolt log-level string
+- `formatAnswer`: pure function `(FormatAnswerInput) => SlackMessagePayload`; converts answer + citations to Slack blocks
+- `SlackConfigError`: error subclass thrown when required config fields are missing or empty
+
+### data-models
+
+- `FormatAnswerInput.answer`: string body of the answer
+- `FormatAnswerInput.citations`: array of `FormatterCitationInput` objects
+- `FormatterCitationInput.heading`: display heading for the cited source
+- `FormatterCitationInput.num` / `FormatterCitationInput.number`: numeric citation index
+- `FormatterCitationInput.source`: URL or identifier for the source
+- `SlackMessagePayload.blocks`: ordered array of `SlackBlock` (section / divider / context)
+- `SlackMessagePayload.text`: plain-text fallback string
+- `SlackSectionBlock.text`: `SlackTextObject` with `type: 'mrkdwn'`
+- `SlackContextBlock.elements`: array of `SlackTextObject`
+- `SlackDividerBlock.type`: literal `'divider'`
+
+### invariants
+
+- `SlackAdapter` MUST throw `SlackConfigError` if `botToken` is absent or empty at construction time
+- `formatAnswer` MUST always produce at least one `SlackSectionBlock` containing the answer text
+- `SlackMessagePayload.blocks` length MUST be ≥ 1 for any non-empty answer
+- Each citation MUST produce exactly one `SlackContextBlock` entry in the blocks array
+- `SlackMessagePayload.text` MUST be a non-empty plain-text string (Slack fallback requirement)
+- `AnswerProvider.query` MUST be called with the user's message text on every `app_mention` event
+
+### test-surface
+
+- `tests/slack-adapter.test.ts`: 210-line suite; covers config-error path, `start`/`stop` lifecycle, `app_mention` happy-path, and `AnswerProvider` integration (21 tests total across both suites)
+- `tests/slack-formatter.test.ts`: 95-line suite; covers block count, answer block content, citation blocks, divider presence, and plain-text fallback
+- `jest.config.js`: updated `testPathPattern` default or added `slack|adapter|formatter` pattern entry
