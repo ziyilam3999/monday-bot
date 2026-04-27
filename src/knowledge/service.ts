@@ -150,7 +150,7 @@ export class KnowledgeService {
     // Replace-on-resync: drop any prior version under the same source first so
     // we don't accumulate stale chunks (US-06's removeBySource is the same path
     // the file watcher uses on change events).
-    await this.index.removeBySource(source);
+    await this.vectorIndex.removeBySource(source);
 
     const text = page.body.trim();
     if (text.length === 0) {
@@ -162,13 +162,13 @@ export class KnowledgeService {
     if (typeof page.title === "string" && page.title.length > 0) chunk.heading = page.title;
     if (typeof page.spaceKey === "string" && page.spaceKey.length > 0) chunk.section = page.spaceKey;
 
-    await this.index.add([chunk]);
+    await this.vectorIndex.add([chunk]);
     this.indexedSources.add(source);
   }
 
   /** Return the number of chunks currently indexed under `source`. */
   getChunkCountForSource(source: string): number {
-    return this.index.getChunkCountForSource(source);
+    return this.vectorIndex.getChunkCountForSource(source);
   }
 
   /**
@@ -184,7 +184,7 @@ export class KnowledgeService {
     // Resolve here too so callers passing a non-resolved path still hit.
     const path = require("node:path") as typeof import("node:path");
     const resolved = path.resolve(absolutePath);
-    await this.index.removeBySource(resolved);
+    await this.vectorIndex.removeBySource(resolved);
     this.indexedSources.delete(resolved);
   }
 
