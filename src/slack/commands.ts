@@ -132,7 +132,10 @@ export const feedbackCommand: CommandHandler = (service, message) => {
       // We don't await here because the handler's own contract is sync-or-async
       // string return; callers that need durable acknowledgement should await
       // recordFeedback themselves before calling this handler.
-      void maybe;
+      // Wrap in Promise.resolve(...).catch so async rejections are swallowed
+      // alongside the sync try/catch — best-effort logging must never throw
+      // an unhandled rejection back into the runtime.
+      Promise.resolve(maybe).catch(() => {});
     } catch {
       // best-effort — never let a logging failure swallow the user's feedback.
     }
