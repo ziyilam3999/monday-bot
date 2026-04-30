@@ -1,5 +1,7 @@
 export { SlackAdapter, SlackConfigError } from "./adapter";
 export type { SlackAdapterOptions, AnswerProvider, AppFactory } from "./adapter";
+export { handleQuery } from "./queryHandler";
+export type { QueryHandlerResult, QueryService } from "./queryHandler";
 export { formatAnswer } from "./formatter";
 export type {
   FormatAnswerInput,

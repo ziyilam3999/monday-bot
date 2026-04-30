@@ -1,5 +1,5 @@
 import { App, LogLevel } from "@slack/bolt";
-import { formatAnswer } from "./formatter";
+import { handleQuery } from "./queryHandler";
 import {
   AdminService,
   statusCommand,
@@ -133,8 +133,8 @@ export class SlackAdapter {
       }
 
       try {
-        const result = await this.knowledgeService.query(question);
-        const payload = formatAnswer(result);
+        // handleQuery centralises the success/error split — never throws.
+        const payload = await handleQuery(question, this.knowledgeService);
         await client?.chat?.postMessage?.({
           channel,
           thread_ts: threadTs,
@@ -142,7 +142,8 @@ export class SlackAdapter {
           blocks: payload.blocks,
         });
       } catch (err) {
-        logger.error?.("SlackAdapter app_mention handler failed:", err);
+        // Should only fire if the Slack client itself fails.
+        logger.error?.("SlackAdapter app_mention post failed:", err);
         try {
           await client?.chat?.postMessage?.({
             channel,
@@ -175,15 +176,16 @@ export class SlackAdapter {
         return;
       }
       try {
-        const result = await this.knowledgeService.query(question);
-        const payload = formatAnswer(result);
+        // handleQuery centralises the success/error split — never throws.
+        const payload = await handleQuery(question, this.knowledgeService);
         await respond?.({
           response_type: "ephemeral",
           text: payload.text,
           blocks: payload.blocks,
         });
       } catch (err) {
-        logger.error?.("SlackAdapter /ask handler failed:", err);
+        // Should only fire if the Slack respond() call itself fails.
+        logger.error?.("SlackAdapter /ask respond failed:", err);
         await respond?.({
           response_type: "ephemeral",
           text: DEFAULT_FALLBACK_TEXT,
