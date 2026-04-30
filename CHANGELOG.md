@@ -5,6 +5,17 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/ziyilam3999/monday-bot/compare/v0.9.0...v0.10.0) (2026-04-30)
+
+### Features
+
+* **US-10:** graceful error handling — Slack handler catches knowledge service failures and returns human-readable text; generate.ts short-circuits empty citations to an explicit not-found message (#125)
+
+### Bug Fixes
+
+* drop unreachable adminService fallback (#117) (#124)
+* swallow recordFeedback async rejections (#115) (#123)
+
 ## [0.9.0](https://github.com/ziyilam3999/monday-bot/compare/v0.8.1...v0.9.0) (2026-04-27)
 
 ### Features
