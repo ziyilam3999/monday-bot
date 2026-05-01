@@ -150,8 +150,8 @@ export class SlackAdapter {
             thread_ts: threadTs,
             text: DEFAULT_FALLBACK_TEXT,
           });
-        } catch {
-          // best-effort fallback
+        } catch (err2) {
+          logger.error?.("SlackAdapter app_mention fallback post failed:", err2);
         }
       }
     });
