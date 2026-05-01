@@ -63,7 +63,7 @@ const FRIENDLY_ERROR_TEXT =
 function defaultService(): QueryService {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { KnowledgeService } = require("../knowledge/service") as {
-    KnowledgeService: new () => QueryService;
+    KnowledgeService: new (opts?: unknown) => QueryService;
   };
   return new KnowledgeService();
 }
