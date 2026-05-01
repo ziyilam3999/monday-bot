@@ -337,7 +337,7 @@ stories:
 ### invariants
 
 - `handleQuery` MUST return a human-readable error string in `text` when `QueryService.query` throws (AC-01)
-- `handleQuery` MUST surface an explicit not-found message when the service returns no results (AC-02)
+- The slack handler path MUST surface an explicit not-found message when the service returns no results (AC-02)
 - `handleQuery` MUST NOT propagate raw exceptions to callers; all errors MUST be caught and converted to `QueryHandlerResult`
 
 ### test-surface
