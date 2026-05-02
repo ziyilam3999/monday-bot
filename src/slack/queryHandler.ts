@@ -80,6 +80,7 @@ function defaultService(): QueryService {
 export async function handleQuery(
   question: string,
   service?: QueryService,
+  logger: { error: (...args: unknown[]) => void } = console,
 ): Promise<QueryHandlerResult> {
   const resolved = service ?? defaultService();
   try {
@@ -87,11 +88,10 @@ export async function handleQuery(
     const payload = formatAnswer(result);
     return { text: payload.text, blocks: payload.blocks };
   } catch (err) {
-    // Operator-visible: full error to stderr. End-user-visible: friendly text.
+    // Operator-visible: full error via injected logger (Bolt's per-event
+    // logger in production, console in tests/ad-hoc callers).
     const detail = err instanceof Error ? err.message : String(err);
-    // Use console.error directly; structured logging is out of scope for US-10.
-    // eslint-disable-next-line no-console
-    console.error("[handleQuery] knowledge service threw:", detail);
+    logger.error("[handleQuery] knowledge service threw:", detail);
     return { text: FRIENDLY_ERROR_TEXT };
   }
 }
