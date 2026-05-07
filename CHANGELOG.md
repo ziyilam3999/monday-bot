@@ -5,6 +5,20 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1](https://github.com/ziyilam3999/monday-bot/compare/v0.10.0...v0.10.1) (2026-05-07)
+
+### Bug Fixes
+
+* **US-08 E4:** log app_mention fallback postMessage failure (#133)
+* **US-09 E7:** formatUptime drops trailing 0s when hours present (#134)
+* **US-10 E4:** queryHandler routes errors through optional logger arg (#135)
+* **US-10 AC-02:** reword invariant to slack-handler-path layer (#131)
+* tighten KnowledgeService cast to preserve options signature (#132)
+
+### Miscellaneous
+
+* cross-machine resume pointer (docs/RESUME.md) (#136)
+
 ## [0.10.0](https://github.com/ziyilam3999/monday-bot/compare/v0.9.0...v0.10.0) (2026-04-30)
 
 ### Features
