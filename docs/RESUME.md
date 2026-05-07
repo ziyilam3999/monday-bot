@@ -1,6 +1,6 @@
 # monday-bot — Cross-Machine Resume Pointer
 
-**Last updated**: 2026-05-07
+**Last updated**: 2026-05-07 (projected handoff date)
 **Origin**: Windows session `monday` (decommissioning)
 **Intended consumer**: macbook-monday (or any future monday-bot session, on any machine)
 
@@ -22,7 +22,7 @@
 | #61 | Wrap monday-bot phase — `/project-index` + final `forge_coordinate` | Closes PH-02. |
 | #72 | Per-story forge-harness audit ritual (US-06..US-13) | Meta-task. US-06..US-10 done; US-11..US-13 still owed. Playwright snapshot at every dashboard event (pre-generate / post-generate / post-evaluate / post-coordinate). Save report card to `.ai-workspace/runs/run-pr<NN>.json`. Mail forge-plan with findings. |
 
-## Open mail threads (as of 2026-05-07)
+## Open mail threads (as of 2026-05-07, projected handoff date)
 
 | Thread | Status | Awaiting |
 |--------|--------|----------|
