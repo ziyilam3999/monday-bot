@@ -3,11 +3,24 @@
 # This file holds non-secret operational tuning. Secrets (API tokens, OAuth
 # creds) live in `.env` and are loaded by `src/config/env.ts`.
 #
-# US-07 introduced the `confluence` section. The sync module reads `schedule`
-# (a cron expression in standard 5-field form) to decide how often to refresh
-# pages. Set to `"0 */6 * * *"` (every 6 hours) by default; tighten for
-# fast-moving spaces, loosen for static reference docs.
+# US-11 introduced this top-level structure: human-readable, hand-editable,
+# and read by `src/config/config.ts` via `loadConfig()`. Add new operational
+# settings here rather than wiring more env vars.
 
+# Local document folders the watcher ingests on startup and on filesystem
+# events. Paths may be absolute or relative to the process CWD. Empty list
+# disables local watching entirely.
+watchedFolders:
+  - ./test-fixtures
+
+# Filesystem location where the vector index, embed cache, and other
+# generated runtime artefacts are persisted. Relative to CWD.
+indexPath: ./tmp/index
+
+# Confluence sync settings. US-07 introduced this section. The sync module
+# reads `schedule` (a cron expression in standard 5-field form) to decide how
+# often to refresh pages. Defaults to every 6 hours; tighten for fast-moving
+# spaces, loosen for static reference docs.
 confluence:
   # Cron expression — minute hour day month weekday. Defaults to every 6 hours.
   schedule: "0 */6 * * *"
@@ -17,3 +30,8 @@ confluence:
   # Cap on pages fetched per sync run; protects against runaway fan-out on huge
   # spaces. The REST API call uses ?limit=<this> per page.
   pageLimit: 100
+
+# Top-level alias mirroring confluence.schedule for callers that want a
+# single, unambiguous "the bot's primary schedule" knob. Keep in sync with
+# confluence.schedule unless you intentionally want a separate cadence.
+confluenceSchedule: "0 */6 * * *"
