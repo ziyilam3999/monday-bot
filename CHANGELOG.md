@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/ziyilam3999/monday-bot/compare/v0.11.0...v0.12.0) (2026-05-08)
+
+### Features
+
+* **US-13:** deployment packaging — PM2 ecosystem config + README deploy section (#153)
+
 ## [0.11.0](https://github.com/ziyilam3999/monday-bot/compare/v0.10.1...v0.11.0) (2026-05-08)
 
 ### Features
