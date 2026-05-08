@@ -1,5 +1,5 @@
 import { ingestFile, Chunk as IngestChunk } from "../ingestion/ingest";
-import { VectorIndex, SearchResult } from "../index/vectorIndex";
+import { VectorIndex, SearchResult, Chunk as IndexChunk } from "../index/vectorIndex";
 import { generateAnswer, Chunk as LlmChunk, Citation } from "../llm/generate";
 import {
   FolderWatcher,
@@ -121,6 +121,22 @@ export class KnowledgeService {
       throw new TypeError("KnowledgeService.indexFile: absolutePath must be a non-empty string");
     }
     const chunks = await this.ingest(absolutePath);
+    if (chunks.length === 0) return;
+    await this.vectorIndex.add(chunks);
+    for (const c of chunks) this.indexedSources.add(c.source);
+  }
+
+  /**
+   * Index pre-built chunks directly (no file read, no parser dispatch). Useful
+   * for tests, format-parity assertions, and callers that already hold parsed
+   * `{ id?, text, source, heading?, section? }` objects. Each chunk's `source`
+   * counts toward `documentCount` once. `id` is optional — VectorIndex will
+   * synthesize one from `(source, text)` if omitted.
+   */
+  async indexChunks(chunks: IndexChunk[]): Promise<void> {
+    if (!Array.isArray(chunks)) {
+      throw new TypeError("KnowledgeService.indexChunks: chunks must be an array");
+    }
     if (chunks.length === 0) return;
     await this.vectorIndex.add(chunks);
     for (const c of chunks) this.indexedSources.add(c.source);
