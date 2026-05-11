@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3](https://github.com/ziyilam3999/monday-bot/compare/v0.12.2...v0.12.3) (2026-05-11)
+
+### Miscellaneous
+
+* **docs(US-11/12/13):** hand-author TECHNICAL-SPEC sub-sections on Max-plan OAuth (B5) (#173)
+
 ## [0.12.2](https://github.com/ziyilam3999/monday-bot/compare/v0.12.1...v0.12.2) (2026-05-10)
 
 ### Bug Fixes
