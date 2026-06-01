@@ -100,6 +100,6 @@ export function getClient(): Anthropic {
   }
 
   throw new Error(
-    "No Anthropic credentials found: OAuth token missing/expired at ~/.claude/.credentials.json AND ANTHROPIC_API_KEY not set in environment.",
+    "No Anthropic credentials found: OAuth token missing/expired at ~/.claude/.credentials.json or macOS Keychain (entry 'Claude Code-credentials') AND ANTHROPIC_API_KEY not set in environment.",
   );
 }
