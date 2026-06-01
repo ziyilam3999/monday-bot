@@ -113,7 +113,10 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     `Monday is listening (Socket Mode). Slack bot token configured (${env.slackBotToken.slice(0, 5)}...).`,
   );
 
+  let stopped = false;
   const shutdown = async (): Promise<void> => {
+    if (stopped) return;
+    stopped = true;
     try {
       await adapter.stop();
     } catch (err) {
