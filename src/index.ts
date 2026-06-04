@@ -86,6 +86,7 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     }
   }
 
+  const appFactoryExplicitlySupplied = opts.appFactory !== undefined;
   let appFactory = opts.appFactory;
   if (!appFactory && process.env.MONDAY_TEST_MODE === "1") {
     appFactory = createFakeAppFactory();
@@ -144,7 +145,9 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     // In test mode (no real Slack workspace), exit cleanly after the ready-log
     // so AC-06's shell verifier can rely on `set -o pipefail` + `timeout` without
     // the timeout-signal exit-code (124) masking the success path.
-    if (process.env.MONDAY_TEST_MODE === "1") {
+    // Guard: only fire when no explicit appFactory was injected — callers that
+    // supply a real factory intend to keep the process alive for test assertions.
+    if (process.env.MONDAY_TEST_MODE === "1" && !appFactoryExplicitlySupplied) {
       setImmediate(() => {
         shutdown().finally(() => process.exit(0));
       });
