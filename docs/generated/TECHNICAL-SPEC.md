@@ -306,7 +306,7 @@ stories:
 
 ## story: US-11
 
-<!-- hand-authored 2026-05-11 — Max-plan OAuth only; supersedes auto-gen placeholder. Future forge_generate may overwrite. -->
+<!-- hand-authored 2026-05-11 — Max-plan OAuth only; supersedes auto-gen placeholder. Future forge_generate may overwrite. Recovery: git log -p docs/generated/TECHNICAL-SPEC.md -->
 
 ### api-contracts
 
@@ -337,7 +337,7 @@ stories:
 
 ## story: US-12
 
-<!-- hand-authored 2026-05-11 — Max-plan OAuth only; supersedes auto-gen placeholder. Future forge_generate may overwrite. -->
+<!-- hand-authored 2026-05-11 — Max-plan OAuth only; supersedes auto-gen placeholder. Future forge_generate may overwrite. Recovery: git log -p docs/generated/TECHNICAL-SPEC.md -->
 
 ### api-contracts
 
