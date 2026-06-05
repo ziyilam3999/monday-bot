@@ -4,25 +4,7 @@ A Slack bot that answers team questions from internal documents (shared folders,
 
 ## Status
 
-PH-02 complete (v0.12.0, 2026-05-09). All 13 stories shipped. End-to-end usability gated on operator-side setup (Slack creds + corpus + PM2) — see Deployment section below.
-
-| Story | Title | Status |
-|-------|-------|--------|
-| US-01 | TS scaffolding + secrets validation + build | done |
-| US-02 | Document ingestion (TXT/MD/PDF/DOCX → chunks) | done |
-| US-03 | Embeddings + vector index + persistence | done |
-| US-04 | LLM answer generation (cited, facts-only) | done |
-| US-05 | Knowledge service (platform-agnostic facade) | done |
-| US-06 | File watcher (auto-index ≤5s) | done |
-| US-07 | Confluence sync (REST + cron) | done |
-| US-08 | Slack core (Socket Mode, @mention, /ask) | done |
-| US-09 | Admin commands (status/sync/reindex/help/feedback) | done |
-| US-10 | Graceful errors (no stack traces in Slack) | done |
-| US-11 | Config file (watched paths, schedule) | done |
-| US-12 | E2E integration (full round-trip) | done |
-| US-13 | Deployment packaging (PM2/systemd/Docker) | done |
-
-See [`docs/PLAN_MONDAY_BOT.md`](docs/PLAN_MONDAY_BOT.md) for the v2.0.0 product requirements (intent-only, executor-owns-how).
+13/13 stories shipped — see [CHANGELOG](CHANGELOG.md) / [docs/PLAN_MONDAY_BOT.md](docs/PLAN_MONDAY_BOT.md) for story-level history.
 
 ## What Monday does
 
