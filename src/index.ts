@@ -114,10 +114,17 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     `Monday is listening (Socket Mode). Slack bot token configured (${env.slackBotToken.slice(0, 5)}...).`,
   );
 
+  // Signal listener references — captured so shutdown() can remove them,
+  // preventing listener accumulation when runMonday() is called repeatedly.
+  let onSIGINT: (() => void) | undefined;
+  let onSIGTERM: (() => void) | undefined;
+
   let stopped = false;
   const shutdown = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
+    if (onSIGINT) process.off("SIGINT", onSIGINT);
+    if (onSIGTERM) process.off("SIGTERM", onSIGTERM);
     try {
       await adapter.stop();
     } catch (err) {
@@ -139,8 +146,10 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
           process.exit(0);
         });
     };
-    process.once("SIGINT", () => onSignal("SIGINT"));
-    process.once("SIGTERM", () => onSignal("SIGTERM"));
+    onSIGINT = (): void => onSignal("SIGINT");
+    onSIGTERM = (): void => onSignal("SIGTERM");
+    process.once("SIGINT", onSIGINT);
+    process.once("SIGTERM", onSIGTERM);
 
     // In test mode (no real Slack workspace), exit cleanly after the ready-log
     // so AC-06's shell verifier can rely on `set -o pipefail` + `timeout` without
