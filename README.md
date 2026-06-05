@@ -42,7 +42,7 @@ Starting without these exits with a friendly error. No stack traces in user-faci
 ## Deployment
 
 Monday is designed as a single long-running Node process on free-tier ARM Linux
-(tested target: Oracle Cloud A1 or equivalent, 1 vCPU / 1 GB RAM class).
+(target: Oracle Cloud A1 or equivalent, 1 vCPU / 1 GB RAM class; expected to work on ARM64 — live ARM smoke pending).
 There is no public ingress — Slack Socket Mode keeps the process behind NAT.
 
 ### Required environment variables
@@ -105,7 +105,7 @@ All runtime dependencies are pure-JS or ship ARM-compatible prebuilds:
 
 - `@slack/bolt`, `@anthropic-ai/sdk`, `js-yaml`, `mammoth` — pure JS
 - `pdfjs-dist` — pure JS (legacy build, no native canvas required)
-- `@xenova/transformers` — ships ARM64 ONNX runtime; tested on Oracle Cloud A1
+- `@xenova/transformers` — ships ARM64 ONNX runtime; expected to work on Oracle Cloud A1 (live ARM smoke pending)
 
 No native rebuild step is required on ARM64 Linux beyond `npm install`.
 
