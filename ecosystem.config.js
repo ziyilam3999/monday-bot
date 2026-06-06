@@ -33,6 +33,9 @@ module.exports = {
       min_uptime: "10s",
       max_restarts: 10,
       restart_delay: 4000,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      out_file: "./logs/monday-bot-out.log",
+      error_file: "./logs/monday-bot-error.log",
     },
   ],
 };
