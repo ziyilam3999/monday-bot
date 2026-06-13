@@ -54,4 +54,23 @@ describe("loadConfig", () => {
     fs.writeFileSync(file, "- just\n- a\n- list\n");
     expect(() => loadConfig(file)).toThrow(ConfigLoadError);
   });
+
+  it("round-trips confluence subsection fields without mutation", () => {
+    const file = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(
+      file,
+      [
+        "confluence:",
+        '  schedule: "0 */6 * * *"',
+        "  spaces:",
+        "    - ENG",
+        "    - HR",
+        "  pageLimit: 200",
+      ].join("\n")
+    );
+    const cfg = loadConfig(file);
+    expect(cfg.confluence?.schedule).toBe("0 */6 * * *");
+    expect(cfg.confluence?.spaces).toEqual(["ENG", "HR"]);
+    expect(cfg.confluence?.pageLimit).toBe(200);
+  });
 });
