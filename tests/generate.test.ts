@@ -82,4 +82,33 @@ describe("generateAnswer", () => {
     expect(result.citations).toEqual([]);
     expect(result.answer.toLowerCase()).toMatch(/find/);
   });
+
+  describe("MONDAY_TEST_MODE=1 offline path", () => {
+    afterEach(() => {
+      delete process.env.MONDAY_TEST_MODE;
+    });
+
+    test("returns deterministic offline body without calling the LLM", async () => {
+      process.env.MONDAY_TEST_MODE = "1";
+      const chunks: Chunk[] = [
+        {
+          id: "c1",
+          text: "Annual leave is 14 days per year.",
+          source: "hr-policy.txt",
+          heading: "Leave",
+        },
+      ];
+      const result = await generateAnswer("How many days of leave?", chunks);
+      // Offline body concatenates chunk text and appends [1].
+      expect(result.answer).toContain("Annual leave is 14 days per year.");
+      expect(result.answer).toContain("[1]");
+      // Citations are still populated from the chunks.
+      expect(result.citations).toHaveLength(1);
+      expect(result.citations[0]).toEqual({
+        number: 1,
+        source: "hr-policy.txt",
+        heading: "Leave",
+      });
+    });
+  });
 });
