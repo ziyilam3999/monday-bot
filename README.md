@@ -4,7 +4,7 @@ A Slack bot that answers team questions from internal documents (shared folders,
 
 ## Status
 
-13/13 stories shipped — see [CHANGELOG](CHANGELOG.md) / [docs/PLAN_MONDAY_BOT.md](docs/PLAN_MONDAY_BOT.md) for story-level history.
+13/13 stories shipped — see [CHANGELOG](CHANGELOG.md) / [docs/PLAN_MONDAY_BOT.md](docs/PLAN_MONDAY_BOT.md) for story-level history. For production setup see the [Deployment section below](#deployment).
 
 ## What Monday does
 
