@@ -23,6 +23,7 @@ import { formatAnswer } from "../src/slack/formatter";
 jest.setTimeout(60_000);
 
 const tmpDirs: string[] = [];
+const originalApiKey = process.env.ANTHROPIC_API_KEY;
 
 function mkTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), `monday-${prefix}-`));
@@ -39,6 +40,13 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  // Restore ANTHROPIC_API_KEY to its original value to prevent env leakage
+  // between test suites.
+  if (originalApiKey === undefined) {
+    delete process.env.ANTHROPIC_API_KEY;
+  } else {
+    process.env.ANTHROPIC_API_KEY = originalApiKey;
+  }
   for (const dir of tmpDirs) {
     rmSync(dir, { recursive: true, force: true });
   }
