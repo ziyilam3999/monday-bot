@@ -1,7 +1,14 @@
 import { App } from "@slack/bolt";
 import { MissingEnvVarError, validateEnv, AppEnv } from "./config/env";
-import { loadConfig } from "./config/config";
+import { loadConfig, AppConfig } from "./config/config";
 import { KnowledgeService } from "./knowledge/service";
+import {
+  startKnowledgeSources,
+  KnowledgeSourcesHandle,
+  Scheduler,
+} from "./knowledge/startup";
+import { ConfluenceFetcher } from "./confluence/sync";
+import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
 
 export interface RunMondayOptions {
@@ -14,12 +21,20 @@ export interface RunMondayOptions {
    * If false (jest tests), startup errors are thrown so callers can assert.
    */
   exitOnError?: boolean;
+  /** Inject a Confluence fetcher (tests). Defaults to a real one built from env. */
+  confluenceFetcher?: ConfluenceFetcher;
+  /** Inject a Jira fetcher (tests). Defaults to a real one built from env. */
+  jiraFetcher?: JiraFetcher;
+  /** Inject a scheduler (tests) so no real timers leak. */
+  scheduler?: Scheduler;
 }
 
 export interface RunMondayHandle {
   adapter: SlackAdapter;
   knowledge: KnowledgeService;
-  /** Idempotent shutdown — stops the Slack adapter and folder watchers. */
+  /** Knowledge-source sync handle (Confluence + Jira). Exposed for tests. */
+  sources: KnowledgeSourcesHandle;
+  /** Idempotent shutdown — stops the Slack adapter, folder watchers, and sync timers. */
   shutdown: () => Promise<void>;
 }
 
@@ -69,8 +84,9 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
   }
 
   let watchedFolders: string[];
+  let config: AppConfig;
   try {
-    const config = loadConfig(opts.configPath);
+    config = loadConfig(opts.configPath);
     watchedFolders = config.watchedFolders ?? [];
   } catch (err) {
     return handleStartupError(err);
@@ -85,6 +101,18 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
       console.error(`Monday: failed to watch folder ${folder}: ${message} (continuing)`);
     }
   }
+
+  // Wire Confluence + Jira knowledge sources (env-driven; skips cleanly when
+  // creds absent). Initial sync runs in the background — it MUST NOT block
+  // adapter.start() and a sync failure MUST NOT crash startup.
+  const sources = startKnowledgeSources({
+    knowledge,
+    env: process.env,
+    config,
+    confluenceFetcher: opts.confluenceFetcher,
+    jiraFetcher: opts.jiraFetcher,
+    scheduler: opts.scheduler,
+  });
 
   const appFactoryExplicitlySupplied = opts.appFactory !== undefined;
   let appFactory = opts.appFactory;
@@ -131,6 +159,7 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
       const message = err instanceof Error ? err.message : String(err);
       console.error(`Monday: error stopping Slack adapter: ${message}`);
     }
+    sources.stop();
     knowledge.stopWatching();
   };
 
@@ -163,7 +192,7 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     }
   }
 
-  return { adapter, knowledge, shutdown };
+  return { adapter, knowledge, sources, shutdown };
 }
 
 if (require.main === module) {
