@@ -99,6 +99,70 @@ pm2 logs monday             # tail logs
 pm2 restart monday          # manual restart
 ```
 
+### Run 24/7 on macOS (launchd)
+
+For an always-on, always-logged-in Mac, you can run Monday under macOS's native
+service supervisor **launchd** instead of PM2 — no extra global install. launchd
+starts Monday at login, keeps it alive, and restarts it on crash.
+
+The repo is public, so it ships a placeholder **template**
+([`deploy/launchd/com.monday-bot.plist.template`](./deploy/launchd/com.monday-bot.plist.template))
+plus an installer that resolves the real node path / repo dir / log dir on your
+machine and writes the filled plist to `~/Library/LaunchAgents/`.
+
+**Prerequisites:** `npm run build` (produces `dist/`) and a populated `.env` in
+the repo root (Monday self-loads `.env` at startup — v0.12.6+ — so no secrets go
+into the plist).
+
+```bash
+npm run build
+bash scripts/install-launchd.sh          # writes the plist, then prompts to activate
+```
+
+The installer prints the exact `launchctl` activation commands and (with your
+confirmation) runs them:
+
+```text
+launchctl bootout    gui/$(id -u)/com.monday-bot 2>/dev/null || true
+launchctl bootstrap  gui/$(id -u) ~/Library/LaunchAgents/com.monday-bot.plist
+launchctl enable     gui/$(id -u)/com.monday-bot
+launchctl kickstart -k gui/$(id -u)/com.monday-bot
+```
+
+It fails loudly if `node`, `dist/index.js`, or `.env` is missing, and it is
+idempotent — re-running tears down the old instance (`bootout`) before
+re-bootstrapping. Use `bash scripts/install-launchd.sh --print-only` to preview
+the rendered plist without writing anything.
+
+**Status & logs:**
+
+```bash
+bash scripts/install-launchd.sh status                                  # launchctl print
+tail -f ~/Library/Logs/monday-bot.out.log ~/Library/Logs/monday-bot.err.log
+```
+
+> launchd does not rotate these log files. If they grow large, truncate them
+> (e.g. `: > ~/Library/Logs/monday-bot.out.log`) — the running agent keeps appending.
+
+**Update** (after pulling new code):
+
+```bash
+npm run build
+launchctl kickstart -k gui/$(id -u)/com.monday-bot   # restart with the new dist/
+```
+
+**Uninstall:**
+
+```bash
+bash scripts/install-launchd.sh uninstall            # bootout + remove the plist
+```
+
+> **Caveat:** a **LaunchAgent** runs only while the user is logged in — which is
+> exactly right for an always-on, logged-in Mac. For pre-login / headless
+> operation you would instead need a **LaunchDaemon** in `/Library/LaunchDaemons/`
+> (installed as root, no access to the user session). That is out of scope here;
+> the cloud/headless path remains PM2 ([`ecosystem.config.js`](./ecosystem.config.js)).
+
 ### ARM Linux compatibility
 
 All runtime dependencies are pure-JS or ship ARM-compatible prebuilds:

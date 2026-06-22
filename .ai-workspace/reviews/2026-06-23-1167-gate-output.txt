@@ -1,0 +1,13 @@
+# Task #1167 execution-review oracle — gate results (verbatim)
+
+npm run build: exit 0 (tsc clean)
+bash -n scripts/install-launchd.sh: clean
+shellcheck scripts/install-launchd.sh: clean (exit 0)
+plutil -lint (rendered plist): OK
+privacy denylist: CLEAN; git grep /Users|home|user|uid in new files: 0
+
+jest full suite:
+
+VERDICT: PASS
+Test Suites: 22 passed, 22 total
+Tests:       176 passed, 176 total
