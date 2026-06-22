@@ -8,10 +8,10 @@
 # settings here rather than wiring more env vars.
 
 # Local document folders the watcher ingests on startup and on filesystem
-# events. Paths may be absolute or relative to the process CWD. Empty list
-# disables local watching entirely.
-watchedFolders:
-  - ./test-fixtures
+# events. Paths may be absolute or relative to the process CWD. An empty list
+# (the default) disables local watching entirely — the bot's knowledge then
+# comes from Confluence + Jira. Add paths here to re-enable local watching.
+watchedFolders: []
 
 # Filesystem location where the vector index, embed cache, and other
 # generated runtime artefacts are persisted. Relative to CWD.
@@ -30,6 +30,14 @@ confluence:
   # Cap on pages fetched per sync run; protects against runaway fan-out on huge
   # spaces. The REST API call uses ?limit=<this> per page.
   pageLimit: 100
+
+# Jira sync settings (#1168). The project keys, Atlassian host, email and API
+# token all come from env (JIRA_PROJECTS reuses the Confluence URL/email/token)
+# because this file is committed to a public repo. Only the cron cadence lives
+# here. Defaults to every 6 hours, mirroring confluence.schedule.
+jira:
+  # Cron expression — minute hour day month weekday. Defaults to every 6 hours.
+  schedule: "0 */6 * * *"
 
 # Top-level alias mirroring confluence.schedule for callers that want a
 # single, unambiguous "the bot's primary schedule" knob. Keep in sync with

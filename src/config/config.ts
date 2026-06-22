@@ -28,6 +28,10 @@ export interface AppConfig {
     spaces?: string[];
     pageLimit?: number;
   };
+  /** Jira sync settings (#1168). Projects/creds come from env, not here. */
+  jira?: {
+    schedule?: string;
+  };
   /** Pass-through for forward-compatible keys we haven't typed yet. */
   [key: string]: unknown;
 }
