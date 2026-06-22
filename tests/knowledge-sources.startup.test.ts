@@ -97,6 +97,9 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
 
     const fake = makeFakeScheduler();
     const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    // No `logger` is passed, so `log()` falls back to console.log — spy on it to
+    // assert the per-source index-count lines are emitted after initial sync.
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
 
     const handle = await runMonday({
       configPath: cfg,
@@ -114,11 +117,16 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     expect(handle.knowledge.getChunkCountForSource("confluence:c1")).toBe(1);
     expect(handle.knowledge.getChunkCountForSource("jira:PROJ-1")).toBe(1);
 
+    const logged = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(logged).toContain("confluence:DEMO indexed 1 pages");
+    expect(logged).toContain("jira:PROJ indexed 1 issues");
+
     // One periodic refresh scheduled per source (1 space + 1 project).
     expect(fake.registrations.length).toBe(2);
 
     await handle.shutdown();
     expect(fake.cleared).toBe(2);
+    logSpy.mockRestore();
   });
 
   it("comes up cleanly with NO Atlassian creds — no throw, no fetch, no scheduled timer", async () => {

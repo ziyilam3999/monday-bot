@@ -10,7 +10,8 @@ import { KnowledgeService } from "../knowledge/service";
  * Mirrors `src/confluence/sync.ts`: the HTTP fetcher is injected so tests drive
  * the module without real network calls. Production wiring builds a fetcher
  * around `globalThis.fetch` targeting
- * `<baseUrl>/rest/api/3/search?jql=project=<KEY>&fields=summary,description,comment`.
+ * `<baseUrl>/rest/api/3/search/jql?jql=project=<KEY>&fields=summary,description,comment`
+ * and flips through pages via the `nextPageToken` cursor the endpoint returns.
  */
 
 export interface JiraIssue {
@@ -103,10 +104,13 @@ function collapse(text: string): string {
 
 /**
  * Build a `JiraFetcher` backed by the real Atlassian REST API. Hits
- * `GET <baseUrl>/rest/api/3/search?jql=project=<KEY>&fields=summary,description,comment&maxResults=100&startAt=<n>`
- * with Basic auth (email + API token). Paginates via `startAt`/`total`, stops
- * when a returned page is empty OR `startAt >= total`. Description and comment
- * bodies are ADF objects (or plain strings / null) and are flattened to text.
+ * `GET <baseUrl>/rest/api/3/search/jql?jql=project=<KEY>&fields=summary,description,comment&maxResults=100`
+ * with Basic auth (email + API token). Paginates via the `nextPageToken` cursor:
+ * the first request omits the token, each response returns
+ * `{ issues, nextPageToken, isLast }`, and subsequent requests append
+ * `&nextPageToken=<token>`. Stops when `isLast === true` OR no token is returned.
+ * Description and comment bodies are ADF objects (or plain strings / null) and
+ * are flattened to text.
  *
  * Not used by tests — tests inject a stub fetcher OR a fake `fetchImpl`. Exposed
  * so the scheduler / CLI can wire production usage in one line.
@@ -123,16 +127,22 @@ export function buildJiraFetcher(
   const auth = Buffer.from(`${config.email}:${config.apiToken}`).toString("base64");
   const base = config.baseUrl.replace(/\/$/, "");
   const MAX_RESULTS = 100;
+  // Hard cap on pages walked — defends against a server that never sets
+  // `isLast` and keeps echoing a cursor (1000 pages * 100 = 100k issues).
+  const MAX_PAGES = 1000;
 
   return {
     async fetchIssues(projectKey: string): Promise<JiraIssue[]> {
       const out: JiraIssue[] = [];
-      let startAt = 0;
-      // Loop guard: terminate on an empty page even if `total` is stale/zero.
+      let token: string | undefined;
+      let pages = 0;
+      // Cursor pagination: the first request omits the token; each response
+      // returns the next page's cursor. Stop on `isLast === true` OR no token.
       for (;;) {
-        const url =
-          `${base}/rest/api/3/search?jql=${encodeURIComponent(`project=${projectKey}`)}` +
-          `&fields=summary,description,comment&maxResults=${MAX_RESULTS}&startAt=${startAt}`;
+        let url =
+          `${base}/rest/api/3/search/jql?jql=${encodeURIComponent(`project=${projectKey}`)}` +
+          `&fields=summary,description,comment&maxResults=${MAX_RESULTS}`;
+        if (token) url += `&nextPageToken=${encodeURIComponent(token)}`;
         const res = await fetchImpl(url, {
           headers: {
             Authorization: `Basic ${auth}`,
@@ -144,18 +154,24 @@ export function buildJiraFetcher(
             `Jira REST API returned ${res.status} ${res.statusText} for project=${projectKey}`,
           );
         }
-        const data = (await res.json()) as { issues?: unknown; total?: unknown };
+        const data = (await res.json()) as {
+          issues?: unknown;
+          nextPageToken?: unknown;
+          isLast?: unknown;
+        };
         const issues = Array.isArray(data.issues) ? data.issues : [];
-        // STOP when the returned page is empty — guards against a non-terminating
-        // loop if the API ever returns [] while total > 0 (plan-review fix B).
-        if (issues.length === 0) break;
         for (const raw of issues) {
           const mapped = toJiraIssue(raw);
           if (mapped) out.push(mapped);
         }
-        startAt += issues.length;
-        const total = typeof data.total === "number" ? data.total : undefined;
-        if (total !== undefined && startAt >= total) break;
+        token = typeof data.nextPageToken === "string" ? data.nextPageToken : undefined;
+        pages++;
+        // Primary stop: the server says this was the last page, or no cursor.
+        if (data.isLast === true || !token) break;
+        // Loop guards (server misbehaving): bail after a sane page cap, and on a
+        // 0-issue page that still hands back a token (would otherwise spin).
+        if (pages >= MAX_PAGES) break;
+        if (issues.length === 0) break;
       }
       return out;
     },

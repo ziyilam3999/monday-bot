@@ -191,7 +191,7 @@ describe("buildJiraFetcher (HTTP wiring + ADF mapping)", () => {
       status: 200,
       statusText: "OK",
       async json() {
-        return { issues: [rawIssue], total: 1, startAt: 0, maxResults: 100 };
+        return { issues: [rawIssue], isLast: true };
       },
     };
     const fetchImpl = jest.fn(async () => fakeResponse) as unknown as typeof fetch;
@@ -213,27 +213,31 @@ describe("buildJiraFetcher (HTTP wiring + ADF mapping)", () => {
     const callArgs = (fetchImpl as unknown as jest.Mock).mock.calls[0];
     const url = callArgs[0] as string;
     const init = callArgs[1] as { headers: Record<string, string> };
-    // Jira lives at the site ROOT — no /wiki.
-    expect(url).toContain("/rest/api/3/search");
+    // New JQL search endpoint at the site ROOT — no /wiki, not the removed /search?.
+    expect(url).toContain("/rest/api/3/search/jql");
     expect(url).not.toContain("/wiki");
     expect(url).toContain("jql=");
     expect(decodeURIComponent(url)).toContain("project=PROJ");
     expect(url).toContain("maxResults=100");
-    expect(url).toContain("startAt=0");
+    // First request carries no cursor.
+    expect(url).not.toContain("nextPageToken");
     expect(init.headers.Authorization).toMatch(/^Basic /);
   });
 
-  it("paginates across pages and TERMINATES on an empty page", async () => {
-    // total claims 250, but the API returns 100 + 100 + 0 (empty last page).
-    const page = (start: number, count: number) => ({
+  it("paginates via nextPageToken and STOPS on isLast:true", async () => {
+    const page = (
+      start: number,
+      count: number,
+      nextPageToken: string | undefined,
+      isLast: boolean,
+    ) => ({
       ok: true,
       status: 200,
       statusText: "OK",
       async json() {
         return {
-          total: 250,
-          startAt: start,
-          maxResults: 100,
+          nextPageToken,
+          isLast,
           issues: Array.from({ length: count }, (_, i) => ({
             key: `PROJ-${start + i}`,
             fields: { summary: `Issue ${start + i}`, description: null, comment: { comments: [] } },
@@ -241,7 +245,8 @@ describe("buildJiraFetcher (HTTP wiring + ADF mapping)", () => {
         };
       },
     });
-    const responses = [page(0, 100), page(100, 100), page(200, 0)];
+    // Page 1 hands back cursor "t1"; page 2 is the last page (no cursor).
+    const responses = [page(0, 100, "t1", false), page(100, 100, undefined, true)];
     let call = 0;
     const fetchImpl = jest.fn(async () => responses[call++]) as unknown as typeof fetch;
 
@@ -251,45 +256,14 @@ describe("buildJiraFetcher (HTTP wiring + ADF mapping)", () => {
     );
     const issues = await fetcher.fetchIssues("PROJ");
 
-    // 100 + 100 + 0; loop must stop on the empty page (no hang, no 4th fetch).
+    // 100 + 100 accumulated; loop stops on isLast:true (no 3rd fetch).
     expect(issues).toHaveLength(200);
-    expect((fetchImpl as unknown as jest.Mock).mock.calls).toHaveLength(3);
-
-    // startAt advanced across pages.
-    const urls = (fetchImpl as unknown as jest.Mock).mock.calls.map((c) => c[0] as string);
-    expect(urls[0]).toContain("startAt=0");
-    expect(urls[1]).toContain("startAt=100");
-    expect(urls[2]).toContain("startAt=200");
-  });
-
-  it("terminates when startAt >= total (short final page)", async () => {
-    const page = (start: number, count: number, total: number) => ({
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      async json() {
-        return {
-          total,
-          startAt: start,
-          maxResults: 100,
-          issues: Array.from({ length: count }, (_, i) => ({
-            key: `PROJ-${start + i}`,
-            fields: { summary: `Issue ${start + i}` },
-          })),
-        };
-      },
-    });
-    // 100 + 50 == total 150; the loop must stop after the 2nd page (no 3rd fetch).
-    const responses = [page(0, 100, 150), page(100, 50, 150)];
-    let call = 0;
-    const fetchImpl = jest.fn(async () => responses[call++]) as unknown as typeof fetch;
-    const fetcher = buildJiraFetcher(
-      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
-      fetchImpl,
-    );
-    const issues = await fetcher.fetchIssues("PROJ");
-    expect(issues).toHaveLength(150);
     expect((fetchImpl as unknown as jest.Mock).mock.calls).toHaveLength(2);
+
+    const urls = (fetchImpl as unknown as jest.Mock).mock.calls.map((c) => c[0] as string);
+    // First request omits the cursor; second carries nextPageToken=t1.
+    expect(urls[0]).not.toContain("nextPageToken");
+    expect(urls[1]).toContain("nextPageToken=t1");
   });
 
   it("throws on non-2xx HTTP", async () => {

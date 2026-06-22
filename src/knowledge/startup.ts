@@ -113,10 +113,13 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
       const sync = new ConfluenceSync({ knowledge: deps.knowledge, fetcher, logger });
       for (const space of spaces) {
         initialSyncs.push(
-          sync.syncSpace(space).catch((err) => {
-            if (logger.error) logger.error(`Confluence initial sync failed for ${space}`, err);
-            else console.error(`Confluence initial sync failed for ${space}:`, err);
-          }),
+          sync
+            .syncSpace(space)
+            .then((res) => log(`confluence:${space} indexed ${res.pagesIndexed} pages`))
+            .catch((err) => {
+              if (logger.error) logger.error(`Confluence initial sync failed for ${space}`, err);
+              else console.error(`Confluence initial sync failed for ${space}:`, err);
+            }),
         );
         timers.push(
           scheduler(() => {
@@ -143,10 +146,13 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
     const sync = new JiraSync({ knowledge: deps.knowledge, fetcher, logger });
     for (const project of projects) {
       initialSyncs.push(
-        sync.syncProject(project).catch((err) => {
-          if (logger.error) logger.error(`Jira initial sync failed for ${project}`, err);
-          else console.error(`Jira initial sync failed for ${project}:`, err);
-        }),
+        sync
+          .syncProject(project)
+          .then((res) => log(`jira:${project} indexed ${res.issuesIndexed} issues`))
+          .catch((err) => {
+            if (logger.error) logger.error(`Jira initial sync failed for ${project}`, err);
+            else console.error(`Jira initial sync failed for ${project}:`, err);
+          }),
       );
       timers.push(
         scheduler(() => {
