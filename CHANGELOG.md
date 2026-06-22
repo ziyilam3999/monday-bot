@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.6](https://github.com/ziyilam3999/monday-bot/compare/v0.12.5...v0.12.6) (2026-06-22)
+
+### Bug Fixes
+
+* load .env on CLI startup so documented setup works (#197)
+
 ## [0.12.5](https://github.com/ziyilam3999/monday-bot/compare/v0.12.4...v0.12.5) (2026-05-11)
 
 ### Miscellaneous
