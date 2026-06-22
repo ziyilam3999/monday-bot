@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.9](https://github.com/ziyilam3999/monday-bot/compare/v0.12.8...v0.12.9) (2026-06-23)
+
+### Features
+
+* add a macOS launchd LaunchAgent (deploy/launchd template + scripts/install-launchd.sh + README) to run the bot 24/7 locally with restart-on-crash; PM2 ecosystem.config.js kept for the cloud path (#1167) (#203)
+
 ## [0.12.8](https://github.com/ziyilam3999/monday-bot/compare/v0.12.7...v0.12.8) (2026-06-23)
 
 ### Bug Fixes
