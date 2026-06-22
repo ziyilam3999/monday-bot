@@ -20,7 +20,7 @@
  *      on stderr at startup and is ignored.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,8 +43,10 @@ beforeAll(() => {
   // (G1) Build dist before spawning — bare `npm test` does not build, and the
   // child reads dist/index.js. CI builds first, but this keeps the test
   // self-contained locally and guarantees the dist reflects CURRENT source.
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(npm, ["run", "build"], { cwd: REPO_ROOT, stdio: "ignore" });
+  // Use execSync (runs through a shell) so `npm` resolves on every platform —
+  // execFileSync("npm.cmd", …) trips Node's Windows batch-file-without-shell
+  // guard and throws a circular Error that jest can't serialize.
+  execSync("npm run build", { cwd: REPO_ROOT, stdio: "ignore" });
 });
 
 afterAll(() => {
