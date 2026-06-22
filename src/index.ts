@@ -167,6 +167,13 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
 }
 
 if (require.main === module) {
+  // Load .env for the CLI entry path only. Native (Node >=20.12), dependency-free.
+  // A missing .env is fine — fall back to shell-exported env vars.
+  try {
+    process.loadEnvFile();
+  } catch {
+    /* no .env file — rely on shell-exported env vars */
+  }
   runMonday().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Monday: unhandled error during startup: ${message}`);
