@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.14](https://github.com/ziyilam3999/monday-bot/compare/v0.12.13...v0.12.14) (2026-06-23)
+
+### Bug Fixes
+
+* strengthen the answer system prompt's lead-with-found rule (#1066 UAT iteration 2). The v0.12.11 reorder was too weak — a live retest of "how do I set up my local development environment?" still opened with abstention ("I couldn't find specific instructions… The context includes a checklist [1]…") even though the relevant Initial-Setup ticket WAS retrieved. Make the rule forceful: whenever the context holds material RELEVANT to the question the answer MUST OPEN with what IS covered (cite `[N]`) and note gaps only after; the "I couldn't find any relevant information" opener is now reserved strictly for genuinely off-topic context (clean refusal, no citations), keyed on relevance not "chunks retrieved". Anchored with a GOOD/BAD/ABSTAIN contrast example in the prompt and a third prompt-integrity assertion locking the strengthening. Prompt-only — `selectCitedCitations` and the formatter are untouched (#214)
+
 ## [0.12.13](https://github.com/ziyilam3999/monday-bot/compare/v0.12.12...v0.12.13) (2026-06-23)
 
 ### Bug Fixes
