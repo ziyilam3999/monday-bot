@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.10](https://github.com/ziyilam3999/monday-bot/compare/v0.12.9...v0.12.10) (2026-06-23)
+
+### Bug Fixes
+
+* rename the two admin slash commands that collide with Slack's reserved built-in words — `/status` → `/status-monday` and `/feedback` → `/feedback-monday`; `/ask`, `/sync-confluence`, `/reindex`, `/help` are unchanged. Pure rename, no behavior change (#1066) (#205)
+
 ## [0.12.9](https://github.com/ziyilam3999/monday-bot/compare/v0.12.8...v0.12.9) (2026-06-23)
 
 ### Features
