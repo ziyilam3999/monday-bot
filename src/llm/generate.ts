@@ -3,7 +3,7 @@ import { getClient } from "./anthropicClient";
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 1024;
 
-const SYSTEM_PROMPT =
+export const SYSTEM_PROMPT =
   "You answer factually from the provided context only. " +
   "Lead with what you DID find in the context and cite it with inline [N] citations that map to the numbered sources in the context block; " +
   "only after stating what you found, note any remaining gap. " +
