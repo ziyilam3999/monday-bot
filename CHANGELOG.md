@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.13](https://github.com/ziyilam3999/monday-bot/compare/v0.12.12...v0.12.13) (2026-06-23)
+
+### Bug Fixes
+
+* add an automatic privacy CI gate — a `pull_request` workflow that scans the PR's added diff lines for regulated employer denylist tokens and fails closed on any hit, with an always-on absolute-home-path guard; the denylist tokens live only in the `PRIVACY_DENYLIST_TOKENS` GitHub Actions secret, never in the workflow, the script, or any committed file. Also fix `.gitignore` to ignore the auto-symlinked `node_modules` (slash-less pattern) and add a Layer-B unit test that locks the answer system prompt's abstain and lead-with-found clauses against silent regression (#1169) (#212)
+
 ## [0.12.12](https://github.com/ziyilam3999/monday-bot/compare/v0.12.11...v0.12.12) (2026-06-23)
 
 ### Bug Fixes
