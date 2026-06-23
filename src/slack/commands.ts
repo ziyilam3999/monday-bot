@@ -2,8 +2,8 @@
  * Admin slash command handlers for the Slack adapter (US-09).
  *
  * Each handler is a plain function so it can be unit-tested without the Bolt
- * runtime. The adapter wires them onto specific slash commands (`/status`,
- * `/sync-confluence`, `/reindex`, `/help`, `/feedback`).
+ * runtime. The adapter wires them onto specific slash commands (`/status-monday`,
+ * `/sync-confluence`, `/reindex`, `/help`, `/feedback-monday`).
  *
  * Handlers are intentionally tolerant of partial service shapes — the AC tests
  * pass `{}` or a minimal mock object — and never throw on missing methods.
@@ -37,11 +37,11 @@ export type CommandHandler = (
 
 const AVAILABLE_COMMANDS: ReadonlyArray<{ name: string; description: string }> = [
   { name: "/ask <question>", description: "Ask the bot a question against the indexed docs." },
-  { name: "/status", description: "Show document count, watcher status, and uptime." },
+  { name: "/status-monday", description: "Show document count, watcher status, and uptime." },
   { name: "/sync-confluence [space]", description: "Trigger a fresh sync of the Confluence space." },
   { name: "/reindex", description: "Re-index all watched files and Confluence pages." },
   { name: "/help", description: "Show this help message." },
-  { name: "/feedback <message>", description: "Send feedback to the bot maintainers." },
+  { name: "/feedback-monday <message>", description: "Send feedback to the bot maintainers." },
 ];
 
 function formatUptime(totalSeconds: number): string {
@@ -57,7 +57,7 @@ function formatUptime(totalSeconds: number): string {
 }
 
 /**
- * `/status` — synchronous, returns a one-line summary string. Reads from
+ * `/status-monday` — synchronous, returns a one-line summary string. Reads from
  * `service.getStatus()`. If the service is missing or doesn't expose
  * `getStatus`, returns a degraded but still well-formed string so the AC's
  * regexes still pass for callers that pass a richer mock.
@@ -117,14 +117,14 @@ export const helpCommand: CommandHandler = () => {
 };
 
 /**
- * `/feedback <message>` — capture user feedback. By default we log to stdout so
+ * `/feedback-monday <message>` — capture user feedback. By default we log to stdout so
  * operators can grep the bot logs; production wiring can supply
  * `service.recordFeedback` to forward to a ticket system.
  */
 export const feedbackCommand: CommandHandler = (service, message) => {
   const text = typeof message === "string" ? message.trim() : "";
   if (text.length === 0) {
-    return "Usage: /feedback <message> — please include a description of what was wrong.";
+    return "Usage: /feedback-monday <message> — please include a description of what was wrong.";
   }
   if (service && typeof service.recordFeedback === "function") {
     try {
