@@ -36,7 +36,7 @@ Build + test (oracle):
 - `npm run build` (tsc) → clean, no errors.
 - `npm test` → Test Suites: 22 passed, 22 total; Tests: 176 passed, 176 total. GREEN.
 
-Privacy (public repo): `git grep -inE 'burrox|getspace' HEAD -- .` → PRIVACY CLEAN (zero hits).
+Privacy (public repo): grepped the final tree for the regulated employer-brand / host denylist tokens (patterns kept out of this public-repo artifact) → PRIVACY CLEAN (zero hits).
 
 cairn: "[T1] ...slash commands (including `/compact`) are parsed CLIENT-SIDE by the..." — prior hits concern Claude Code client-side slash-command parsing, not Slack command registration; no directly applicable lesson for this rename.
 
