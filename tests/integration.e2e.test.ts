@@ -134,18 +134,22 @@ describe("US-12 e2e: full query round-trip", () => {
       lower.includes("8.30") ||
       lower.includes("eight thirty");
 
-    // Either the LLM (jest stub) returned an answer that quotes the fact,
-    // OR the offline-fallback path concatenated chunk text directly. Either
-    // way, the citations must point back to both formats.
+    // Both formats are indexed and survive the pipeline (parity at the index
+    // layer). Under cited-only citation filtering, the rendered citations carry
+    // only the source(s) the answer actually pointed at with [N] markers — the
+    // stub answer cites [1], so exactly the top-ranked source appears, and it
+    // must be one of the two parity formats.
+    expect(svc.getStatus().documentCount).toBe(2);
     const sources = result.citations.map((c) => c.source);
-    expect(sources).toEqual(
-      expect.arrayContaining(["office-hours.txt", "office-hours.md"]),
-    );
+    expect(sources.length).toBeGreaterThanOrEqual(1);
+    for (const s of sources) {
+      expect(["office-hours.txt", "office-hours.md"]).toContain(s);
+    }
 
     // The Anthropic stub returns generic text that may not contain "8:30",
     // so we accept EITHER (a) the answer carries the fact, OR (b) the
-    // citation set carries both source formats — both prove parity.
-    expect(hasFact || sources.length >= 2).toBe(true);
+    // cited-only citation set still resolves to a parity source.
+    expect(hasFact || sources.length >= 1).toBe(true);
   });
 
   it("AC-03 supplement: PDF/DOCX format parity via indexChunks (parser-agnostic)", async () => {
@@ -162,11 +166,17 @@ describe("US-12 e2e: full query round-trip", () => {
     await svc.indexChunks(pages);
 
     const result = await svc.query("what time does the office open?");
+    // All four formats survive indexing regardless of parser (the parser-
+    // agnostic property), proven at the index layer by the unique-source count.
+    expect(svc.getStatus().documentCount).toBe(4);
+    // Under cited-only citation filtering the answer cites [1], so the rendered
+    // citations carry only the top-ranked source — which must be one of the
+    // four indexed formats.
     const sources = result.citations.map((c) => c.source);
-    // All four formats survive into the citation set.
-    expect(sources).toEqual(
-      expect.arrayContaining(["hours.txt", "hours.md", "hours.pdf", "hours.docx"]),
-    );
+    expect(sources.length).toBeGreaterThanOrEqual(1);
+    for (const s of sources) {
+      expect(["hours.txt", "hours.md", "hours.pdf", "hours.docx"]).toContain(s);
+    }
   });
 
   it("e2e: documentCount tracks unique sources after a mixed pipeline", async () => {

@@ -5,12 +5,35 @@ const MAX_TOKENS = 1024;
 
 const SYSTEM_PROMPT =
   "You answer factually from the provided context only. " +
-  "Use inline [N] citations that map to the numbered sources in the context block, " +
-  "never cite outside the numbered list, and if the context is insufficient say you couldn't find the information. " +
+  "Lead with what you DID find in the context and cite it with inline [N] citations that map to the numbered sources in the context block; " +
+  "only after stating what you found, note any remaining gap. " +
+  "Never cite outside the numbered list. " +
+  "If the context contains no relevant information, say you couldn't find the information. " +
   "Keep answers concise (target 50-400 words) and suitable for a Slack message.";
 
-const NO_CONTEXT_ANSWER =
+export const NO_CONTEXT_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
+
+/**
+ * Pure helper: return ONLY the citations whose `number` actually appears as an
+ * inline `[N]` marker in `answer`, keeping their original numbers and order.
+ *
+ * - Parses the distinct `[N]` markers present in the answer text.
+ * - If no `[N]` markers appear (e.g. refusals / NO_CONTEXT_ANSWER), returns [].
+ * - Defensive: non-string `answer` or non-array `citations` -> [].
+ */
+export function selectCitedCitations(
+  answer: string,
+  citations: Citation[],
+): Citation[] {
+  if (typeof answer !== "string" || !Array.isArray(citations)) return [];
+  const cited = new Set<number>();
+  for (const m of answer.matchAll(/\[(\d+)\]/g)) {
+    cited.add(Number(m[1]));
+  }
+  if (cited.size === 0) return [];
+  return citations.filter((c) => cited.has(c.number));
+}
 
 /**
  * Offline / test-mode flag. When set (or when no Anthropic credentials are
@@ -43,7 +66,7 @@ function offlineAnswer(chunks: Chunk[]): AnswerResult {
       : NO_CONTEXT_ANSWER;
   return {
     answer,
-    citations: buildCitations(chunks),
+    citations: selectCitedCitations(answer, buildCitations(chunks)),
   };
 }
 
@@ -144,6 +167,6 @@ export async function generateAnswer(
 
   return {
     answer: text,
-    citations: buildCitations(chunks),
+    citations: selectCitedCitations(text, buildCitations(chunks)),
   };
 }
