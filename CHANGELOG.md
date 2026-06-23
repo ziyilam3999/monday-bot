@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.12](https://github.com/ziyilam3999/monday-bot/compare/v0.12.11...v0.12.12) (2026-06-23)
+
+### Bug Fixes
+
+* wire the `/sync-confluence` and `/reindex` admin slash commands to real on-demand re-sync — they previously returned "… is not configured on this bot." because the adapter's admin surface (the knowledge service) exposed `getStatus()` but no sync/reindex methods. Expose `syncConfluence()`/`reindexAll()` on the knowledge-sources handle and forward the commands to them via an `adminService` in `index.ts`; `/status-monday` is unchanged. Also adds a durable feedback file sink (`MONDAY_FEEDBACK_LOG`) (#1171) (#210)
+
 ## [0.12.11](https://github.com/ziyilam3999/monday-bot/compare/v0.12.10...v0.12.11) (2026-06-23)
 
 ### Bug Fixes
