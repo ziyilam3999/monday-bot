@@ -29,8 +29,8 @@ export interface SlackAdapterOptions {
   /** Knowledge service used to answer questions. Required. */
   knowledgeService: AnswerProvider | null | undefined;
   /**
-   * Optional admin surface used by /status, /sync-confluence, /reindex,
-   * /feedback. May be the same object as `knowledgeService` if it implements
+   * Optional admin surface used by /status-monday, /sync-confluence, /reindex,
+   * /feedback-monday. May be the same object as `knowledgeService` if it implements
    * both contracts. Missing methods degrade to "not configured" responses.
    */
   adminService?: AdminService;
@@ -92,7 +92,7 @@ export class SlackAdapter {
     this.appToken = opts.appToken.trim();
     this.knowledgeService = opts.knowledgeService;
     // Default: if the knowledgeService object also exposes admin methods (e.g.
-    // KnowledgeService's getStatus()), use it for /status. Otherwise the admin
+    // KnowledgeService's getStatus()), use it for /status-monday. Otherwise the admin
     // surface is empty and individual handlers degrade to "not configured".
     this.adminService = opts.adminService ?? (opts.knowledgeService as unknown as AdminService);
 
@@ -193,13 +193,13 @@ export class SlackAdapter {
       }
     });
 
-    this.registerAdminCommand("/status", (_args, _text) => statusCommand(this.adminService));
+    this.registerAdminCommand("/status-monday", (_args, _text) => statusCommand(this.adminService));
     this.registerAdminCommand("/sync-confluence", (_args, text) =>
       syncConfluenceCommand(this.adminService, text),
     );
     this.registerAdminCommand("/reindex", (_args, _text) => reindexCommand(this.adminService));
     this.registerAdminCommand("/help", (_args, _text) => helpCommand(this.adminService));
-    this.registerAdminCommand("/feedback", (_args, text) =>
+    this.registerAdminCommand("/feedback-monday", (_args, text) =>
       feedbackCommand(this.adminService, text),
     );
   }
