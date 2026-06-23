@@ -43,6 +43,20 @@ export interface KnowledgeSourcesHandle {
   stop(): void;
   /** Resolves once all initial syncs have settled (never rejects). */
   ready: Promise<void>;
+  /**
+   * On-demand Confluence re-sync. Re-syncs the given space (if provided) or all
+   * configured spaces. Returns a human-readable summary; never throws (errors
+   * are caught + returned as a summary). "Confluence is not configured" when no
+   * Confluence sync is wired (no creds OR no CONFLUENCE_SPACES).
+   */
+  syncConfluence(spaceKey?: string): Promise<string>;
+  /**
+   * Re-run every configured Confluence space + Jira project. Returns a summary;
+   * never throws. Note: watched folders are kept live continuously by the folder
+   * watchers and KnowledgeService exposes no on-demand folder-rescan method, so
+   * reindexAll intentionally covers Confluence + Jira only.
+   */
+  reindexAll(): Promise<string>;
 }
 
 /** Default scheduler: an unref'd setInterval so it never blocks process exit. */
@@ -93,6 +107,14 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
   const timers: ScheduledTimer[] = [];
   const initialSyncs: Array<Promise<unknown>> = [];
 
+  // Hoisted so the returned handle can reach them for on-demand re-sync. These
+  // stay `undefined`/empty unless the corresponding source is actually wired
+  // (creds present AND a non-empty space/project list).
+  let confluenceSync: ConfluenceSync | undefined;
+  const confluenceSpaces: string[] = [];
+  let jiraSync: JiraSync | undefined;
+  const jiraProjects: string[] = [];
+
   const intervalMs = resolveIntervalMs(config);
 
   // ── Confluence ──────────────────────────────────────────────────────────
@@ -111,6 +133,8 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
         deps.confluenceFetcher ??
         buildConfluenceFetcher({ baseUrl: siteRoot, email: email!, apiToken: apiToken! });
       const sync = new ConfluenceSync({ knowledge: deps.knowledge, fetcher, logger });
+      confluenceSync = sync;
+      confluenceSpaces.push(...spaces);
       for (const space of spaces) {
         initialSyncs.push(
           sync
@@ -144,6 +168,8 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
       deps.jiraFetcher ??
       buildJiraFetcher({ baseUrl: siteRoot, email: email!, apiToken: apiToken! });
     const sync = new JiraSync({ knowledge: deps.knowledge, fetcher, logger });
+    jiraSync = sync;
+    jiraProjects.push(...projects);
     for (const project of projects) {
       initialSyncs.push(
         sync
@@ -186,7 +212,61 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
     timers.length = 0;
   };
 
-  return { stop, ready };
+  /**
+   * On-demand Confluence re-sync — covers BOTH no-creds AND creds-but-no-spaces
+   * (confluenceSync stays undefined in both cases). Non-throwing.
+   */
+  const syncConfluence = async (spaceKey?: string): Promise<string> => {
+    if (!confluenceSync) return "Confluence is not configured";
+    const sync = confluenceSync;
+    const targets = spaceKey && spaceKey.length > 0 ? [spaceKey] : confluenceSpaces;
+    try {
+      const parts: string[] = [];
+      for (const space of targets) {
+        const res = await sync.syncSpace(space);
+        parts.push(`${space} (${res.pagesIndexed} pages)`);
+      }
+      return `Re-synced confluence: ${parts.join(", ")}`;
+    } catch (err) {
+      return `Confluence sync failed: ${(err as Error)?.message ?? "unknown error"}`;
+    }
+  };
+
+  /**
+   * Re-run every configured Confluence space + Jira project. Handles partial
+   * config (confluence-only / jira-only) and reports each configured source.
+   * Non-throwing. Watched folders are intentionally excluded — folder watchers
+   * keep them live continuously and KnowledgeService exposes no folder-rescan.
+   */
+  const reindexAll = async (): Promise<string> => {
+    try {
+      const parts: string[] = [];
+      if (confluenceSync) {
+        const sync = confluenceSync;
+        let pages = 0;
+        for (const space of confluenceSpaces) {
+          const res = await sync.syncSpace(space);
+          pages += res.pagesIndexed;
+        }
+        parts.push(`confluence ${pages} pages`);
+      }
+      if (jiraSync) {
+        const sync = jiraSync;
+        let issues = 0;
+        for (const project of jiraProjects) {
+          const res = await sync.syncProject(project);
+          issues += res.issuesIndexed;
+        }
+        parts.push(`jira ${issues} issues`);
+      }
+      if (parts.length === 0) return "Nothing configured to reindex";
+      return `Reindexed: ${parts.join(", ")}`;
+    } catch (err) {
+      return `Reindex failed: ${(err as Error)?.message ?? "unknown error"}`;
+    }
+  };
+
+  return { stop, ready, syncConfluence, reindexAll };
 }
 
 /**

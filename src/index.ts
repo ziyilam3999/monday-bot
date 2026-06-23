@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { App } from "@slack/bolt";
 import { MissingEnvVarError, validateEnv, AppEnv } from "./config/env";
 import { loadConfig, AppConfig } from "./config/config";
@@ -10,6 +13,7 @@ import {
 import { ConfluenceFetcher } from "./confluence/sync";
 import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
+import { AdminService } from "./slack/commands";
 
 export interface RunMondayOptions {
   /** Override Bolt App factory (jest tests + AC-06 shell-spawn path). */
@@ -54,6 +58,27 @@ function createFakeAppFactory(): AppFactory {
       stop: async () => undefined,
     } as unknown as App;
   }) as AppFactory;
+}
+
+/**
+ * Durable feedback sink. Echoes to stdout (`[feedback] …`, unchanged) AND
+ * best-effort appends a timestamped line to a log file. Resolves the path from
+ * `MONDAY_FEEDBACK_LOG` (override) else `~/Library/Logs/monday-bot-feedback.log`.
+ * ALL file I/O is wrapped in try/catch that SWALLOWS errors — a read-only FS or
+ * a missing dir (ubuntu/windows CI) must never throw.
+ */
+export function recordFeedbackToSink(message: string): void {
+  // eslint-disable-next-line no-console
+  console.log(`[feedback] ${message}`);
+  try {
+    const logPath =
+      process.env.MONDAY_FEEDBACK_LOG ??
+      path.join(os.homedir(), "Library", "Logs", "monday-bot-feedback.log");
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    /* best-effort — never throw (read-only FS / CI must not break) */
+  }
 }
 
 export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayHandle> {
@@ -120,12 +145,23 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     appFactory = createFakeAppFactory();
   }
 
+  // Admin surface for the Slack slash commands. /status-monday keeps its real
+  // doc count via knowledge.getStatus(); /sync-confluence + /reindex forward to
+  // the on-demand re-sync methods on the knowledge-sources handle.
+  const adminService: AdminService = {
+    getStatus: () => knowledge.getStatus(),
+    syncConfluence: (spaceKey?: string) => sources.syncConfluence(spaceKey),
+    reindex: () => sources.reindexAll(),
+    recordFeedback: (message: string) => recordFeedbackToSink(message),
+  };
+
   let adapter: SlackAdapter;
   try {
     adapter = new SlackAdapter({
       botToken: env.slackBotToken,
       appToken: env.slackAppToken,
       knowledgeService: knowledge,
+      adminService,
       appFactory,
     });
   } catch (err) {

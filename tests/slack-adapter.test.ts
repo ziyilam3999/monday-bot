@@ -194,6 +194,81 @@ describe("slack/adapter — handler registration & dispatch", () => {
   });
 });
 
+describe("slack/adapter — admin commands wired through adminService", () => {
+  it("/sync-confluence + /reindex route to the adminService and surface its summary", async () => {
+    const syncArgs: Array<string | undefined> = [];
+    const adminService = {
+      syncConfluence: async (spaceKey?: string) => {
+        syncArgs.push(spaceKey);
+        return "Re-synced confluence: DEMO (2 pages)";
+      },
+      reindex: async () => "Reindexed: confluence 2 pages",
+    };
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: fakeKnowledge(),
+      adminService,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerCommand(name: string, cmd: unknown): Promise<void>;
+      _ackCalls: number;
+      _respondMessages: Array<{ response_type: string; text: string }>;
+    };
+
+    await fakeApp._triggerCommand("/sync-confluence", { text: "" });
+    expect(fakeApp._ackCalls).toBe(1);
+    expect(fakeApp._respondMessages[0].text).toContain("Re-synced confluence: DEMO (2 pages)");
+    expect(fakeApp._respondMessages[0].text.toLowerCase()).not.toContain("not configured");
+
+    await fakeApp._triggerCommand("/reindex", {});
+    expect(fakeApp._ackCalls).toBe(2);
+    expect(fakeApp._respondMessages[1].text).toContain("Reindexed: confluence 2 pages");
+    expect(fakeApp._respondMessages[1].text.toLowerCase()).not.toContain("not configured");
+  });
+
+  it("/sync-confluence forwards the space argument to adminService.syncConfluence", async () => {
+    const syncArgs: Array<string | undefined> = [];
+    const adminService = {
+      syncConfluence: async (spaceKey?: string) => {
+        syncArgs.push(spaceKey);
+        return `Re-synced confluence: ${spaceKey} (1 pages)`;
+      },
+    };
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: fakeKnowledge(),
+      adminService,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerCommand(name: string, cmd: unknown): Promise<void>;
+      _respondMessages: Array<{ text: string }>;
+    };
+
+    await fakeApp._triggerCommand("/sync-confluence", { text: "DEMO" });
+    expect(syncArgs).toEqual(["DEMO"]);
+    expect(fakeApp._respondMessages[0].text).toContain("DEMO");
+  });
+
+  it("back-compat: NO adminService → /reindex hits the default 'not configured' guard", async () => {
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      // knowledgeService has only query() — no admin methods, so the default
+      // adminService (= knowledgeService) exposes no reindex().
+      knowledgeService: fakeKnowledge(),
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerCommand(name: string, cmd: unknown): Promise<void>;
+      _respondMessages: Array<{ text: string }>;
+    };
+
+    await fakeApp._triggerCommand("/reindex", {});
+    expect(fakeApp._respondMessages[0].text.toLowerCase()).toContain("not configured");
+  });
+});
+
 describe("slack/adapter — start/stop", () => {
   it("start() and stop() delegate to the underlying app", async () => {
     const adapter = new SlackAdapter({

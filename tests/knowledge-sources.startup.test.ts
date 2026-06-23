@@ -206,6 +206,122 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     errSpy.mockRestore();
   });
 
+  it("handle.sources.syncConfluence() + reindexAll() re-sync configured sources", async () => {
+    process.env.SLACK_BOT_TOKEN = BOT_TOKEN;
+    process.env.SLACK_APP_TOKEN = APP_TOKEN;
+    process.env.CONFLUENCE_URL = "https://example.atlassian.net/wiki";
+    process.env.CONFLUENCE_EMAIL = "a@b.c";
+    process.env.CONFLUENCE_API_TOKEN = "tok";
+    process.env.CONFLUENCE_SPACES = "DEMO";
+    process.env.JIRA_PROJECTS = "PROJ";
+
+    const confluenceFetcher: ConfluenceFetcher = {
+      async fetchPages(spaceKey: string) {
+        return [
+          { id: "c1", title: "Onboarding", body: "Welcome", source: "confluence:c1", spaceKey },
+        ];
+      },
+    };
+    const jiraFetcher: JiraFetcher = {
+      async fetchIssues(projectKey: string) {
+        return [{ key: `${projectKey}-1`, summary: "Bug", descriptionText: "broken", commentTexts: [] }];
+      },
+    };
+
+    const fake = makeFakeScheduler();
+    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const handle = await runMonday({
+      configPath: cfg,
+      exitOnError: false,
+      confluenceFetcher,
+      jiraFetcher,
+      scheduler: fake.scheduler,
+    });
+
+    await handle.sources.ready;
+
+    const syncMsg = await handle.sources.syncConfluence();
+    expect(syncMsg).toMatch(/Re-synced confluence/);
+    expect(syncMsg).toMatch(/DEMO \(1 pages\)/);
+
+    const reindexMsg = await handle.sources.reindexAll();
+    expect(reindexMsg).toMatch(/Reindexed: confluence \d+ pages, jira \d+ issues/);
+
+    // Single-space arg path also works.
+    const oneSpace = await handle.sources.syncConfluence("DEMO");
+    expect(oneSpace).toMatch(/DEMO \(1 pages\)/);
+
+    await handle.shutdown();
+    logSpy.mockRestore();
+  });
+
+  it("NO creds → syncConfluence() not configured; reindexAll() nothing to reindex", async () => {
+    process.env.SLACK_BOT_TOKEN = BOT_TOKEN;
+    process.env.SLACK_APP_TOKEN = APP_TOKEN;
+
+    const fake = makeFakeScheduler();
+    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+
+    const handle = await runMonday({
+      configPath: cfg,
+      exitOnError: false,
+      scheduler: fake.scheduler,
+    });
+
+    await handle.sources.ready;
+
+    expect(await handle.sources.syncConfluence()).toMatch(/not configured/i);
+    expect(await handle.sources.reindexAll()).toMatch(/Nothing configured to reindex/i);
+
+    await handle.shutdown();
+  });
+
+  it("creds present but CONFLUENCE_SPACES empty → confluence not configured; reindex is jira-only", async () => {
+    process.env.SLACK_BOT_TOKEN = BOT_TOKEN;
+    process.env.SLACK_APP_TOKEN = APP_TOKEN;
+    process.env.CONFLUENCE_URL = "https://example.atlassian.net/wiki";
+    process.env.CONFLUENCE_EMAIL = "a@b.c";
+    process.env.CONFLUENCE_API_TOKEN = "tok";
+    // CONFLUENCE_SPACES intentionally unset.
+    process.env.JIRA_PROJECTS = "PROJ";
+
+    const confluenceFetcher: ConfluenceFetcher = {
+      async fetchPages() {
+        throw new Error("confluence should not be synced");
+      },
+    };
+    const jiraFetcher: JiraFetcher = {
+      async fetchIssues(projectKey: string) {
+        return [{ key: `${projectKey}-1`, summary: "Bug", descriptionText: "broken", commentTexts: [] }];
+      },
+    };
+
+    const fake = makeFakeScheduler();
+    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const handle = await runMonday({
+      configPath: cfg,
+      exitOnError: false,
+      confluenceFetcher,
+      jiraFetcher,
+      scheduler: fake.scheduler,
+    });
+
+    await handle.sources.ready;
+
+    expect(await handle.sources.syncConfluence()).toMatch(/not configured/i);
+
+    const reindexMsg = await handle.sources.reindexAll();
+    expect(reindexMsg).toMatch(/Reindexed: jira \d+ issues/);
+    expect(reindexMsg).not.toContain("confluence");
+
+    await handle.shutdown();
+    logSpy.mockRestore();
+  });
+
   it("empty watchedFolders → watchFolder is never called (AC-5 parity)", async () => {
     process.env.SLACK_BOT_TOKEN = BOT_TOKEN;
     process.env.SLACK_APP_TOKEN = APP_TOKEN;
