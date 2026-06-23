@@ -170,3 +170,45 @@ describe("runMonday — folder watcher attachment (AC-5)", () => {
     errSpy.mockRestore();
   });
 });
+
+describe("recordFeedbackToSink — durable feedback file sink", () => {
+  it("writes a line to MONDAY_FEEDBACK_LOG AND echoes a [feedback] stdout line", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { recordFeedbackToSink } = require("../src/index") as typeof import("../src/index");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monday-feedback-"));
+    const logPath = path.join(dir, "feedback.log");
+    const saved = process.env.MONDAY_FEEDBACK_LOG;
+    process.env.MONDAY_FEEDBACK_LOG = logPath;
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      recordFeedbackToSink("VPN answer was wrong");
+      const contents = fs.readFileSync(logPath, "utf8");
+      expect(contents).toContain("VPN answer was wrong");
+      const printed = logSpy.mock.calls.map((c) => String(c[0]));
+      expect(printed.some((l) => l.includes("[feedback] VPN answer was wrong"))).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+      if (saved === undefined) delete process.env.MONDAY_FEEDBACK_LOG;
+      else process.env.MONDAY_FEEDBACK_LOG = saved;
+    }
+  });
+
+  it("never throws when the log path is unwritable", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { recordFeedbackToSink } = require("../src/index") as typeof import("../src/index");
+    const saved = process.env.MONDAY_FEEDBACK_LOG;
+    // A path whose parent is an existing FILE (not a dir) → mkdir/append fail.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "monday-feedback-bad-"));
+    const fileAsParent = path.join(dir, "afile");
+    fs.writeFileSync(fileAsParent, "x", "utf8");
+    process.env.MONDAY_FEEDBACK_LOG = path.join(fileAsParent, "nested", "feedback.log");
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      expect(() => recordFeedbackToSink("should not throw")).not.toThrow();
+    } finally {
+      logSpy.mockRestore();
+      if (saved === undefined) delete process.env.MONDAY_FEEDBACK_LOG;
+      else process.env.MONDAY_FEEDBACK_LOG = saved;
+    }
+  });
+});
