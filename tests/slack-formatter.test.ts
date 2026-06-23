@@ -88,6 +88,24 @@ describe("slack/formatter", () => {
     }
   });
 
+  it("sanitizes stray markdown in the source/heading title", () => {
+    const payload = formatAnswer({
+      answer: "See the doc. [1]",
+      citations: [{ num: 1, source: "**Important** Guide", heading: "`code`" }],
+    });
+    const ctx = payload.blocks.find((b) => b.type === "context");
+    expect(ctx).toBeDefined();
+    if (ctx && ctx.type === "context") {
+      const text = ctx.elements[0].text;
+      expect(text).not.toContain("**");
+      expect(text).not.toContain("`");
+      // Sanitized visible words survive.
+      expect(text).toContain("Important");
+      expect(text).toContain("Guide");
+      expect(text).toContain("code");
+    }
+  });
+
   it("throws TypeError on bad input", () => {
     expect(() => formatAnswer(undefined as never)).toThrow(TypeError);
     expect(() => formatAnswer({ answer: 123 as never })).toThrow(TypeError);

@@ -64,6 +64,21 @@ function citationNumber(c: FormatterCitationInput): number {
 }
 
 /**
+ * Sanitize a source/heading title for safe rendering inside a Slack mrkdwn
+ * context line. Escapes Slack's required HTML chars (`& < >`, in that order)
+ * and strips the emphasis/code chars (`* ~` and backtick) that break layout
+ * when they appear unbalanced (e.g. a stray `**`). Underscore is left intact —
+ * it is legitimate in filenames and only italicizes in matched pairs.
+ */
+function sanitizeTitle(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/[*~`]/g, "");
+}
+
+/**
  * Format a `{ answer, citations }` payload into a Slack Block Kit message.
  *
  * Layout:
@@ -97,10 +112,13 @@ export function formatAnswer(input: FormatAnswerInput): SlackMessagePayload {
 
     const lines: SlackTextObject[] = citations.map((c) => {
       const n = citationNumber(c);
-      const heading = typeof c.heading === "string" && c.heading.length > 0 ? ` — ${c.heading}` : "";
+      const heading =
+        typeof c.heading === "string" && c.heading.length > 0
+          ? ` — ${sanitizeTitle(c.heading)}`
+          : "";
       return {
         type: "mrkdwn",
-        text: `*[${n}]* ${c.source}${heading}`,
+        text: `*[${n}]* ${sanitizeTitle(c.source)}${heading}`,
       };
     });
 
