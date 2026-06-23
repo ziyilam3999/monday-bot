@@ -5,6 +5,12 @@ All notable changes to monday-bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.11](https://github.com/ziyilam3999/monday-bot/compare/v0.12.10...v0.12.11) (2026-06-23)
+
+### Bug Fixes
+
+* answer/citation hygiene (#1066 UAT slice 1): show only the sources the answer actually cited via `[N]` markers (refusals now render no source list), reorder the system prompt to lead with what was found before noting gaps, and sanitize source/heading titles so a stray `**` no longer breaks the Slack context block (#208)
+
 ## [0.12.10](https://github.com/ziyilam3999/monday-bot/compare/v0.12.9...v0.12.10) (2026-06-23)
 
 ### Bug Fixes
