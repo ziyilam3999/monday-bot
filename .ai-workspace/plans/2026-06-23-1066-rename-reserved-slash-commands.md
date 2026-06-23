@@ -60,7 +60,7 @@ command names are generic. Run a privacy grep over the diff before push.
 - `git grep -n '"/status-monday"'` and `git grep -n '"/feedback-monday"'` over `src/` each
   return at least the adapter registration + the commands.ts AVAILABLE_COMMANDS entry.
 - `/ask`, `/sync-confluence`, `/reindex`, `/help` strings are unchanged in `src/`.
-- Privacy grep `git grep -iE 'burrox|getspace|<employer-host>'` over the diff returns ZERO hits.
+- Privacy grep over the diff for the regulated employer-brand / host tokens returns ZERO hits (the exact denylist patterns are kept out of this public-repo artifact; the orchestrator supplied them out-of-band).
 
 ## Review
 
