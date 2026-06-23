@@ -22,4 +22,10 @@ describe("SYSTEM_PROMPT integrity", () => {
   it("retains the lead-with-found rule", () => {
     expect(SYSTEM_PROMPT).toMatch(/Lead with what you DID find/);
   });
+
+  it("retains the forceful lead-with-found strengthening (MUST OPEN + reserved-only abstain)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/MUST OPEN with what IS covered/);
+    expect(SYSTEM_PROMPT).toMatch(/RESERVED ONLY/);
+    expect(SYSTEM_PROMPT).toMatch(/off-topic/i);
+  });
 });
