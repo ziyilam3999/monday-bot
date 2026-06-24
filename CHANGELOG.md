@@ -1,3 +1,10 @@
+## [0.12.20](https://github.com/ziyilam3999/monday-bot/compare/v0.12.19...v0.12.20) (2026-06-24)
+
+### Features
+
+* **recall:** #1197 how-to-intent doc-over-ticket ranking prior — for how-to-action questions, boost narrative doc-source passages above bare issue-tracker ticket stubs (minimal additive bonus, config-gated recall.docPrior, default ON); tightened intent classifier; abstain controls + no-regression preserved by construction ([#226](https://github.com/ziyilam3999/monday-bot/pull/226))
+* **confluence:** numeric HTML-entity decode in stripHtml ([#99](https://github.com/ziyilam3999/monday-bot/pull/99))
+
 ## [0.12.19](https://github.com/ziyilam3999/monday-bot/compare/v0.12.18...v0.12.19) (2026-06-24)
 
 ### Features
