@@ -102,10 +102,10 @@ export class FolderWatcher {
     }
 
     this.watcher = this.watchFn(this.dir, { recursive: true }, (_event, filename) => {
-      if (!filename) return;
-      const absolutePath = path.isAbsolute(filename as string)
-        ? (filename as string)
-        : path.join(this.dir, filename as string);
+      if (typeof filename !== "string") return;
+      const absolutePath = path.isAbsolute(filename)
+        ? filename
+        : path.join(this.dir, filename);
       if (!this.filter(absolutePath)) return;
       this.scheduleDebounced(absolutePath);
     });
