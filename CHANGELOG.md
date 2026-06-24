@@ -1,3 +1,9 @@
+## [0.12.15](https://github.com/ziyilam3999/monday-bot/compare/v0.12.14...v0.12.15) (2026-06-24)
+
+### Bug Fixes
+
+* **slack:** #1188 convert LLM Markdown to Slack mrkdwn so bold renders (was showing literal `**`) ([#216](https://github.com/ziyilam3999/monday-bot/pull/216))
+
 # Changelog
 
 All notable changes to monday-bot will be documented in this file.
