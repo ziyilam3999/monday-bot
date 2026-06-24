@@ -68,6 +68,21 @@ describe("generateAnswer", () => {
     });
   });
 
+  test("passes temperature: 0 to messages.create (determinism wiring, #1195)", async () => {
+    // The request object never escapes generateAnswer's return value, so the
+    // stub records it for introspection. temperature:0 is the direct lever for
+    // the ground-vs-abstain coin-flip.
+    const AnthropicStub = require("@anthropic-ai/sdk");
+    AnthropicStub.__resetLastRequest();
+    const chunks: Chunk[] = [
+      { id: "c1", text: "Annual leave is 14 days per year.", source: "hr-policy.txt" },
+    ];
+    await generateAnswer("How many days of leave?", chunks);
+    const req = AnthropicStub.__getLastRequest();
+    expect(req).not.toBeNull();
+    expect(req.temperature).toBe(0);
+  });
+
   test("stub-provided answer carries a [1] citation marker", async () => {
     const chunks: Chunk[] = [
       {

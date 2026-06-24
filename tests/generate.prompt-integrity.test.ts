@@ -28,4 +28,28 @@ describe("SYSTEM_PROMPT integrity", () => {
     expect(SYSTEM_PROMPT).toMatch(/RESERVED ONLY/);
     expect(SYSTEM_PROMPT).toMatch(/off-topic/i);
   });
+
+  // #1195 — answer-framing grounding clauses.
+  it("adds the process/spec-doc grounding clause (#1195 Item 1)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/PROCESS\/SPEC DOCS COUNT AS GROUNDING/);
+    expect(SYSTEM_PROMPT).toMatch(/describes the relevant PROCESS, MECHANISM, business rules, or spec/);
+  });
+
+  it("conditions the process/spec clause INLINE on on-topic relevance (#1195 correction 4)", () => {
+    // Presence != conditioned: the widening clause must carry its relevance
+    // precondition in the prompt wording itself, not only lean on the abstain
+    // clause. This asserts the inline on-topic gate is stated.
+    expect(SYSTEM_PROMPT).toMatch(/applies ONLY when that passage is genuinely ON-TOPIC/);
+    expect(SYSTEM_PROMPT).toMatch(/about a DIFFERENT topic than the question is NOT grounding/);
+  });
+
+  it("prefers document/narrative sources over bare ticket stubs (#1195 Item 1)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/PREFER DOCS OVER TICKET STUBS/);
+  });
+
+  it("adds the phased/planned-rollout framing clause (#1195 Item 3)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/PHASED \/ PLANNED ROLLOUTS/);
+    expect(SYSTEM_PROMPT).toMatch(/what is LIVE now and what is NAMED-planned/);
+    expect(SYSTEM_PROMPT).toMatch(/do NOT dismiss a roadmap as/);
+  });
 });

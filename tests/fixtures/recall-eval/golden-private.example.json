@@ -34,6 +34,20 @@
       "question": "synthetic placeholder question five",
       "groundTruthSource": "confluence:example-doc-five",
       "expect": "grounded"
+    },
+    {
+      "id": "Q6",
+      "question": "synthetic soft-ground placeholder question",
+      "groundTruthSource": null,
+      "expect": "grounded-any",
+      "_note": "#1195 SOFT mode: the pinned doc is unreachable for this phrasing, so assert only that the reply is grounded (>=1 citation, non-abstain) with NO ground-truth-rank check. groundTruthSource null + expect 'grounded-any'."
+    },
+    {
+      "id": "Q7",
+      "question": "synthetic borderline off-topic placeholder question",
+      "groundTruthSource": null,
+      "expect": "clean-non-doc-reply",
+      "_note": "#1195 BORDERLINE abstain control: a plausible-sounding how-to question that retrieves a tangentially-related process/spec passage but is NOT actually answerable from the corpus. The bot must still cleanly decline (0 citations). This is the over-grounding case the process-doc grounding clause could regress, so it joins the clean-decline control gate."
     }
   ]
 }

@@ -12,6 +12,12 @@ export const SYSTEM_PROMPT =
   "GOOD (relevant context): \"The Initial Setup doc [1] covers Flutter, Riverpod, themes, and API setup; there isn't a separate step-by-step local-env guide in the docs.\" " +
   "BAD (relevant context, wrong opener): \"I couldn't find specific instructions... but the context includes a checklist [1].\" " +
   "ABSTAIN (off-topic context, no relevant material): say you couldn't find any relevant information, with no citations. " +
+  "PROCESS/SPEC DOCS COUNT AS GROUNDING: when the context contains a doc passage that describes the relevant PROCESS, MECHANISM, business rules, or spec for what is asked — even if it is NOT a step-by-step click-by-click user tutorial — treat it as grounding material: lead with what the documented process IS and cite it [N], then (only after) note that this is the documented process rather than a tap-by-tap UI walkthrough. " +
+  "Passages framed as BUSINESS RULES, specs, change-logs, internal-reference notes, or backend/engineering tickets STILL count as grounding when they describe the STEPS, FLOW, or MECHANISM of what the user asked about. Do NOT refuse merely because the material is framed as internal/backend/business-rules rather than a polished end-user guide — translate the documented flow into plain user-facing steps and cite [N]. For example, if the question is how to find/do something and a passage describes the matching/selection/decision flow for exactly that, EXPLAIN that flow as the answer instead of saying there are no user-facing instructions. " +
+  "This process/spec clause applies ONLY when that passage is genuinely ON-TOPIC and relevant to the exact question asked; a process or spec passage that is about a DIFFERENT topic than the question is NOT grounding for that question — do not cite it, and abstain if nothing on-topic remains. " +
+  "When you abstain, your reply MUST contain NO [N] citation markers at all — never cite a loosely-related passage while saying you couldn't find the answer. " +
+  "PREFER DOCS OVER TICKET STUBS: when both narrative/document sources and bare issue-tracker ticket stubs cover the same topic, build your answer from and cite the document/narrative passages, not bare ticket titles. " +
+  "PHASED / PLANNED ROLLOUTS: when the relevant doc describes a PLANNED or PHASED rollout or roadmap, answer with what is LIVE now and what is NAMED-planned and cite the doc [N]; do NOT dismiss a roadmap as \"no comprehensive list.\" " +
   "Never cite outside the numbered list. " +
   "If the context contains no relevant information, say you couldn't find the information (a clean refusal with no citations). " +
   "Keep answers concise (target 50-400 words) and suitable for a Slack message.";
@@ -152,6 +158,11 @@ export async function generateAnswer(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
+    // temperature 0: the ground-vs-abstain drift on the same question was a
+    // high-temperature coin-flip (#1195). Deterministic decoding stabilizes the
+    // answer so a correct prompt grounds consistently and a wrong one fails
+    // consistently (detectable), instead of flip-flopping run-to-run.
+    temperature: 0,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent }],
   });
