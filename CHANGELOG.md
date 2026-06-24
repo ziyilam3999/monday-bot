@@ -1,3 +1,10 @@
+## [0.12.18](https://github.com/ziyilam3999/monday-bot/compare/v0.12.17...v0.12.18) (2026-06-24)
+
+### Features
+
+* **recall:** #1191 recall v2 — query-expansion (geo/availability intent) + per-source-type diversity cap + cross-encoder rerank, config-gated (expansion+cap default ON, rerank measure-first OFF) ([#222](https://github.com/ziyilam3999/monday-bot/pull/222))
+* **eval:** #1170 two-tier golden recall eval — committed synthetic Tier-A (real embedder + discrimination self-check) + skip-safe private Tier-B pinning ground-truth source ids ([#222](https://github.com/ziyilam3999/monday-bot/pull/222))
+
 ## [0.12.17](https://github.com/ziyilam3999/monday-bot/compare/v0.12.16...v0.12.17) (2026-06-24)
 
 ### Bug Fixes
