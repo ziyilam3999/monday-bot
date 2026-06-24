@@ -2,6 +2,11 @@
 // Wired in via jest.config.js moduleNameMapper. Real SDK calls happen in the
 // US-04 inline AC commands (AC-01..AC-04), not in jest specs.
 
+// #1195: record the most recent messages.create request so a determinism-wiring
+// test can assert the caller passes `temperature: 0` (the request never escapes
+// generateAnswer's return value, so we surface it on the module instead).
+let __lastRequest = null;
+
 class Anthropic {
   constructor(options) {
     this._options = options || {};
@@ -14,6 +19,7 @@ class Anthropic {
         if (!_req || typeof _req !== "object") {
           throw new Error("Anthropic SDK stub: messages.create requires a request object");
         }
+        __lastRequest = _req;
         if (typeof _req.model !== "string" || _req.model.length === 0) {
           throw new Error("Anthropic SDK stub: _req.model must be a non-empty string");
         }
@@ -57,6 +63,12 @@ class Anthropic {
     };
   }
 }
+
+// #1195 test introspection: the most recent messages.create request.
+Anthropic.__getLastRequest = () => __lastRequest;
+Anthropic.__resetLastRequest = () => {
+  __lastRequest = null;
+};
 
 module.exports = Anthropic;
 module.exports.default = Anthropic;

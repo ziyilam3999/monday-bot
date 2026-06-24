@@ -43,6 +43,17 @@ export interface ConfluenceClientConfig {
   baseUrl: string;
   email: string;
   apiToken: string;
+  /**
+   * Page-fetch size for the `&limit=` query param. Default 100.
+   *
+   * NOTE (#1189): this only makes the per-request page size CONFIGURABLE — it is
+   * NOT a full large-space fix. The Atlassian content REST API caps `limit`
+   * (commonly 100) and paginates further results via `_links.next` cursors,
+   * which this fetcher does NOT follow. A space with more results than one page
+   * is therefore still truncated regardless of the `limit` value. Cursor
+   * pagination is a deferred follow-up (see the plan's Deferred section).
+   */
+  pageLimit?: number;
 }
 
 /**
@@ -63,9 +74,12 @@ export function buildConfluenceFetcher(
     );
   }
   const auth = Buffer.from(`${config.email}:${config.apiToken}`).toString("base64");
+  // Configurable page size (default 100). Does NOT follow `_links.next` cursors,
+  // so large spaces are still truncated at one page — see ConfluenceClientConfig.
+  const limit = typeof config.pageLimit === "number" && config.pageLimit > 0 ? config.pageLimit : 100;
   return {
     async fetchPages(spaceKey: string): Promise<ConfluencePage[]> {
-      const url = `${config.baseUrl.replace(/\/$/, "")}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=100`;
+      const url = `${config.baseUrl.replace(/\/$/, "")}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=${limit}`;
       const res = await fetchImpl(url, {
         headers: {
           Authorization: `Basic ${auth}`,
@@ -110,6 +124,15 @@ function toConfluencePage(raw: unknown): ConfluencePage | null {
 function stripHtml(html: string): string {
   // Quick-and-correct-enough HTML→text for retrieval. Production-grade DOM
   // parsing isn't worth the dep here; the embedder is robust to leftover noise.
+  //
+  // Ordering is correctness-load-bearing and must stay:
+  //   1. drop <style>/<script> blocks (their text content is noise),
+  //   2. strip remaining tags,
+  //   3. THEN decode entities.
+  // If entity-decode ran before tag-strip, an encoded `&lt;script&gt;` payload
+  // inside text would materialize as a real `<script>` substring and survive
+  // tag-stripping with its body intact. See ordering test in
+  // tests/confluence.test.ts ("stripHtml ordering").
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -120,6 +143,7 @@ function stripHtml(html: string): string {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, dec: string) => String.fromCharCode(parseInt(dec, 10)))
     .replace(/\s+/g, " ")
     .trim();
 }

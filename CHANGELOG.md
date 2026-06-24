@@ -1,9 +1,207 @@
+## [0.12.21](https://github.com/ziyilam3999/monday-bot/compare/v0.12.20...v0.12.21) (2026-06-24)
+
+### Features
+
+* **answer:** #1201 single-product grounding clause + docPrior 0.15 — the bot now grounds on a how-to question whose answer doc does not name the product verbatim (closes the find-parking grounding gap, 0/5 -> 5/5 Tier-B; abstain controls + no-regression preserved) ([#228](https://github.com/ziyilam3999/monday-bot/pull/228))
+
+## [0.12.20](https://github.com/ziyilam3999/monday-bot/compare/v0.12.19...v0.12.20) (2026-06-24)
+
+### Features
+
+* **recall:** #1197 how-to-intent doc-over-ticket ranking prior — for how-to-action questions, boost narrative doc-source passages above bare issue-tracker ticket stubs (minimal additive bonus, config-gated recall.docPrior, default ON); tightened intent classifier; abstain controls + no-regression preserved by construction ([#226](https://github.com/ziyilam3999/monday-bot/pull/226))
+* **confluence:** numeric HTML-entity decode in stripHtml ([#99](https://github.com/ziyilam3999/monday-bot/pull/99))
+
+## [0.12.19](https://github.com/ziyilam3999/monday-bot/compare/v0.12.18...v0.12.19) (2026-06-24)
+
+### Features
+
+* **answer:** #1195 answer-framing — temperature:0 determinism (eliminates the ground-vs-abstain coin-flip) + on-topic process-passage grounding + phased-rollout framing + N-run rate harness; off-topic abstain control retained ([#224](https://github.com/ziyilam3999/monday-bot/pull/224))
+
+## [0.12.18](https://github.com/ziyilam3999/monday-bot/compare/v0.12.17...v0.12.18) (2026-06-24)
+
+### Features
+
+* **recall:** #1191 recall v2 — query-expansion (geo/availability intent) + per-source-type diversity cap + cross-encoder rerank, config-gated (expansion+cap default ON, rerank measure-first OFF) ([#222](https://github.com/ziyilam3999/monday-bot/pull/222))
+* **eval:** #1170 two-tier golden recall eval — committed synthetic Tier-A (real embedder + discrimination self-check) + skip-safe private Tier-B pinning ground-truth source ids ([#222](https://github.com/ziyilam3999/monday-bot/pull/222))
+
+## [0.12.17](https://github.com/ziyilam3999/monday-bot/compare/v0.12.16...v0.12.17) (2026-06-24)
+
+### Bug Fixes
+
+* **slack:** #1190 markdownToMrkdwn edge cases — `***bold italic***`, `# **Title**`, and intraword `__init__` now render correctly in Slack ([#220](https://github.com/ziyilam3999/monday-bot/pull/220))
+
+## [0.12.16](https://github.com/ziyilam3999/monday-bot/compare/v0.12.15...v0.12.16) (2026-06-24)
+
+### Bug Fixes
+
+* **retrieval:** #1189 passage-chunk Confluence pages so long how-to pages are findable (buried pages lifted 52-656 ranks; 4/5 UAT recall cases fixed) ([#218](https://github.com/ziyilam3999/monday-bot/pull/218))
+
+## [0.12.15](https://github.com/ziyilam3999/monday-bot/compare/v0.12.14...v0.12.15) (2026-06-24)
+
+### Bug Fixes
+
+* **slack:** #1188 convert LLM Markdown to Slack mrkdwn so bold renders (was showing literal `**`) ([#216](https://github.com/ziyilam3999/monday-bot/pull/216))
+
 # Changelog
 
 All notable changes to monday-bot will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.12.14](https://github.com/ziyilam3999/monday-bot/compare/v0.12.13...v0.12.14) (2026-06-23)
+
+### Bug Fixes
+
+* strengthen the answer system prompt's lead-with-found rule (#1066 UAT iteration 2). The v0.12.11 reorder was too weak — a live retest of "how do I set up my local development environment?" still opened with abstention ("I couldn't find specific instructions… The context includes a checklist [1]…") even though the relevant Initial-Setup ticket WAS retrieved. Make the rule forceful: whenever the context holds material RELEVANT to the question the answer MUST OPEN with what IS covered (cite `[N]`) and note gaps only after; the "I couldn't find any relevant information" opener is now reserved strictly for genuinely off-topic context (clean refusal, no citations), keyed on relevance not "chunks retrieved". Anchored with a GOOD/BAD/ABSTAIN contrast example in the prompt and a third prompt-integrity assertion locking the strengthening. Prompt-only — `selectCitedCitations` and the formatter are untouched (#214)
+
+## [0.12.13](https://github.com/ziyilam3999/monday-bot/compare/v0.12.12...v0.12.13) (2026-06-23)
+
+### Bug Fixes
+
+* add an automatic privacy CI gate — a `pull_request` workflow that scans the PR's added diff lines for regulated employer denylist tokens and fails closed on any hit, with an always-on absolute-home-path guard; the denylist tokens live only in the `PRIVACY_DENYLIST_TOKENS` GitHub Actions secret, never in the workflow, the script, or any committed file. Also fix `.gitignore` to ignore the auto-symlinked `node_modules` (slash-less pattern) and add a Layer-B unit test that locks the answer system prompt's abstain and lead-with-found clauses against silent regression (#1169) (#212)
+
+## [0.12.12](https://github.com/ziyilam3999/monday-bot/compare/v0.12.11...v0.12.12) (2026-06-23)
+
+### Bug Fixes
+
+* wire the `/sync-confluence` and `/reindex` admin slash commands to real on-demand re-sync — they previously returned "… is not configured on this bot." because the adapter's admin surface (the knowledge service) exposed `getStatus()` but no sync/reindex methods. Expose `syncConfluence()`/`reindexAll()` on the knowledge-sources handle and forward the commands to them via an `adminService` in `index.ts`; `/status-monday` is unchanged. Also adds a durable feedback file sink (`MONDAY_FEEDBACK_LOG`) (#1171) (#210)
+
+## [0.12.11](https://github.com/ziyilam3999/monday-bot/compare/v0.12.10...v0.12.11) (2026-06-23)
+
+### Bug Fixes
+
+* answer/citation hygiene (#1066 UAT slice 1): show only the sources the answer actually cited via `[N]` markers (refusals now render no source list), reorder the system prompt to lead with what was found before noting gaps, and sanitize source/heading titles so a stray `**` no longer breaks the Slack context block (#208)
+
+## [0.12.10](https://github.com/ziyilam3999/monday-bot/compare/v0.12.9...v0.12.10) (2026-06-23)
+
+### Bug Fixes
+
+* rename the two admin slash commands that collide with Slack's reserved built-in words — `/status` → `/status-monday` and `/feedback` → `/feedback-monday`; `/ask`, `/sync-confluence`, `/reindex`, `/help` are unchanged. Pure rename, no behavior change (#1066) (#205)
+
+## [0.12.9](https://github.com/ziyilam3999/monday-bot/compare/v0.12.8...v0.12.9) (2026-06-23)
+
+### Features
+
+* add a macOS launchd LaunchAgent (deploy/launchd template + scripts/install-launchd.sh + README) to run the bot 24/7 locally with restart-on-crash; PM2 ecosystem.config.js kept for the cloud path (#1167) (#203)
+
+## [0.12.8](https://github.com/ziyilam3999/monday-bot/compare/v0.12.7...v0.12.8) (2026-06-23)
+
+### Bug Fixes
+
+* migrate Jira ingester to /rest/api/3/search/jql after Atlassian removed /rest/api/3/search (HTTP 410 Gone); switch to nextPageToken cursor pagination + add per-source index-count startup log (#1168) (#201)
+
+## [0.12.7](https://github.com/ziyilam3999/monday-bot/compare/v0.12.6...v0.12.7) (2026-06-22)
+
+### Features
+
+* wire Confluence into the runtime and add Jira as a knowledge source (#199)
+
+## [0.12.6](https://github.com/ziyilam3999/monday-bot/compare/v0.12.5...v0.12.6) (2026-06-22)
+
+### Bug Fixes
+
+* load .env on CLI startup so documented setup works (#197)
+
+## [0.12.5](https://github.com/ziyilam3999/monday-bot/compare/v0.12.4...v0.12.5) (2026-05-11)
+
+### Miscellaneous
+
+* sync package-lock.json to v0.12.4 (A5) (#181)
+
+## [0.12.4](https://github.com/ziyilam3999/monday-bot/compare/v0.12.3...v0.12.4) (2026-05-11)
+
+### Bug Fixes
+
+* **llm:** mirror F6 macOS Keychain fallback in anthropicClient (#178)
+
+## [0.12.3](https://github.com/ziyilam3999/monday-bot/compare/v0.12.2...v0.12.3) (2026-05-11)
+
+### Miscellaneous
+
+* **docs(US-11/12/13):** hand-author TECHNICAL-SPEC sub-sections on Max-plan OAuth (B5) (#173)
+
+## [0.12.2](https://github.com/ziyilam3999/monday-bot/compare/v0.12.1...v0.12.2) (2026-05-10)
+
+### Bug Fixes
+
+* **US-13:** wire SlackAdapter into src/index.ts so the bot actually starts (#166) (#167)
+
+## [0.12.1](https://github.com/ziyilam3999/monday-bot/compare/v0.12.0...v0.12.1) (2026-05-09)
+
+### Bug Fixes
+
+* annotate RESUME.md projected-handoff timestamps (#141)
+
+### Miscellaneous
+
+* **docs:** refresh README Status table — all 13 stories done (#161)
+
+## [0.12.0](https://github.com/ziyilam3999/monday-bot/compare/v0.11.0...v0.12.0) (2026-05-08)
+
+### Features
+
+* **US-13:** deployment packaging — PM2 ecosystem config + README deploy section (#153)
+
+## [0.11.0](https://github.com/ziyilam3999/monday-bot/compare/v0.10.1...v0.11.0) (2026-05-08)
+
+### Features
+
+* **US-11:** config file with loader + .env.example (#142)
+* **US-12:** end-to-end integration test suite (#147)
+
+## [0.10.1](https://github.com/ziyilam3999/monday-bot/compare/v0.10.0...v0.10.1) (2026-05-07)
+
+### Bug Fixes
+
+* **US-08 E4:** log app_mention fallback postMessage failure (#133)
+* **US-09 E7:** formatUptime drops trailing 0s when hours present (#134)
+* **US-10 E4:** queryHandler routes errors through optional logger arg (#135)
+* **US-10 AC-02:** reword invariant to slack-handler-path layer (#131)
+* tighten KnowledgeService cast to preserve options signature (#132)
+
+### Miscellaneous
+
+* cross-machine resume pointer (docs/RESUME.md) (#136)
+
+## [0.10.0](https://github.com/ziyilam3999/monday-bot/compare/v0.9.0...v0.10.0) (2026-04-30)
+
+### Features
+
+* **US-10:** graceful error handling — Slack handler catches knowledge service failures and returns human-readable text; generate.ts short-circuits empty citations to an explicit not-found message (#125)
+
+### Bug Fixes
+
+* drop unreachable adminService fallback (#117) (#124)
+* swallow recordFeedback async rejections (#115) (#123)
+
+## [0.9.0](https://github.com/ziyilam3999/monday-bot/compare/v0.8.1...v0.9.0) (2026-04-27)
+
+### Features
+
+* **US-09:** admin slash commands (`/status`, `/sync-confluence`, `/reindex`, `/help`, `/feedback`) (#114)
+
+## [0.8.1](https://github.com/ziyilam3999/monday-bot/compare/v0.8.0...v0.8.1) (2026-04-27)
+
+### Bug Fixes
+
+* strip all `<@USER>` mentions in app_mention handler (#108)
+
+### Miscellaneous
+
+* backfill US-08 ADR + INDEX after forge-harness v0.39.6 W2 recovery (#109)
+
+## [0.8.0](https://github.com/ziyilam3999/monday-bot/compare/v0.7.0...v0.8.0) (2026-04-27)
+
+### Features
+
+* **US-08:** Slack adapter — Socket Mode, @mention + /ask, Block Kit formatter with citations (#100)
+
+### Bug Fixes
+
+* split re-exports for isolatedModules compat (#83)
+* rename KnowledgeService.index to vectorIndex (#82)
+* clean up mkTempFile tmp dirs in knowledge.test.ts (#81)
 
 ## [0.7.0](https://github.com/ziyilam3999/monday-bot/compare/v0.6.0...v0.7.0) (2026-04-26)
 

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template for running Monday (the Slack knowledge bot) 24/7 on macOS.
+
+  This file is a TEMPLATE. The repo is PUBLIC, so it intentionally contains only
+  <PLACEHOLDER> tokens — never a real home path, username, node path, or hostname.
+  Do NOT hand-edit and load this file directly. Run:
+
+      bash scripts/install-launchd.sh
+
+  which resolves the real values on your machine and writes the filled plist to
+  ~/Library/LaunchAgents/com.monday-bot.plist.
+
+  Secrets stay OUT of this plist: Monday self-loads .env via process.loadEnvFile()
+  (v0.12.6+) from its WorkingDirectory, so launchd only needs to start node in the
+  repo dir. Set credentials in <REPO_DIR>/.env, not here.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.monday-bot</string>
+
+    <!-- ProgramArguments: [ absolute node, absolute entrypoint ].
+         launchd does NOT use your shell's PATH, so node must be an absolute path. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string><NODE_PATH></string>
+        <string><REPO_DIR>/dist/index.js</string>
+    </array>
+
+    <!-- Run from the repo root so process.loadEnvFile() finds <REPO_DIR>/.env
+         and relative config paths (config.yaml) resolve. -->
+    <key>WorkingDirectory</key>
+    <string><REPO_DIR></string>
+
+    <!-- Start at login and keep it alive — relaunch on crash or clean exit. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Background service (headless long-running process), not a UI app. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Crash-loop backoff: wait at least 10s between relaunches. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- launchd starts with a minimal environment. Give node + any child tools a
+         usable PATH (node's own bin dir prepended to a sane default). -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string><PATH_VALUE></string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+    </dict>
+
+    <!-- Logs. These files are NOT rotated by launchd — see the README note on
+         truncating them if they grow large. -->
+    <key>StandardOutPath</key>
+    <string><LOG_DIR>/monday-bot.out.log</string>
+    <key>StandardErrorPath</key>
+    <string><LOG_DIR>/monday-bot.err.log</string>
+</dict>
+</plist>

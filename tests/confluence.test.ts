@@ -194,6 +194,79 @@ describe("KnowledgeService.indexConfluencePage replace-on-resync", () => {
   });
 });
 
+describe("KnowledgeService.indexConfluencePage passage-chunking (AC4, #1189)", () => {
+  function longBody(): string {
+    // ~3500 chars of sentences on a single collapsed line (mirrors stripHtml
+    // output) so the chunker produces several passages.
+    const sentences: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      sentences.push(`Step ${i} explains a part of the onboarding workflow in detail.`);
+    }
+    return sentences.join(" ");
+  }
+
+  it("a long page produces > 1 chunk under the same source", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "long-1",
+      title: "Big How-To",
+      body: longBody(),
+      source: "confluence:long-1",
+      spaceKey: "ENG",
+    });
+    expect(knowledge.getChunkCountForSource("confluence:long-1")).toBeGreaterThan(1);
+    // The page still counts as exactly ONE document (source), not N.
+    expect(knowledge.getStatus().documentCount).toBe(1);
+  });
+
+  it("re-syncing a long page replaces (not duplicates) its chunks", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "long-2",
+      title: "Big How-To",
+      body: longBody(),
+      source: "confluence:long-2",
+    });
+    const first = knowledge.getChunkCountForSource("confluence:long-2");
+    expect(first).toBeGreaterThan(1);
+
+    // Re-sync the SAME source with a different long body.
+    const sentences: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      sentences.push(`Revised step ${i} of the workflow now reads differently here.`);
+    }
+    await knowledge.indexConfluencePage({
+      id: "long-2",
+      title: "Big How-To",
+      body: sentences.join(" "),
+      source: "confluence:long-2",
+    });
+    const second = knowledge.getChunkCountForSource("confluence:long-2");
+    // Replaced, not accumulated — count reflects only the new body's passages.
+    expect(second).toBeGreaterThan(1);
+    expect(second).toBe(splitForCount(sentences.join(" ")));
+    expect(knowledge.getStatus().documentCount).toBe(1);
+  });
+
+  it("a short page still produces >= 1 chunk", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "short-1",
+      title: "Tiny",
+      body: "Short note.",
+      source: "confluence:short-1",
+    });
+    expect(knowledge.getChunkCountForSource("confluence:short-1")).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// Local helper mirroring the chunker so the resync test asserts exact replacement.
+function splitForCount(body: string): number {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { splitIntoPassages } = require("../src/ingestion/chunkText");
+  return splitIntoPassages(body).length;
+}
+
 describe("config.yaml has a Confluence sync schedule", () => {
   it("contains a confluence section with a schedule/cron/interval field", () => {
     const configPath = path.join(__dirname, "..", "config.yaml");
@@ -261,5 +334,73 @@ describe("buildConfluenceFetcher (HTTP wiring)", () => {
       fetchImpl,
     );
     await expect(fetcher.fetchPages("DEMO")).rejects.toThrow(/401/);
+  });
+});
+
+describe("stripHtml entity coverage and ordering", () => {
+  // stripHtml is module-private; we exercise it through buildConfluenceFetcher,
+  // which runs the same path: HTML → ConfluencePage.body.
+  async function fetchOne(htmlValue: string): Promise<string> {
+    const fakeResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async json() {
+        return {
+          results: [
+            {
+              id: "id1",
+              title: "T",
+              body: { storage: { value: htmlValue } },
+              space: { key: "S" },
+            },
+          ],
+        };
+      },
+    };
+    const fetchImpl = jest.fn(async () => fakeResponse) as unknown as typeof fetch;
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    const pages = await fetcher.fetchPages("S");
+    return pages[0].body;
+  }
+
+  it("decodes numeric HTML entities (e.g. &#8217; smart apostrophe)", async () => {
+    // U+2019 RIGHT SINGLE QUOTATION MARK = decimal 8217
+    const body = await fetchOne("<p>it&#8217;s here</p>");
+    expect(body).toContain("it’s here");
+    expect(body).not.toContain("&#8217;");
+  });
+
+  it("decodes multiple numeric entities in one document", async () => {
+    // 8212 = em dash (—), 8230 = horizontal ellipsis (…)
+    const body = await fetchOne("<p>hello&#8212;world&#8230;</p>");
+    expect(body).toContain("hello—world…");
+    expect(body).not.toMatch(/&#\d+;/);
+  });
+
+  it("strips tags BEFORE decoding entities (ordering: encoded <script> in text stays inert)", async () => {
+    // The text content contains an encoded <script> payload. If entity-decode
+    // ran first, the literal "<script>alert(1)</script>" would materialize and
+    // then be tag-stripped — but the decode-then-strip ordering is fragile
+    // because it requires a second tag-strip pass. The current
+    // strip-then-decode ordering keeps the payload as inert text "<script>"
+    // (angle brackets only) without the <script> tag ever existing as markup.
+    const body = await fetchOne("<p>safe &lt;script&gt;alert(1)&lt;/script&gt; tail</p>");
+    // After stripping tags first, &lt; / &gt; decode to literal < / >, so
+    // the payload appears as plain text — never as a real tag.
+    expect(body).toContain("<script>alert(1)</script>");
+    expect(body).toContain("safe");
+    expect(body).toContain("tail");
+    // And the surrounding <p> tag is gone.
+    expect(body).not.toMatch(/<p>/);
+  });
+
+  it("decodes named entities alongside numeric ones", async () => {
+    const body = await fetchOne("<p>A &amp; B &#38; C</p>");
+    // &amp; → &, &#38; → & (also ampersand)
+    expect(body).toBe("A & B & C");
   });
 });

@@ -1,0 +1,30 @@
+name: privacy
+
+# pull_request-only by design: the privacy gate is diff-scoped (it scans the
+# lines a PR ADDS against the PR base), so it needs a PR base ref to diff
+# against. It does not run on push.
+on:
+  pull_request:
+
+concurrency:
+  group: privacy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  denylist:
+    # ubuntu-only by design: the gate is a bash script and does not run on
+    # windows. (The build/test matrix lives in a separate workflow.)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history so merge-base resolves)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run privacy denylist check
+        env:
+          # Tokens live ONLY in this secret, never in any committed file.
+          PRIVACY_DENYLIST_TOKENS: ${{ secrets.PRIVACY_DENYLIST_TOKENS }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: bash scripts/privacy-denylist-check.sh
