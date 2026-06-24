@@ -89,15 +89,21 @@ describe("applyDocPrior — both-ends reorder (correction #1: minimal bonus)", (
     expect(out.map((r) => r.id)).toEqual(pool().map((r) => r.id));
   });
 
-  it("the minimal default bonus (0.10) lands the buried DOC inside the top-3 window", () => {
-    // The #7 doc (score 0.35) under six tickets. Default 0.10 must lift it into
-    // the #1-3 grounding window WITHOUT overshooting to a doc-monopoly top-6.
-    expect(DEFAULT_DOC_PRIOR_BONUS).toBe(0.1);
+  it("the minimal default bonus (0.15) lifts the buried DOC into the top-3 window without a doc-monopoly (#1201)", () => {
+    // The #7 doc (score 0.35) under six tickets. #1201 raised the default to 0.15
+    // (the minimal value that clears the measured real-index ticket-gap and lands
+    // the how-to doc at rank #1 on the REAL corpus). This SYNTHETIC pool's gap is
+    // wider (0.50 - 0.35 = 0.15) so +0.15 exactly TIES the top ticket and the
+    // stable re-sort keeps the ticket ahead — the doc rises to #2 here, NOT #1.
+    // This is the mechanism test (the value + the doc rising into the grounding
+    // window without monopolizing it); the real-index rank-#1 grounding is the
+    // Tier-B measurement, not a synthetic-pool assertion.
+    expect(DEFAULT_DOC_PRIOR_BONUS).toBe(0.15);
     const out = applyDocPrior("how do I find a spot", pool());
     const docRank = out.findIndex((r) => r.source === "confluence:C-1") + 1;
     expect(docRank).toBeGreaterThanOrEqual(1);
     expect(docRank).toBeLessThanOrEqual(3);
-    // It does NOT clear the entire wall: the top ticket still outranks it.
+    // No doc-monopoly: tickets retain the top seats (the top ticket still leads).
     expect(out[0].source).toBe("jira:T-1");
   });
 

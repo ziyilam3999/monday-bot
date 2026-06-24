@@ -14,20 +14,21 @@
  * density. NON-how-to queries pass through UNCHANGED (control-safety: the boost
  * code path never runs for chit-chat / geo / not-in-corpus queries).
  *
- * MECHANISM CHOICE (plan-review correction #1) — minimal additive bonus, NOT the
- * plan's max-aggressive 0.20:
+ * MECHANISM CHOICE — minimal additive bonus, NOT the max-aggressive 0.20:
  *   - A pure source-type TIE-BREAK is a no-op here: the bi-encoder scores are
  *     distinct, and the gt-doc (#7) scores BELOW the six tickets above it, so a
  *     secondary tie-break by source-type never fires and cannot lift it. Pure
  *     tie-break rejected on that ground.
  *   - The least-overfit mechanism that reliably grounds the target is therefore
- *     a SMALL additive bonus. The read-only probe sweep showed +0.10 lands the
- *     gt-doc at #3 — INSIDE the #1-3 grounding window — while +0.20 overshoots to
- *     #1 with doc×5 monopolizing the top-6 (the overfit smell: an additive bonus
- *     is tuned to clear THIS query's ticket↔doc gap on THIS index, so a larger
- *     value over-promotes every doc passage by a fixed amount regardless of
- *     relevance). We ship the SMALLEST bonus that lands inside the grounding
- *     window, justified by the Tier-B grounding rate, not "it made Q5 #1".
+ *     a SMALL additive bonus. #1197 shipped +0.10 (gt-doc → rank #3), but #1201
+ *     measured that at rank #3 the doc stays below two tickets and the LLM still
+ *     abstains; the SMALLEST value that clears the measured ticket-gap and lands
+ *     the doc at rank #1 (where the LLM leads with it and grounds) is +0.15.
+ *     +0.20 overshoots to a doc×5 monopoly of the top-5 (the overfit smell: an
+ *     additive bonus is tuned to clear THIS query's ticket↔doc gap on THIS index,
+ *     so a larger value over-promotes every doc passage regardless of relevance).
+ *     We ship the SMALLEST bonus that grounds the target, justified by the Tier-B
+ *     grounding rate, not "it made Q5 #1".
  *   - The bonus is the single config knob (`bonus`), tunable without code change.
  *
  * The prior reorders only; it never mutates the stored `score`, never adds or
@@ -44,16 +45,18 @@ export interface DocPriorConfig {
   enabled?: boolean;
   /**
    * Additive score bonus for narrative-DOC source-types on how-to-action intent.
-   * Default 0.10 (the minimal-sufficient value: probe showed it lands the
-   * how-to doc inside the #1-3 grounding window — correction #1).
+   * Default 0.15 (#1201): the minimal value that clears the measured ticket-gap
+   * and lands the how-to doc at rank #1 — the rank at which the LLM leads with
+   * it and grounds. 0.10 only reached rank #3 (doc still below two tickets →
+   * still abstains); 0.20 over-promotes to a doc-monopoly top-5 (overfit smell).
    */
   bonus?: number;
   /** Source-types treated as narrative DOCs (boosted). Default ["confluence"]. */
   docSourceTypes?: readonly string[];
 }
 
-/** Minimal-sufficient bonus — lands the how-to doc inside the #1-3 window (#1197). */
-export const DEFAULT_DOC_PRIOR_BONUS = 0.1;
+/** Minimal-sufficient bonus — lands the how-to doc at rank #1, where it grounds (#1201). */
+export const DEFAULT_DOC_PRIOR_BONUS = 0.15;
 export const DEFAULT_DOC_SOURCE_TYPES = ["confluence"] as const;
 
 /**
