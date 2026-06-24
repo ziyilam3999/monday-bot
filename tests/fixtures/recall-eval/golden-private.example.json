@@ -1,0 +1,39 @@
+{
+  "_README": "SYNTHETIC TEMPLATE ONLY (#1170). This committed file shows the SHAPE of the Tier-B golden fixture. The REAL fixture (5 real UAT questions + real ground-truth source ids + a real saved index dir) is PRIVATE: it lives OUTSIDE this public repo (or under a gitignored path) and is pointed at via the GOLDEN_EVAL_FIXTURE env var. NEVER commit the real fixture. Every value below is invented.",
+  "indexDir": "/path/to/private/saved-index-dir",
+  "_indexDirNote": "Directory containing an index.json saved via VectorIndex.save() over the REAL corpus. May be absolute and outside the repo. Omit to skip the rank assertions and only sanity-check fixture shape.",
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "how are you today",
+      "groundTruthSource": null,
+      "expect": "clean-non-doc-reply",
+      "_note": "Abstention-bias control: a chit-chat question must NOT produce spurious doc citations. groundTruthSource null => no rank assertion; assert the answer is a clean reply with no citations."
+    },
+    {
+      "id": "Q2",
+      "question": "synthetic placeholder question two",
+      "groundTruthSource": "confluence:example-doc-two",
+      "expect": "grounded",
+      "_note": "The pinned source is the doc verified to ACTUALLY answer the question — not a heuristic top-prose pick. Assert it ranks within topK AND the answer cites it (grounded, not abstain)."
+    },
+    {
+      "id": "Q3",
+      "question": "synthetic placeholder question three",
+      "groundTruthSource": "confluence:example-doc-three",
+      "expect": "grounded"
+    },
+    {
+      "id": "Q4",
+      "question": "synthetic placeholder question four",
+      "groundTruthSource": "jira:EXAMPLE-4",
+      "expect": "grounded"
+    },
+    {
+      "id": "Q5",
+      "question": "synthetic placeholder question five",
+      "groundTruthSource": "confluence:example-doc-five",
+      "expect": "grounded"
+    }
+  ]
+}

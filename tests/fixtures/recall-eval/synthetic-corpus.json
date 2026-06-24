@@ -1,0 +1,54 @@
+{
+  "_README": "SYNTHETIC, employer-token-free corpus for the Tier-A recall eval (#1191). Contains NO real product names, hostnames, space keys, colleague ids, or real UAT question text. Reproduces the TWO structural failure modes: (1) vocabulary-mismatch burial — the geo answer doc 'coverage-roadmap' speaks launch/market vocabulary and never the question's words ('places'/'service'), so it sinks below keyword decoys with levers OFF; (2) source-type monopoly — a swarm of short keyword-dense 'helpdesk' tickets hog the top band. The question is fictional ('the courier delivery service'). targetSource is the doc that actually answers the geo question; it must reach topK only after expansion (+cap).",
+  "question": "which places have the courier delivery service available",
+  "targetSource": "confluence:coverage-roadmap",
+  "topK": 12,
+  "maxPerSourceType": 6,
+  "docs": [
+    {
+      "source": "confluence:coverage-roadmap",
+      "title": "Courier Network Expansion Roadmap",
+      "text": "Courier Network Expansion Roadmap. This roadmap describes the phased rollout of our courier delivery network across new markets and regions over the coming planning cycles. Phase one establishes the home market hub and the surrounding metropolitan region, with same-day routing between the central depots. Phase two extends coverage into three additional regions, opening regional sorting hubs and onboarding local courier partners in each new market. The expansion sequence prioritises high-density urban regions first, then secondary cities, then rural coverage corridors. Each market launch is gated on depot readiness, partner onboarding, and regulatory clearance for the region. The launch calendar lists target quarters per region: the northern region launches first, followed by the coastal markets, then the inland corridors. Coverage maps for every launched region are published to the operations portal once the regional hub goes live. Future expansion candidates include several emerging markets where partner coverage is still being negotiated; these regions remain planned rather than launched until depot capacity is confirmed. Operators tracking rollout should consult the per-region launch calendar and the live coverage map rather than assuming uniform availability across all markets. The roadmap is reviewed each planning cycle and the set of launched regions, active markets, and planned expansion corridors is updated accordingly."
+    }
+  ],
+  "_helpdeskNote": "The 'docs' array above carries only the geo target. The eval harness ALSO loads the keyword-dense decoy tickets below (source-type 'jira') and the how-to / unrelated confluence pages, kept in separate arrays so the structure of the corpus is self-documenting.",
+  "decoys": [
+    { "source": "jira:HELP-101", "text": "Bug: the places dropdown in the courier service settings shows duplicate places. When a user opens the service availability filter, several places appear twice. Reproduce by selecting any place in the service places list." },
+    { "source": "jira:HELP-102", "text": "The courier service availability badge says 'available' even where the service is not available. The places marked available do not match the actual service places. Fix the available/not-available flag per place." },
+    { "source": "jira:HELP-103", "text": "Feature request: let users filter the courier service by available places. Right now the service places list shows every place with no way to narrow to available places only." },
+    { "source": "jira:HELP-104", "text": "Crash when the service places list is empty. If no places are available the courier service screen throws instead of showing 'no available places'." },
+    { "source": "jira:HELP-105", "text": "The 'is the service available here' tooltip points at the wrong place. The available-places popover is offset from the selected place in the courier service map." },
+    { "source": "jira:HELP-106", "text": "Slow load on the courier service places page. Loading all available places takes too long when many places are marked available." },
+    { "source": "jira:HELP-107", "text": "Typo: 'avaliable' instead of 'available' on the courier service places banner. Appears wherever a place is shown as available." },
+    { "source": "jira:HELP-108", "text": "The service places search ignores accents. Searching for a place returns no available places even though the place is available in the service." },
+    { "source": "jira:HELP-109", "text": "Pagination broken on the available places list. Page two of the courier service places repeats the first page of available places." },
+    { "source": "jira:HELP-110", "text": "Dark-mode contrast on the service availability chip is too low. The 'available' label on each place in the courier service is hard to read." },
+    { "source": "jira:HELP-111", "text": "The courier service should remember my last selected place. Every visit resets the available-places filter to all places." },
+    { "source": "jira:HELP-112", "text": "Export the available places list. Operators want a CSV of every place where the courier service is currently available." },
+    { "source": "jira:HELP-113", "text": "The service places map pin colour does not change when a place becomes available. Available places and unavailable places use the same pin." },
+    { "source": "jira:HELP-114", "text": "Sorting the courier service places alphabetically also reorders the availability column so the wrong place shows as available." },
+    { "source": "jira:HELP-115", "text": "Mobile layout: the available-places filter overflows the courier service screen on small devices, hiding some places." },
+    { "source": "jira:HELP-116", "text": "The 'service available in this place' API returns stale data; a place removed from available places still reports available." },
+    { "source": "jira:HELP-117", "text": "Add a count badge: how many places have the courier service available right now. Operators keep asking for the available-places total." },
+    { "source": "jira:HELP-118", "text": "Duplicate analytics event fires each time the service availability of a place toggles between available and not available." },
+    { "source": "jira:HELP-119", "text": "The courier service places filter resets when switching tabs. Selected available places are lost on navigation." },
+    { "source": "jira:HELP-120", "text": "Keyboard navigation skips the availability toggle on each place row in the courier service places table." },
+    { "source": "jira:HELP-121", "text": "The available-places tooltip text is truncated. Long place names in the courier service availability list get cut off." },
+    { "source": "jira:HELP-122", "text": "Race condition: marking a place available in the courier service sometimes marks a neighbouring place available instead." },
+    { "source": "jira:HELP-123", "text": "The service places legend says 'available' twice and omits 'not available'. Clean up the courier service availability legend." },
+    { "source": "jira:HELP-124", "text": "Timezone bug: a place shows the courier service as available an hour before it actually becomes available in that place." },
+    { "source": "jira:HELP-125", "text": "The available-places search box loses focus after each keystroke when filtering courier service places." },
+    { "source": "jira:HELP-126", "text": "Add bulk-edit: select multiple places and mark the courier service available across all selected places at once." },
+    { "source": "jira:HELP-127", "text": "The courier service places heatmap double-counts places that are available in more than one zone." },
+    { "source": "jira:HELP-128", "text": "Accessibility: screen readers announce 'available' but not which place in the courier service places list it refers to." },
+    { "source": "jira:HELP-129", "text": "The 'where is the service available' help link 404s. It should open the courier service available-places guide." },
+    { "source": "jira:HELP-130", "text": "Filter chips for available places do not clear. Removing a place from the courier service filter leaves a stale available chip." },
+    { "source": "jira:HELP-131", "text": "The service availability column header is not sortable, so operators cannot sort places by whether the courier service is available." },
+    { "source": "jira:HELP-132", "text": "Caching bug: the available-places list for one place set bleeds into another, showing the wrong places as available in the courier service." }
+  ],
+  "noise": [
+    { "source": "confluence:parking-howto", "title": "How to find visitor parking", "text": "How to find visitor parking near the central depot. Park in the visitor bays on level two, take a ticket from the machine at the barrier, and validate it at reception before you leave. The visitor parking guide explains barrier access, validation, and overnight parking rules step by step." },
+    { "source": "confluence:leave-policy", "title": "Annual leave policy", "text": "Annual leave policy. Full-time staff accrue leave each month and may carry a limited balance into the next year. Request leave through the portal at least two weeks in advance. Public holidays do not count against your leave balance." },
+    { "source": "confluence:onboarding", "title": "New starter onboarding", "text": "New starter onboarding checklist. Collect your access badge, set up your workstation, complete the security training module, and meet your buddy. The onboarding guide walks new starters through their first week tasks and required reading." }
+  ]
+}

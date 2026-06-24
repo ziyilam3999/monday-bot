@@ -1,6 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
 
+// Type-only import (erased at runtime — no service module loaded at config time).
+import type { RecallConfig } from "../knowledge/service";
+
 // Minimal local typing for js-yaml v3 — avoids depending on @types/js-yaml
 // for a single function call.
 interface YamlModule {
@@ -32,6 +35,12 @@ export interface AppConfig {
   jira?: {
     schedule?: string;
   };
+  /**
+   * Recall v2 ranking levers (#1191). Threaded into KnowledgeService at the
+   * production construction site (src/index.ts). Omitted → shipped defaults
+   * (expansion ON, diversity cap ON, rerank OFF).
+   */
+  recall?: RecallConfig;
   /** Pass-through for forward-compatible keys we haven't typed yet. */
   [key: string]: unknown;
 }

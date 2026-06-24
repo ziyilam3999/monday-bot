@@ -117,7 +117,12 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     return handleStartupError(err);
   }
 
-  const knowledge = new KnowledgeService();
+  // Thread the recall v2 ranking levers (#1191) from config.yaml into the
+  // long-lived KnowledgeService — this is THE instance the Slack adapter answers
+  // from (passed to SlackAdapter below → handleQuery), so the levers run on the
+  // real Slack path, not just in tests. config.recall omitted → shipped defaults
+  // (expansion ON, diversity cap ON, rerank OFF).
+  const knowledge = new KnowledgeService({ recall: config.recall });
   for (const folder of watchedFolders) {
     try {
       knowledge.watchFolder(folder);

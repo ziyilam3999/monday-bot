@@ -43,3 +43,30 @@ jira:
 # single, unambiguous "the bot's primary schedule" knob. Keep in sync with
 # confluence.schedule unless you intentionally want a separate cadence.
 confluenceSchedule: "0 */6 * * *"
+
+# Recall v2 ranking levers (#1191). These shape how retrieved passages are
+# ranked before the LLM answers. Defaults below are LIVE in production (threaded
+# into KnowledgeService at startup). Each lever is independently toggleable so it
+# can be measured and disabled on its own.
+recall:
+  # Lever 1 — rule-based query expansion for geo/availability questions. When a
+  # question carries geo intent ("which places have the service"), launch/market
+  # vocabulary is appended before embedding so the answer doc (which speaks
+  # "markets/regions/launch") is no longer buried by vocabulary mismatch.
+  queryExpansion:
+    enabled: true
+  # Lever 3 — per-source-type diversity cap. Stops one source type (e.g. a swarm
+  # of short Jira tickets) from monopolizing every top slot, leaving room for a
+  # how-to page. maxPerSourceType is half of the top-K window (12).
+  diversityCap:
+    enabled: true
+    maxPerSourceType: 6
+  # Lever 2 — cross-encoder rerank over a wider candidate pool. Heavier + needs a
+  # model download, so default OFF (measure-first). Flip ON only after a
+  # real-corpus run shows it improves rank over expansion+cap alone.
+  rerank:
+    enabled: false
+    candidatePool: 150
+  # Bi-encoder search pool size used when rerank OR diversityCap is enabled (a
+  # wider pool than top-K so a lower-ranked-but-relevant passage can be recovered).
+  candidatePoolSize: 150
