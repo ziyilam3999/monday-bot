@@ -9,7 +9,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "eval:recall": "npm run build && node scripts/eval-recall.js",
+    "eval:golden": "npm run build && node scripts/eval-golden.js"
   },
   "engines": {
     "node": ">=18.0.0"

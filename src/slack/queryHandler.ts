@@ -65,7 +65,22 @@ function defaultService(): QueryService {
   const { KnowledgeService } = require("../knowledge/service") as {
     KnowledgeService: new (opts?: unknown) => QueryService;
   };
-  return new KnowledgeService();
+  // Thread recall v2 levers (#1191) onto the fallback-constructed service too,
+  // so an ad-hoc caller that omits an explicit service still runs the configured
+  // ranking levers. Best-effort: a missing/unreadable config.yaml falls back to
+  // the service's internal defaults — which ARE the shipped defaults (expansion
+  // ON, diversity cap ON, rerank OFF), so this path is never inert either.
+  let recall: unknown;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { loadConfig } = require("../config/config") as {
+      loadConfig: (p?: string) => { recall?: unknown };
+    };
+    recall = loadConfig().recall;
+  } catch {
+    recall = undefined;
+  }
+  return new KnowledgeService({ recall });
 }
 
 /**

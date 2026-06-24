@@ -6,6 +6,9 @@ import {
   FolderWatcher,
   FolderWatcherOptions,
 } from "../watcher/folderWatcher";
+import { expandQuery, QueryExpansionConfig } from "./queryExpansion";
+import { applyDiversityCap, DiversityCapConfig } from "./diversity";
+import { rerank, RerankConfig } from "./rerank";
 
 // Raised 5 -> 12 (#1189): passage-chunking can fill several top slots with
 // passages from the same doc, so a wider window leaves room for the relevant
@@ -13,6 +16,49 @@ import {
 const DEFAULT_TOP_K = 12;
 const NO_DOCUMENTS_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
+
+/**
+ * Recall v2 ranking levers (#1191). Threaded from `config.yaml` → `AppConfig`
+ * → here at the production construction site (src/index.ts). Defaults below ARE
+ * the SHIPPED defaults: expansion ON, diversity cap ON, rerank OFF — so the
+ * feature is LIVE-BY-DEFAULT even for a caller that passes no `recall` block
+ * (correction #1: the feature must never ship inert).
+ */
+export interface RecallConfig {
+  queryExpansion?: QueryExpansionConfig;
+  diversityCap?: DiversityCapConfig;
+  rerank?: RerankConfig;
+  /** Bi-encoder search pool widened when rerank OR diversity cap is enabled. */
+  candidatePoolSize?: number;
+}
+
+/** Fully-resolved recall config — every field defaulted. */
+interface ResolvedRecall {
+  expansion: { enabled: boolean };
+  diversityCap: { enabled: boolean; maxPerSourceType: number };
+  rerank: RerankConfig & { enabled: boolean; candidatePool: number };
+  candidatePoolSize: number;
+}
+
+const DEFAULT_CANDIDATE_POOL = 150;
+const DEFAULT_MAX_PER_SOURCE_TYPE = 6;
+
+function resolveRecall(cfg?: RecallConfig): ResolvedRecall {
+  return {
+    expansion: { enabled: cfg?.queryExpansion?.enabled ?? true },
+    diversityCap: {
+      enabled: cfg?.diversityCap?.enabled ?? true,
+      maxPerSourceType:
+        cfg?.diversityCap?.maxPerSourceType ?? DEFAULT_MAX_PER_SOURCE_TYPE,
+    },
+    rerank: {
+      ...(cfg?.rerank ?? {}),
+      enabled: cfg?.rerank?.enabled ?? false,
+      candidatePool: cfg?.rerank?.candidatePool ?? DEFAULT_CANDIDATE_POOL,
+    },
+    candidatePoolSize: cfg?.candidatePoolSize ?? DEFAULT_CANDIDATE_POOL,
+  };
+}
 
 export interface QueryResult {
   answer: string;
@@ -68,6 +114,12 @@ export interface KnowledgeServiceOptions {
   watcherFactory?: WatcherFactory;
   /** Forwarded to the watcher (e.g. debounceMs). Defaults `{}`. */
   watcherOptions?: FolderWatcherOptions;
+  /**
+   * Recall v2 ranking levers (#1191). Omitted/partial → SHIPPED defaults
+   * (expansion ON, diversity cap ON, rerank OFF). Threaded from config.yaml at
+   * the production construction site (src/index.ts).
+   */
+  recall?: RecallConfig;
 }
 
 function toLlmChunk(result: SearchResult): LlmChunk {
@@ -96,6 +148,7 @@ export class KnowledgeService {
   private readonly watcherFactory: WatcherFactory;
   private readonly watcherOptions: FolderWatcherOptions;
   private readonly watchers: Array<{ start(): void; close(): void; isAlive(): boolean }> = [];
+  private readonly recall: ResolvedRecall;
 
   constructor(opts: KnowledgeServiceOptions = {}) {
     this.vectorIndex = opts.index ?? new VectorIndex();
@@ -106,6 +159,7 @@ export class KnowledgeService {
     this.startedAt = this.now();
     this.watcherFactory = opts.watcherFactory ?? defaultWatcherFactory;
     this.watcherOptions = opts.watcherOptions ?? {};
+    this.recall = resolveRecall(opts.recall);
   }
 
   async query(question: string): Promise<QueryResult> {
@@ -115,9 +169,48 @@ export class KnowledgeService {
     if (this.vectorIndex.size() === 0) {
       return { answer: NO_DOCUMENTS_ANSWER, citations: [] };
     }
-    const hits = await this.vectorIndex.search(question, this.topK);
+    const hits = await this.retrieve(question);
     const chunks = hits.map(toLlmChunk);
     return this.generator(question, chunks);
+  }
+
+  /**
+   * Recall v2 ranking pipeline (#1191). Returns the top-K `SearchResult`s the
+   * generator answers from. The SAME path `query()` uses, exposed so the
+   * standalone `eval:recall` harness measures the production ranking (not a
+   * re-implementation). Pipeline order is load-bearing:
+   *
+   *   1. expandQuery   — widen the bi-encoder recall net for geo intent (L1)
+   *   2. search(poolK) — widen pool only when rerank/cap need a deeper batch
+   *   3. rerank        — cross-encoder scores the ORIGINAL question (L2, OFF by default)
+   *   4. diversity cap — reshuffle so one source-type can't monopolize (L3)
+   *   5. slice topK
+   *
+   * With all levers off this collapses to `search(question, topK)` — byte-identical
+   * to the pre-#1191 behavior. SHIPPED defaults are expansion+cap ON, rerank OFF.
+   */
+  async retrieve(question: string): Promise<SearchResult[]> {
+    const r = this.recall;
+    const q = expandQuery(question, r.expansion);
+    const widen = r.rerank.enabled || r.diversityCap.enabled;
+    const poolK = widen ? Math.max(this.topK, r.candidatePoolSize) : this.topK;
+
+    const pool = await this.vectorIndex.search(q, poolK);
+
+    let ranked: SearchResult[] = pool;
+    if (r.rerank.enabled) {
+      // Cross-encoder scores the ORIGINAL question, not the expanded query.
+      ranked = await rerank(question, pool, {
+        ...r.rerank,
+        candidatePool: r.rerank.candidatePool,
+      });
+    }
+
+    const capped = applyDiversityCap(ranked, this.topK, {
+      enabled: r.diversityCap.enabled,
+      maxPerSourceType: r.diversityCap.maxPerSourceType,
+    });
+    return capped.slice(0, this.topK);
   }
 
   async indexFile(absolutePath: string): Promise<void> {
