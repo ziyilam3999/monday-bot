@@ -1,3 +1,9 @@
+## [0.12.21](https://github.com/ziyilam3999/monday-bot/compare/v0.12.20...v0.12.21) (2026-06-24)
+
+### Features
+
+* **answer:** #1201 single-product grounding clause + docPrior 0.15 — the bot now grounds on a how-to question whose answer doc does not name the product verbatim (closes the find-parking grounding gap, 0/5 -> 5/5 Tier-B; abstain controls + no-regression preserved) ([#228](https://github.com/ziyilam3999/monday-bot/pull/228))
+
 ## [0.12.20](https://github.com/ziyilam3999/monday-bot/compare/v0.12.19...v0.12.20) (2026-06-24)
 
 ### Features
