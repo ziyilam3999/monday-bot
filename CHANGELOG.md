@@ -1,3 +1,9 @@
+## [0.12.22](https://github.com/ziyilam3999/monday-bot/compare/v0.12.21...v0.12.22) (2026-06-24)
+
+### Bug Fixes
+
+* **answer:** #1203 strip stray [N] citation markers + force empty citations on abstain replies — deterministic post-processor closes the pre-existing temperature-0 flake where an abstention occasionally leaked a dangling [N]/citation; grounded answers and the offline path are untouched ([#230](https://github.com/ziyilam3999/monday-bot/pull/230))
+
 ## [0.12.21](https://github.com/ziyilam3999/monday-bot/compare/v0.12.20...v0.12.21) (2026-06-24)
 
 ### Features
