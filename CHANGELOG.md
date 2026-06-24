@@ -1,3 +1,9 @@
+## [0.12.17](https://github.com/ziyilam3999/monday-bot/compare/v0.12.16...v0.12.17) (2026-06-24)
+
+### Bug Fixes
+
+* **slack:** #1190 markdownToMrkdwn edge cases — `***bold italic***`, `# **Title**`, and intraword `__init__` now render correctly in Slack ([#220](https://github.com/ziyilam3999/monday-bot/pull/220))
+
 ## [0.12.16](https://github.com/ziyilam3999/monday-bot/compare/v0.12.15...v0.12.16) (2026-06-24)
 
 ### Bug Fixes
