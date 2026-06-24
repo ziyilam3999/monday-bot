@@ -124,8 +124,8 @@ describe("markdownToMrkdwn", () => {
     expect(markdownToMrkdwn("**a** and **b**")).toBe("*a* and *b*");
   });
 
-  it("converts `__bold__` to single-asterisk bold", () => {
-    expect(markdownToMrkdwn("__bold__")).toBe("*bold*");
+  it("leaves single-word `__bold__` literal (accepted v1 miss — #1190 identifier-skip can't tell a dunder from a 1-word bold; the LLM emits `**bold**` for this)", () => {
+    expect(markdownToMrkdwn("__bold__")).toBe("__bold__");
   });
 
   it("converts an ATX heading line to bold", () => {
@@ -166,6 +166,81 @@ describe("markdownToMrkdwn", () => {
     // The converter has no code-span protection in v1 — this asserts the
     // CURRENT behavior explicitly rather than leaving the gap silent.
     expect(markdownToMrkdwn("`a**b**c`")).toBe("`a*b*c`");
+  });
+
+  // ---- #1190 edge cases ----
+  // NEW-BEHAVIOR (these FAIL on current master, PASS after the 3-star rule +
+  // the __identifier__ skip land).
+  describe("#1190 new-behavior (red on master, green after)", () => {
+    it("collapses `***bold italic***` to single-asterisk bold", () => {
+      expect(markdownToMrkdwn("***bold italic***")).toBe("*bold italic*");
+    });
+
+    it("fixes a bold ATX heading `# **Title**` -> `*Title*`", () => {
+      expect(markdownToMrkdwn("# **Title**")).toBe("*Title*");
+    });
+
+    it("fixes a multi-word bold heading `## **Multi Word**` -> `*Multi Word*`", () => {
+      expect(markdownToMrkdwn("## **Multi Word**")).toBe("*Multi Word*");
+    });
+
+    it("locks 3-star-before-2-star on a shared line: `mix ***bi*** and **b**`", () => {
+      expect(markdownToMrkdwn("mix ***bi*** and **b**")).toBe("mix *bi* and *b*");
+    });
+
+    it("leaves a Python dunder `__init__` literal", () => {
+      expect(markdownToMrkdwn("__init__")).toBe("__init__");
+    });
+
+    it("leaves a method call `obj.__init__()` literal", () => {
+      expect(markdownToMrkdwn("obj.__init__()")).toBe("obj.__init__()");
+    });
+
+    it("leaves `__name__` literal", () => {
+      expect(markdownToMrkdwn("__name__")).toBe("__name__");
+    });
+
+    it("leaves intraword underscores `a__b__c` intact", () => {
+      expect(markdownToMrkdwn("a__b__c")).toBe("a__b__c");
+    });
+
+    it("leaves intraword underscores `snake__case__x` intact", () => {
+      expect(markdownToMrkdwn("snake__case__x")).toBe("snake__case__x");
+    });
+  });
+
+  // REGRESSION-GUARD: these already PASS on master; keep them green. They do NOT
+  // assert "differs from master" — the multi-word `__` path was never the bug.
+  describe("#1190 regression-guard (already green on master)", () => {
+    it("still converts multi-word `__very important__` -> `*very important*`", () => {
+      expect(markdownToMrkdwn("__very important__")).toBe("*very important*");
+    });
+
+    it("still converts `**bold**` -> `*bold*`", () => {
+      expect(markdownToMrkdwn("**bold**")).toBe("*bold*");
+    });
+
+    it("still converts heading `# Heading` -> `*Heading*`", () => {
+      expect(markdownToMrkdwn("# Heading")).toBe("*Heading*");
+    });
+
+    it("still converts bullet `- item` -> `• item`", () => {
+      expect(markdownToMrkdwn("- item")).toBe("• item");
+    });
+
+    it("still converts link `[text](url)` -> `<url|text>`", () => {
+      expect(markdownToMrkdwn("[text](http://x)")).toBe("<http://x|text>");
+    });
+
+    it("still leaves a `[2]` citation untouched", () => {
+      expect(markdownToMrkdwn("see note [2] for details")).toBe(
+        "see note [2] for details"
+      );
+    });
+
+    it("still converts `**a** and **b**` -> `*a* and *b*` independently", () => {
+      expect(markdownToMrkdwn("**a** and **b**")).toBe("*a* and *b*");
+    });
   });
 
   it("behavioral both-ends: a multi-paragraph `**bold:**` answer's section text contains no `**`", () => {
