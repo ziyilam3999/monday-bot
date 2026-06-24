@@ -131,7 +131,14 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
     } else {
       const fetcher =
         deps.confluenceFetcher ??
-        buildConfluenceFetcher({ baseUrl: siteRoot, email: email!, apiToken: apiToken! });
+        buildConfluenceFetcher({
+          baseUrl: siteRoot,
+          email: email!,
+          apiToken: apiToken!,
+          // Configurable page size (default 100 inside buildConfluenceFetcher).
+          // Not a full large-space fix — cursor pagination is deferred (#1189).
+          pageLimit: config.confluence?.pageLimit,
+        });
       const sync = new ConfluenceSync({ knowledge: deps.knowledge, fetcher, logger });
       confluenceSync = sync;
       confluenceSpaces.push(...spaces);

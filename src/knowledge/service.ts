@@ -1,4 +1,5 @@
 import { ingestFile, Chunk as IngestChunk } from "../ingestion/ingest";
+import { splitIntoPassages } from "../ingestion/chunkText";
 import { VectorIndex, SearchResult, Chunk as IndexChunk } from "../index/vectorIndex";
 import { generateAnswer, Chunk as LlmChunk, Citation } from "../llm/generate";
 import {
@@ -6,7 +7,10 @@ import {
   FolderWatcherOptions,
 } from "../watcher/folderWatcher";
 
-const DEFAULT_TOP_K = 5;
+// Raised 5 -> 12 (#1189): passage-chunking can fill several top slots with
+// passages from the same doc, so a wider window leaves room for the relevant
+// passage AND cross-doc coverage. `opts.topK` still overrides per-service.
+const DEFAULT_TOP_K = 12;
 const NO_DOCUMENTS_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
 
@@ -169,16 +173,33 @@ export class KnowledgeService {
     await this.vectorIndex.removeBySource(source);
 
     const text = page.body.trim();
-    if (text.length === 0) {
+
+    // Passage-chunk the page (#1189): embed each bounded passage as its own
+    // vector so the relevant passage ranks high, instead of one diluted +
+    // truncated whole-page vector. removeBySource above already cleared all prior
+    // passages (they share this `source`), so re-sync replaces rather than
+    // accumulates. A non-empty body ALWAYS yields >= 1 passage, so
+    // `passages.length === 0` is reached ONLY for an empty/whitespace body —
+    // which we treat as a delete (mirrors the prior empty-body guard).
+    const passages = splitIntoPassages(text);
+    if (passages.length === 0) {
       this.indexedSources.delete(source);
       return;
     }
 
-    const chunk: IngestChunk = { text, source };
-    if (typeof page.title === "string" && page.title.length > 0) chunk.heading = page.title;
-    if (typeof page.spaceKey === "string" && page.spaceKey.length > 0) chunk.section = page.spaceKey;
+    const heading =
+      typeof page.title === "string" && page.title.length > 0 ? page.title : undefined;
+    const section =
+      typeof page.spaceKey === "string" && page.spaceKey.length > 0 ? page.spaceKey : undefined;
 
-    await this.vectorIndex.add([chunk]);
+    const passageChunks: IngestChunk[] = passages.map((passage) => {
+      const chunk: IngestChunk = { text: passage, source };
+      if (heading !== undefined) chunk.heading = heading;
+      if (section !== undefined) chunk.section = section;
+      return chunk;
+    });
+
+    await this.vectorIndex.add(passageChunks);
     this.indexedSources.add(source);
   }
 
