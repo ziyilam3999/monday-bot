@@ -48,6 +48,38 @@ export function selectCitedCitations(
 }
 
 /**
+ * Deterministic post-processor for abstention replies.
+ *
+ * If `answer` OPENS with an abstain phrase ("I couldn't find ...", anchored at
+ * start, leading whitespace tolerated, case-insensitive, optional/typographic
+ * apostrophe), then: (a) remove every inline `[N]` marker and tidy the leftover
+ * spacing, and (b) force `citations` to `[]`. Otherwise return both unchanged.
+ *
+ * The opener guard is the control: a grounded reply that LEADS with content and
+ * only later notes a gap does NOT open with the phrase, so it is untouched.
+ *
+ * Defensive: a non-string `answer` cannot match the opener -> returned unchanged
+ * (no throw, citations normalized to `[]` only when non-array); the type guard
+ * runs BEFORE any regex/`.replace` so `undefined` answers never throw.
+ */
+export function stripStrayAbstainCitations(
+  answer: string,
+  citations: Citation[],
+): AnswerResult {
+  if (typeof answer !== "string") {
+    return { answer, citations: Array.isArray(citations) ? citations : [] };
+  }
+  if (!/^\s*I couldn['’]?t find/i.test(answer)) {
+    return { answer, citations };
+  }
+  const cleaned = answer
+    .replace(/\s*\[\d+\]/g, "")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  return { answer: cleaned, citations: [] };
+}
+
+/**
  * Offline / test-mode flag. When set (or when no Anthropic credentials are
  * available at runtime), `generateAnswer` returns a deterministic fallback
  * answer assembled from the top retrieved chunks instead of calling the LLM.
@@ -182,8 +214,8 @@ export async function generateAnswer(
     return { answer: NO_CONTEXT_ANSWER, citations: [] };
   }
 
-  return {
-    answer: text,
-    citations: selectCitedCitations(text, buildCitations(chunks)),
-  };
+  return stripStrayAbstainCitations(
+    text,
+    selectCitedCitations(text, buildCitations(chunks)),
+  );
 }

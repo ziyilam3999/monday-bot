@@ -15,6 +15,7 @@ jest.mock("node:os", () => {
 import {
   generateAnswer,
   selectCitedCitations,
+  stripStrayAbstainCitations,
   NO_CONTEXT_ANSWER,
   Chunk,
   Citation,
@@ -177,5 +178,76 @@ describe("selectCitedCitations", () => {
     expect(
       selectCitedCitations("Foo [1].", undefined as unknown as Citation[]),
     ).toEqual([]);
+  });
+});
+
+describe("stripStrayAbstainCitations", () => {
+  const cites: Citation[] = [
+    { number: 1, source: "doc-a" },
+    { number: 2, source: "doc-b" },
+  ];
+
+  test("A: abstain opener with a stray [1] -> marker stripped, citations emptied", () => {
+    const result = stripStrayAbstainCitations(
+      "I couldn't find a separate guide for the asked topic [1].",
+      [cites[0]],
+    );
+    expect(result.answer).toBe(
+      "I couldn't find a separate guide for the asked topic.",
+    );
+    expect(result.answer).not.toContain("[1]");
+    expect(result.citations).toEqual([]);
+  });
+
+  test("A2: typographic-apostrophe opener with a stray [2] is also stripped", () => {
+    const result = stripStrayAbstainCitations(
+      "I couldn’t find anything on the asked topic [2].",
+      [cites[1]],
+    );
+    expect(result.answer).not.toContain("[2]");
+    expect(result.citations).toEqual([]);
+  });
+
+  test("B: grounded answer that leads with content and notes a gap later is UNCHANGED", () => {
+    const answer =
+      "The setup doc [1] covers the asked topic; I couldn't find a separate deep-dive [2].";
+    const result = stripStrayAbstainCitations(answer, cites);
+    expect(result.answer).toBe(answer);
+    expect(result.answer).toContain("[1]");
+    expect(result.answer).toContain("[2]");
+    expect(result.citations).toBe(cites);
+  });
+
+  test("C: canonical NO_CONTEXT_ANSWER is returned unchanged and clean", () => {
+    const result = stripStrayAbstainCitations(NO_CONTEXT_ANSWER, []);
+    expect(result.answer).toBe(NO_CONTEXT_ANSWER);
+    expect(result.citations).toEqual([]);
+  });
+
+  test("D(i): non-string answer does not throw and is returned as-is", () => {
+    const result = stripStrayAbstainCitations(
+      undefined as unknown as string,
+      cites,
+    );
+    expect(result.answer).toBeUndefined();
+    expect(result.citations).toBe(cites);
+  });
+
+  test("D(ii): non-array citations on the abstain branch -> stripped + []", () => {
+    const result = stripStrayAbstainCitations(
+      "I couldn't find it [1].",
+      undefined as unknown as Citation[],
+    );
+    expect(result.answer).not.toContain("[1]");
+    expect(result.citations).toEqual([]);
+  });
+
+  test("E: spacing tidy contract -> no double spaces, no space before period", () => {
+    const result = stripStrayAbstainCitations(
+      "I couldn't find  [1]  the asked topic [2] here.",
+      cites,
+    );
+    expect(result.answer).toBe("I couldn't find the asked topic here.");
+    expect(result.citations).toEqual([]);
   });
 });
