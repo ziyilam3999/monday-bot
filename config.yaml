@@ -74,11 +74,14 @@ recall:
   # unit-tested classifier that EXCLUDES "how are you" greetings and capacity/
   # frequency/pricing "how many/often/much" questions); chit-chat / geo /
   # not-in-corpus queries are untouched, so the abstain controls stay clean.
-  # Cheap + always-on (unlike rerank). bonus is the single tuning knob: 0.10 is
-  # the minimal value that lands the how-to doc inside the top-3 grounding window.
+  # Cheap + always-on (unlike rerank). bonus is the single tuning knob: 0.15 is
+  # the minimal value that clears the measured ticket-gap and lands the how-to
+  # doc at rank #1 — the rank at which the LLM leads with it and grounds (#1201).
+  # (0.10 only reached rank #3, where the doc stays below two tickets and the bot
+  # still abstains; 0.20 over-promotes to a doc-monopoly top-5, the overfit smell.)
   docPrior:
     enabled: true
-    bonus: 0.1
+    bonus: 0.15
   # Bi-encoder search pool size used when rerank OR diversityCap is enabled (a
   # wider pool than top-K so a lower-ranked-but-relevant passage can be recovered).
   candidatePoolSize: 150

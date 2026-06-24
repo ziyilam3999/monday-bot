@@ -47,6 +47,26 @@ describe("SYSTEM_PROMPT integrity", () => {
     expect(SYSTEM_PROMPT).toMatch(/PREFER DOCS OVER TICKET STUBS/);
   });
 
+  // #1201 — single-product / proper-noun-absence hedge fix.
+  it("adds the single-product / proper-noun-absence clause (#1201 new clause)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/SINGLE-PRODUCT KNOWLEDGE BASE/);
+    expect(SYSTEM_PROMPT).toMatch(/ABSENCE of the product'?s or a feature'?s NAME/i);
+    expect(SYSTEM_PROMPT).toMatch(/DESCRIBE THE TOPIC OR FEATURE/i);
+  });
+
+  it("carries the no-yes-man clamp (mentions product but not the topic -> still decline) (#1201)", () => {
+    expect(SYSTEM_PROMPT).toMatch(
+      /merely mentions or is generally about the product but does NOT address the specific topic .* is NOT grounding/i,
+    );
+  });
+
+  it("cross-references the still-governing on-topic precondition (#1201 correction #3)", () => {
+    // The new clause removes ONLY proper-noun absence as a disqualifier; it must
+    // NOT relax the existing genuinely-ON-TOPIC gate (generate.ts on-topic clause).
+    expect(SYSTEM_PROMPT).toMatch(/removes ONLY proper-noun ABSENCE as a disqualifier/);
+    expect(SYSTEM_PROMPT).toMatch(/genuinely ON-TOPIC precondition above still governs/);
+  });
+
   it("adds the phased/planned-rollout framing clause (#1195 Item 3)", () => {
     expect(SYSTEM_PROMPT).toMatch(/PHASED \/ PLANNED ROLLOUTS/);
     expect(SYSTEM_PROMPT).toMatch(/what is LIVE now and what is NAMED-planned/);
