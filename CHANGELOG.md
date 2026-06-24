@@ -1,3 +1,9 @@
+## [0.12.19](https://github.com/ziyilam3999/monday-bot/compare/v0.12.18...v0.12.19) (2026-06-24)
+
+### Features
+
+* **answer:** #1195 answer-framing — temperature:0 determinism (eliminates the ground-vs-abstain coin-flip) + on-topic process-passage grounding + phased-rollout framing + N-run rate harness; off-topic abstain control retained ([#224](https://github.com/ziyilam3999/monday-bot/pull/224))
+
 ## [0.12.18](https://github.com/ziyilam3999/monday-bot/compare/v0.12.17...v0.12.18) (2026-06-24)
 
 ### Features
