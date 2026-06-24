@@ -9,6 +9,12 @@ import {
 import { expandQuery, QueryExpansionConfig } from "./queryExpansion";
 import { applyDiversityCap, DiversityCapConfig } from "./diversity";
 import { rerank, RerankConfig } from "./rerank";
+import {
+  applyDocPrior,
+  DocPriorConfig,
+  DEFAULT_DOC_PRIOR_BONUS,
+  DEFAULT_DOC_SOURCE_TYPES,
+} from "./docPrior";
 
 // Raised 5 -> 12 (#1189): passage-chunking can fill several top slots with
 // passages from the same doc, so a wider window leaves room for the relevant
@@ -28,6 +34,12 @@ export interface RecallConfig {
   queryExpansion?: QueryExpansionConfig;
   diversityCap?: DiversityCapConfig;
   rerank?: RerankConfig;
+  /**
+   * Lever 4 (#1197) — how-to-action doc-over-ticket prior. Default ON (see
+   * resolveRecall): the Tier-B controls hold 5/5 and Q3/Q4 do not regress, so an
+   * always-on cheap re-rank is conservative (correction #4).
+   */
+  docPrior?: DocPriorConfig;
   /** Bi-encoder search pool widened when rerank OR diversity cap is enabled. */
   candidatePoolSize?: number;
 }
@@ -37,6 +49,7 @@ interface ResolvedRecall {
   expansion: { enabled: boolean };
   diversityCap: { enabled: boolean; maxPerSourceType: number };
   rerank: RerankConfig & { enabled: boolean; candidatePool: number };
+  docPrior: { enabled: boolean; bonus: number; docSourceTypes: readonly string[] };
   candidatePoolSize: number;
 }
 
@@ -55,6 +68,15 @@ function resolveRecall(cfg?: RecallConfig): ResolvedRecall {
       ...(cfg?.rerank ?? {}),
       enabled: cfg?.rerank?.enabled ?? false,
       candidatePool: cfg?.rerank?.candidatePool ?? DEFAULT_CANDIDATE_POOL,
+    },
+    docPrior: {
+      // Default ON (correction #4): justified by Tier-B — controls 5/5, no
+      // Q3/Q4 regression. The bonus is the single tunable knob; a small additive
+      // value (0.10) lands the how-to doc inside the #1-3 grounding window.
+      enabled: cfg?.docPrior?.enabled ?? true,
+      bonus: cfg?.docPrior?.bonus ?? DEFAULT_DOC_PRIOR_BONUS,
+      docSourceTypes:
+        cfg?.docPrior?.docSourceTypes ?? DEFAULT_DOC_SOURCE_TYPES,
     },
     candidatePoolSize: cfg?.candidatePoolSize ?? DEFAULT_CANDIDATE_POOL,
   };
@@ -183,8 +205,9 @@ export class KnowledgeService {
    *   1. expandQuery   — widen the bi-encoder recall net for geo intent (L1)
    *   2. search(poolK) — widen pool only when rerank/cap need a deeper batch
    *   3. rerank        — cross-encoder scores the ORIGINAL question (L2, OFF by default)
-   *   4. diversity cap — reshuffle so one source-type can't monopolize (L3)
-   *   5. slice topK
+   *   4. docPrior      — how-to-action doc-over-ticket prior (L4, ON by default; no-op off-intent)
+   *   5. diversity cap — reshuffle so one source-type can't monopolize (L3)
+   *   6. slice topK
    *
    * With all levers off this collapses to `search(question, topK)` — byte-identical
    * to the pre-#1191 behavior. SHIPPED defaults are expansion+cap ON, rerank OFF.
@@ -205,6 +228,16 @@ export class KnowledgeService {
         candidatePool: r.rerank.candidatePool,
       });
     }
+
+    // Lever 4 (#1197) — how-to-action doc-over-ticket prior. Cheap, always-on by
+    // default, fires ONLY on how-to-action intent (the ORIGINAL question, like
+    // rerank); controls / geo / already-grounded queries pass through unchanged.
+    // Runs before the diversity cap so the cap shapes the prioritized order.
+    ranked = applyDocPrior(question, ranked, {
+      enabled: r.docPrior.enabled,
+      bonus: r.docPrior.bonus,
+      docSourceTypes: r.docPrior.docSourceTypes,
+    });
 
     const capped = applyDiversityCap(ranked, this.topK, {
       enabled: r.diversityCap.enabled,

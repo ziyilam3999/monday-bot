@@ -67,6 +67,18 @@ recall:
   rerank:
     enabled: false
     candidatePool: 150
+  # Lever 4 (#1197) — how-to-action doc-over-ticket prior. On a genuine "how do
+  # I…" / "how to…" question, narrative DOC passages get a SMALL additive score
+  # bonus so a how-to page rises above the bare ticket stubs the bi-encoder
+  # over-ranked on keyword density. Fires ONLY on how-to-action intent (a tight,
+  # unit-tested classifier that EXCLUDES "how are you" greetings and capacity/
+  # frequency/pricing "how many/often/much" questions); chit-chat / geo /
+  # not-in-corpus queries are untouched, so the abstain controls stay clean.
+  # Cheap + always-on (unlike rerank). bonus is the single tuning knob: 0.10 is
+  # the minimal value that lands the how-to doc inside the top-3 grounding window.
+  docPrior:
+    enabled: true
+    bonus: 0.1
   # Bi-encoder search pool size used when rerank OR diversityCap is enabled (a
   # wider pool than top-K so a lower-ranked-but-relevant passage can be recovered).
   candidatePoolSize: 150

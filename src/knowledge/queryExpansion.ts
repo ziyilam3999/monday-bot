@@ -116,3 +116,31 @@ export function expandQuery(
   if (additions.length === 0) return question;
   return `${question} ${additions.join(" ")}`;
 }
+
+/**
+ * CLOSED how-to-ACTION intent signal (#1197). Detects a user asking how to DO
+ * something (an action they take), distinct from geo intent and from the
+ * "how are you" greeting. Pure + deterministic. Adds NO query expansion —
+ * classification only (generic how-to-vocab expansion regressed ranking in
+ * #1191; this signal only feeds the doc-over-ticket re-rank prior).
+ *
+ * TIGHTENED (plan-review correction #2): only the two PRECISE clauses are kept.
+ * The plan's loose third clause — `tokens include "how" ANYWHERE + an
+ * action-verb ANYWHERE` — was DROPPED. That anywhere-in-sentence co-occurrence
+ * false-fired on plausible NON-how-to questions ("how many can I add", "how
+ * often do I get billed", "how much does it cost to book") where the answer may
+ * well live in a ticket, which would wrongly trigger the doc boost. The precise
+ * clauses below bind the action to the interrogative ("how to <X>" / "how
+ * do|can|does|could|should <X>"), which is what the genuine how-to-action
+ * targets use; the dropped clause added open-world risk for no target benefit.
+ * These NON-firing cases are locked as negative unit tests.
+ */
+export function hasHowToActionIntent(question: string): boolean {
+  if (typeof question !== "string") return false;
+  const s = question.toLowerCase();
+  // Exclude the greeting / state-of-being "how are/is/was…" (chit-chat control).
+  if (/\bhow\s+(are|is|was|were|'?s)\b/.test(s)) return false;
+  if (/\bhow\s+to\b/.test(s)) return true; //                "how to X"
+  if (/\bhow\s+(do|can|does|could|should)\b/.test(s)) return true; // "how do I X"
+  return false;
+}
