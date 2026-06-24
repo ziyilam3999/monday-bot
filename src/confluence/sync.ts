@@ -43,6 +43,17 @@ export interface ConfluenceClientConfig {
   baseUrl: string;
   email: string;
   apiToken: string;
+  /**
+   * Page-fetch size for the `&limit=` query param. Default 100.
+   *
+   * NOTE (#1189): this only makes the per-request page size CONFIGURABLE — it is
+   * NOT a full large-space fix. The Atlassian content REST API caps `limit`
+   * (commonly 100) and paginates further results via `_links.next` cursors,
+   * which this fetcher does NOT follow. A space with more results than one page
+   * is therefore still truncated regardless of the `limit` value. Cursor
+   * pagination is a deferred follow-up (see the plan's Deferred section).
+   */
+  pageLimit?: number;
 }
 
 /**
@@ -63,9 +74,12 @@ export function buildConfluenceFetcher(
     );
   }
   const auth = Buffer.from(`${config.email}:${config.apiToken}`).toString("base64");
+  // Configurable page size (default 100). Does NOT follow `_links.next` cursors,
+  // so large spaces are still truncated at one page — see ConfluenceClientConfig.
+  const limit = typeof config.pageLimit === "number" && config.pageLimit > 0 ? config.pageLimit : 100;
   return {
     async fetchPages(spaceKey: string): Promise<ConfluencePage[]> {
-      const url = `${config.baseUrl.replace(/\/$/, "")}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=100`;
+      const url = `${config.baseUrl.replace(/\/$/, "")}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=${limit}`;
       const res = await fetchImpl(url, {
         headers: {
           Authorization: `Basic ${auth}`,

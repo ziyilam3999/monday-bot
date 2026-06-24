@@ -194,6 +194,79 @@ describe("KnowledgeService.indexConfluencePage replace-on-resync", () => {
   });
 });
 
+describe("KnowledgeService.indexConfluencePage passage-chunking (AC4, #1189)", () => {
+  function longBody(): string {
+    // ~3500 chars of sentences on a single collapsed line (mirrors stripHtml
+    // output) so the chunker produces several passages.
+    const sentences: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      sentences.push(`Step ${i} explains a part of the onboarding workflow in detail.`);
+    }
+    return sentences.join(" ");
+  }
+
+  it("a long page produces > 1 chunk under the same source", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "long-1",
+      title: "Big How-To",
+      body: longBody(),
+      source: "confluence:long-1",
+      spaceKey: "ENG",
+    });
+    expect(knowledge.getChunkCountForSource("confluence:long-1")).toBeGreaterThan(1);
+    // The page still counts as exactly ONE document (source), not N.
+    expect(knowledge.getStatus().documentCount).toBe(1);
+  });
+
+  it("re-syncing a long page replaces (not duplicates) its chunks", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "long-2",
+      title: "Big How-To",
+      body: longBody(),
+      source: "confluence:long-2",
+    });
+    const first = knowledge.getChunkCountForSource("confluence:long-2");
+    expect(first).toBeGreaterThan(1);
+
+    // Re-sync the SAME source with a different long body.
+    const sentences: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      sentences.push(`Revised step ${i} of the workflow now reads differently here.`);
+    }
+    await knowledge.indexConfluencePage({
+      id: "long-2",
+      title: "Big How-To",
+      body: sentences.join(" "),
+      source: "confluence:long-2",
+    });
+    const second = knowledge.getChunkCountForSource("confluence:long-2");
+    // Replaced, not accumulated — count reflects only the new body's passages.
+    expect(second).toBeGreaterThan(1);
+    expect(second).toBe(splitForCount(sentences.join(" ")));
+    expect(knowledge.getStatus().documentCount).toBe(1);
+  });
+
+  it("a short page still produces >= 1 chunk", async () => {
+    const knowledge = new KnowledgeService();
+    await knowledge.indexConfluencePage({
+      id: "short-1",
+      title: "Tiny",
+      body: "Short note.",
+      source: "confluence:short-1",
+    });
+    expect(knowledge.getChunkCountForSource("confluence:short-1")).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// Local helper mirroring the chunker so the resync test asserts exact replacement.
+function splitForCount(body: string): number {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { splitIntoPassages } = require("../src/ingestion/chunkText");
+  return splitIntoPassages(body).length;
+}
+
 describe("config.yaml has a Confluence sync schedule", () => {
   it("contains a confluence section with a schedule/cron/interval field", () => {
     const configPath = path.join(__dirname, "..", "config.yaml");

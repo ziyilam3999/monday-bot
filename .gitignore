@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 .env
 .env.local
@@ -8,3 +8,8 @@ dist/
 .ai-workspace/
 .claude/
 tmp/
+
+# Tier-B golden eval PRIVATE fixture (#1170): 5 real UAT questions + real
+# ground-truth source ids + a real saved index. NEVER committed to this public
+# repo. The synthetic golden-private.example.json template stays tracked.
+tests/fixtures/recall-eval/golden-private.json

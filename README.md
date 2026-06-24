@@ -4,25 +4,7 @@ A Slack bot that answers team questions from internal documents (shared folders,
 
 ## Status
 
-Active development. Bootstrap pipeline in progress.
-
-| Story | Title | Status |
-|-------|-------|--------|
-| US-01 | TS scaffolding + secrets validation + build | done |
-| US-02 | Document ingestion (TXT/MD/PDF/DOCX → chunks) | ready |
-| US-03 | Embeddings + vector index + persistence | pending |
-| US-04 | LLM answer generation (cited, facts-only) | pending |
-| US-05 | Knowledge service (platform-agnostic facade) | pending |
-| US-06 | File watcher (auto-index ≤5s) | pending |
-| US-07 | Confluence sync (REST + cron) | pending |
-| US-08 | Slack core (Socket Mode, @mention, /ask) | pending |
-| US-09 | Admin commands (status/sync/reindex/help/feedback) | pending |
-| US-10 | Graceful errors (no stack traces in Slack) | pending |
-| US-11 | Config file (watched paths, schedule) | ready |
-| US-12 | E2E integration (full round-trip) | pending |
-| US-13 | Deployment packaging (PM2/systemd/Docker) | pending |
-
-See [`docs/PLAN_MONDAY_BOT.md`](docs/PLAN_MONDAY_BOT.md) for the v2.0.0 product requirements (intent-only, executor-owns-how).
+13/13 stories shipped — see [CHANGELOG](CHANGELOG.md) / [docs/PLAN_MONDAY_BOT.md](docs/PLAN_MONDAY_BOT.md) for story-level history. For production setup see the [Deployment section below](#deployment).
 
 ## What Monday does
 
@@ -56,6 +38,140 @@ Required environment variables (template in `.env.example` — story US-11):
 - `SLACK_APP_TOKEN` — Slack app-level token for Socket Mode (`xapp-…`)
 
 Starting without these exits with a friendly error. No stack traces in user-facing surfaces.
+
+## Deployment
+
+Monday is designed as a single long-running Node process on free-tier ARM Linux
+(target: Oracle Cloud A1 or equivalent, 1 vCPU / 1 GB RAM class; expected to work on ARM64 — live ARM smoke pending).
+There is no public ingress — Slack Socket Mode keeps the process behind NAT.
+
+### Required environment variables
+
+Set these in the shell, a `.env` file, or your process manager's env block:
+
+- `SLACK_BOT_TOKEN` — Slack bot token (`xoxb-…`)
+- `SLACK_APP_TOKEN` — Slack app-level token for Socket Mode (`xapp-…`)
+
+Optional (depending on which stories are enabled in your build):
+
+- `ANTHROPIC_API_KEY` — only if the Anthropic LLM path is wired in
+- `MONDAY_DEBUG=1` — enables stack traces on startup failure
+
+A template lives in [`.env.example`](./.env.example). Application config (watched
+paths, Confluence schedule, ingestion knobs) lives in [`config.yaml`](./config.yaml)
+— see story US-11 for the loader and schema.
+
+Starting without `SLACK_BOT_TOKEN` or `SLACK_APP_TOKEN` exits non-zero with a
+friendly message that names the missing variables.
+
+### Build
+
+```bash
+npm install
+npm run build      # tsc → dist/
+```
+
+### Run — bare metal
+
+```bash
+npm start          # node dist/index.js
+```
+
+Useful for local development and smoke tests. Not recommended for production
+because there is no automatic restart on crash.
+
+### Run — PM2 (recommended)
+
+[PM2](https://pm2.keymetrics.io/) supervises the Node process, restarts on
+crash, and persists across reboots. The repo ships
+[`ecosystem.config.js`](./ecosystem.config.js) which pins:
+
+- single fork-mode instance (Monday holds in-memory indexes — do not cluster)
+- `max_memory_restart: 500M` (leaves headroom for the embedding model on 1 GB hosts)
+- exponential backoff restart with `min_uptime: 10s` and `max_restarts: 10`
+
+```bash
+npm install -g pm2          # one-time, global
+npm run build
+pm2 start ecosystem.config.js
+pm2 save && pm2 startup     # persist across reboots
+pm2 logs monday             # tail logs
+pm2 restart monday          # manual restart
+```
+
+### Run 24/7 on macOS (launchd)
+
+For an always-on, always-logged-in Mac, you can run Monday under macOS's native
+service supervisor **launchd** instead of PM2 — no extra global install. launchd
+starts Monday at login, keeps it alive, and restarts it on crash.
+
+The repo is public, so it ships a placeholder **template**
+([`deploy/launchd/com.monday-bot.plist.template`](./deploy/launchd/com.monday-bot.plist.template))
+plus an installer that resolves the real node path / repo dir / log dir on your
+machine and writes the filled plist to `~/Library/LaunchAgents/`.
+
+**Prerequisites:** `npm run build` (produces `dist/`) and a populated `.env` in
+the repo root (Monday self-loads `.env` at startup — v0.12.6+ — so no secrets go
+into the plist).
+
+```bash
+npm run build
+bash scripts/install-launchd.sh          # writes the plist, then prompts to activate
+```
+
+The installer prints the exact `launchctl` activation commands and (with your
+confirmation) runs them:
+
+```text
+launchctl bootout    gui/$(id -u)/com.monday-bot 2>/dev/null || true
+launchctl bootstrap  gui/$(id -u) ~/Library/LaunchAgents/com.monday-bot.plist
+launchctl enable     gui/$(id -u)/com.monday-bot
+launchctl kickstart -k gui/$(id -u)/com.monday-bot
+```
+
+It fails loudly if `node`, `dist/index.js`, or `.env` is missing, and it is
+idempotent — re-running tears down the old instance (`bootout`) before
+re-bootstrapping. Use `bash scripts/install-launchd.sh --print-only` to preview
+the rendered plist without writing anything.
+
+**Status & logs:**
+
+```bash
+bash scripts/install-launchd.sh status                                  # launchctl print
+tail -f ~/Library/Logs/monday-bot.out.log ~/Library/Logs/monday-bot.err.log
+```
+
+> launchd does not rotate these log files. If they grow large, truncate them
+> (e.g. `: > ~/Library/Logs/monday-bot.out.log`) — the running agent keeps appending.
+
+**Update** (after pulling new code):
+
+```bash
+npm run build
+launchctl kickstart -k gui/$(id -u)/com.monday-bot   # restart with the new dist/
+```
+
+**Uninstall:**
+
+```bash
+bash scripts/install-launchd.sh uninstall            # bootout + remove the plist
+```
+
+> **Caveat:** a **LaunchAgent** runs only while the user is logged in — which is
+> exactly right for an always-on, logged-in Mac. For pre-login / headless
+> operation you would instead need a **LaunchDaemon** in `/Library/LaunchDaemons/`
+> (installed as root, no access to the user session). That is out of scope here;
+> the cloud/headless path remains PM2 ([`ecosystem.config.js`](./ecosystem.config.js)).
+
+### ARM Linux compatibility
+
+All runtime dependencies are pure-JS or ship ARM-compatible prebuilds:
+
+- `@slack/bolt`, `@anthropic-ai/sdk`, `js-yaml`, `mammoth` — pure JS
+- `pdfjs-dist` — pure JS (legacy build, no native canvas required)
+- `@xenova/transformers` — ships ARM64 ONNX runtime; expected to work on Oracle Cloud A1 (live ARM smoke pending)
+
+No native rebuild step is required on ARM64 Linux beyond `npm install`.
 
 ## Out of scope (v1)
 
