@@ -79,6 +79,55 @@ function sanitizeTitle(s: string): string {
 }
 
 /**
+ * Convert CommonMark-style Markdown (as emitted by the LLM) into Slack mrkdwn.
+ *
+ * Slack mrkdwn is a different dialect from standard Markdown: bold is a single
+ * `*` (not `**`), links are `<url|text>` (not `[text](url)`), and there are no
+ * `#` headings. The LLM emits standard Markdown, so dropping it straight into a
+ * Slack `mrkdwn` block renders literal asterisks. This deterministic, pure v1
+ * converter handles the common cases an LLM answer produces.
+ *
+ * Conversions:
+ *   - bold:     `**x**` and `__x__` -> `*x*` (NON-GREEDY, per-span — so
+ *               `**a** and **b**` convert independently). The ONLY emphasis rule.
+ *   - headings: a line `^#{1,6}\s+(.*)$` -> `*$1*` (per line; Slack has no headings).
+ *   - links:    `[text](url)` -> `<url|text>`.
+ *   - bullets:  a line starting `- ` or `* ` -> `• ` + the item text.
+ *
+ * Intentionally LEFT ALONE (accepted v1 cosmetic misses):
+ *   - single `*x*` / `_x_` emphasis is untouched. `_x_` is already valid Slack
+ *     italic; a stray Markdown `*italic*` renders as Slack bold — a far smaller
+ *     miss than bold vanishing, and adding a single-`*`->`_` rule would clobber
+ *     the `*x*` the bold pass just produced.
+ *   - `~strike~`, citation tokens like `[2]` (no parens -> not a link), plain text.
+ *
+ * Known v1 LIMITATION: inline/fenced code spans are NOT masked, so a `**` inside
+ * a `` `code` `` span IS converted. Acceptable for v1 (rare in answer bodies).
+ */
+export function markdownToMrkdwn(s: string): string {
+  if (typeof s !== "string") return s;
+
+  // Per-line: headings and bullets operate on the raw line markers.
+  const out = s
+    .split("\n")
+    .map((line) => {
+      const heading = line.match(/^#{1,6}\s+(.*)$/);
+      if (heading) return `*${heading[1]}*`;
+      const bullet = line.match(/^[-*] (.*)$/);
+      if (bullet) return `• ${bullet[1]}`;
+      return line;
+    })
+    .join("\n")
+    // links: [text](url) -> <url|text> (a bare `[2]` citation has no `(...)`).
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
+    // bold: **x** and __x__ -> *x* (non-greedy / per-span). The ONLY emphasis rule.
+    .replace(/\*\*(.+?)\*\*/g, "*$1*")
+    .replace(/__(.+?)__/g, "*$1*");
+
+  return out;
+}
+
+/**
  * Format a `{ answer, citations }` payload into a Slack Block Kit message.
  *
  * Layout:
@@ -94,7 +143,9 @@ export function formatAnswer(input: FormatAnswerInput): SlackMessagePayload {
     throw new TypeError("formatAnswer: input.answer must be a string");
   }
 
-  const answer = input.answer.trim();
+  // Convert ONCE here so both the section block and the fallback `text` field
+  // below use the same Slack-mrkdwn string (consistent; no `**` in either).
+  const answer = markdownToMrkdwn(input.answer.trim());
   const citations = Array.isArray(input.citations) ? input.citations : [];
 
   const blocks: SlackBlock[] = [];

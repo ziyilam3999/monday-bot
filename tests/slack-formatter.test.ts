@@ -1,4 +1,4 @@
-import { formatAnswer } from "../src/slack/formatter";
+import { formatAnswer, markdownToMrkdwn } from "../src/slack/formatter";
 
 describe("slack/formatter", () => {
   it("produces a section block with the answer text", () => {
@@ -109,5 +109,88 @@ describe("slack/formatter", () => {
   it("throws TypeError on bad input", () => {
     expect(() => formatAnswer(undefined as never)).toThrow(TypeError);
     expect(() => formatAnswer({ answer: 123 as never })).toThrow(TypeError);
+  });
+});
+
+describe("markdownToMrkdwn", () => {
+  it("converts `**bold:**` to a single-asterisk bold and leaves no `**`", () => {
+    const out = markdownToMrkdwn("**Daily Borrowing Limit:**");
+    expect(out).toBe("*Daily Borrowing Limit:*");
+    expect(out).not.toContain("**");
+  });
+
+  it("converts multiple bold spans independently (non-greedy)", () => {
+    // A greedy match would swallow the middle " and " into one span.
+    expect(markdownToMrkdwn("**a** and **b**")).toBe("*a* and *b*");
+  });
+
+  it("converts `__bold__` to single-asterisk bold", () => {
+    expect(markdownToMrkdwn("__bold__")).toBe("*bold*");
+  });
+
+  it("converts an ATX heading line to bold", () => {
+    expect(markdownToMrkdwn("# Title")).toBe("*Title*");
+  });
+
+  it("converts a Markdown link to Slack link syntax", () => {
+    expect(markdownToMrkdwn("[text](http://x)")).toBe("<http://x|text>");
+  });
+
+  it("converts a `- ` bullet line to a `• ` bullet", () => {
+    expect(markdownToMrkdwn("- item")).toBe("• item");
+  });
+
+  it("converts a `* ` bullet line to a `• ` bullet", () => {
+    expect(markdownToMrkdwn("* item")).toBe("• item");
+  });
+
+  it("leaves a bare citation token `[2]` untouched (no parens -> not a link)", () => {
+    expect(markdownToMrkdwn("see note [2] for details")).toBe(
+      "see note [2] for details"
+    );
+  });
+
+  it("leaves single `_italic_` untouched (already valid Slack italic)", () => {
+    expect(markdownToMrkdwn("_italic_")).toBe("_italic_");
+  });
+
+  it("leaves single `*italic*` untouched (accepted v1 cosmetic miss)", () => {
+    expect(markdownToMrkdwn("*italic*")).toBe("*italic*");
+  });
+
+  it("leaves `~strike~` and plain text untouched", () => {
+    expect(markdownToMrkdwn("plain ~strike~ text")).toBe("plain ~strike~ text");
+  });
+
+  it("documented v1 limitation: does NOT mask code spans, so `**` inside a `code` span IS converted", () => {
+    // The converter has no code-span protection in v1 — this asserts the
+    // CURRENT behavior explicitly rather than leaving the gap silent.
+    expect(markdownToMrkdwn("`a**b**c`")).toBe("`a*b*c`");
+  });
+
+  it("behavioral both-ends: a multi-paragraph `**bold:**` answer's section text contains no `**`", () => {
+    const answer = [
+      "**Overview:** This is the summary line.",
+      "",
+      "**Steps:**",
+      "- First do the thing.",
+      "- Then do the **other** thing.",
+      "",
+      "See the [guide](http://example.test/guide) for more. [1]",
+    ].join("\n");
+    const payload = formatAnswer({
+      answer,
+      citations: [{ num: 1, source: "guide.md" }],
+    });
+    const section = payload.blocks.find((b) => b.type === "section");
+    expect(section).toBeDefined();
+    if (section && section.type === "section") {
+      expect(section.text.text).not.toContain("**");
+      expect(section.text.text).toContain("*Overview:*");
+      expect(section.text.text).toContain("• First do the thing.");
+      expect(section.text.text).toContain("<http://example.test/guide|guide>");
+    }
+    // The fallback text uses the same converted string.
+    expect(payload.text).not.toContain("**");
   });
 });
