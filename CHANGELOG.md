@@ -1,3 +1,9 @@
+## [0.12.16](https://github.com/ziyilam3999/monday-bot/compare/v0.12.15...v0.12.16) (2026-06-24)
+
+### Bug Fixes
+
+* **retrieval:** #1189 passage-chunk Confluence pages so long how-to pages are findable (buried pages lifted 52-656 ranks; 4/5 UAT recall cases fixed) ([#218](https://github.com/ziyilam3999/monday-bot/pull/218))
+
 ## [0.12.15](https://github.com/ziyilam3999/monday-bot/compare/v0.12.14...v0.12.15) (2026-06-24)
 
 ### Bug Fixes
