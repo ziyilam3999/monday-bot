@@ -88,8 +88,20 @@ function sanitizeTitle(s: string): string {
  * converter handles the common cases an LLM answer produces.
  *
  * Conversions:
- *   - bold:     `**x**` and `__x__` -> `*x*` (NON-GREEDY, per-span — so
- *               `**a** and **b**` convert independently). The ONLY emphasis rule.
+ *   - bold+italic: `***x***` -> `*x*` (Slack has no combined bold+italic; bold is
+ *               the closest single-mark rendering). Runs BEFORE the `**x**` rule so
+ *               the 2-star pass cannot grab the inner pair. This ALSO fixes a
+ *               heading whose text is bold — `# **Title**` heading-wraps to
+ *               `***Title***`, which this 3-star rule then collapses to `*Title*`.
+ *   - bold:     `**x**` -> `*x*` (NON-GREEDY, per-span — so `**a** and **b**`
+ *               convert independently).
+ *   - bold:     `__x__` -> `*x*`, EXCEPT when the inner span is a single bare
+ *               identifier token (`/^\w+$/`): then it is left literal so Python
+ *               dunders / intraword underscores survive — `__init__`, `__name__`,
+ *               `obj.__init__()`, `snake__case`, `__123__`, `__GDP__` all stay as
+ *               written. Multi-word spans (`__very important__`, anything with a
+ *               space) still convert. The `**x**` rule is UNCHANGED (asterisk-bold
+ *               has no identifier collision).
  *   - headings: a line `^#{1,6}\s+(.*)$` -> `*$1*` (per line; Slack has no headings).
  *   - links:    `[text](url)` -> `<url|text>`.
  *   - bullets:  a line starting `- ` or `* ` -> `• ` + the item text.
@@ -99,6 +111,10 @@ function sanitizeTitle(s: string): string {
  *     italic; a stray Markdown `*italic*` renders as Slack bold — a far smaller
  *     miss than bold vanishing, and adding a single-`*`->`_` rule would clobber
  *     the `*x*` the bold pass just produced.
+ *   - a single-word `__bold__` / `__123__` / `__GDP__` now stays LITERAL (the
+ *     identifier-skip above can't tell a legit single-word bold from a dunder).
+ *     Accepted v1 cosmetic miss — the LLM emits `**bold**` for that, which still
+ *     converts correctly.
  *   - `~strike~`, citation tokens like `[2]` (no parens -> not a link), plain text.
  *
  * Known v1 LIMITATION: inline/fenced code spans are NOT masked, so a `**` inside
@@ -120,9 +136,16 @@ export function markdownToMrkdwn(s: string): string {
     .join("\n")
     // links: [text](url) -> <url|text> (a bare `[2]` citation has no `(...)`).
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
-    // bold: **x** and __x__ -> *x* (non-greedy / per-span). The ONLY emphasis rule.
+    // bold+italic: ***x*** -> *x* (Slack has no combined mark). MUST run before the
+    // **x** rule so the 2-star pass doesn't grab the inner pair. Also collapses a
+    // heading-wrapped bold title (`# **Title**` -> `***Title***` -> `*Title*`).
+    .replace(/\*\*\*(.+?)\*\*\*/g, "*$1*")
+    // bold: **x** -> *x* (non-greedy / per-span).
     .replace(/\*\*(.+?)\*\*/g, "*$1*")
-    .replace(/__(.+?)__/g, "*$1*");
+    // bold: __x__ -> *x*, but SKIP a single bare identifier token (`/^\w+$/`) so
+    // Python dunders / intraword underscores (`__init__`, `obj.__init__()`,
+    // `snake__case`, `__123__`) are left literal. Multi-word spans still convert.
+    .replace(/__(.+?)__/g, (m, inner) => (/^\w+$/.test(inner) ? m : `*${inner}*`));
 
   return out;
 }
