@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# pre-commit — local STAGED privacy scan (#1222 Leg 2). A thin wrapper that runs the
+# shared checker (scripts/privacy-denylist-check.sh) in SCAN_MODE=staged and BLOCKS the
+# commit (non-zero) when staged content would bake in a privacy leak. Tracked here (NOT
+# in .git/hooks/, which is untracked) and wired live via scripts/install-git-hooks.sh.
+#
+# HONEST LOCAL SCOPE (M3): locally this catches HOME-PATH leaks only — an absolute home
+# path like /Users/<name>/ or /home/<name>/. The internal-identifier denylist arms ONLY
+# when PRIVACY_DENYLIST_TOKENS is set (a CI secret, absent on a developer laptop), so the
+# token scan is a vacuous skip locally → CI remains the identifier-token backstop. This
+# hook does NOT claim to catch internal-identifier tokens locally.
+#
+# Bypass (discouraged): git commit --no-verify.
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+CHECK="${REPO_ROOT}/scripts/privacy-denylist-check.sh"
+
+# Fail-open if the checker is missing (don't brick commits on a partial checkout).
+[ -f "${CHECK}" ] || exit 0
+
+SCAN_MODE=staged bash "${CHECK}"
+rc=$?
+
+if [ "${rc}" -ne 0 ]; then
+  echo "pre-commit: BLOCKED — staged content contains a home-path leak (details above)." >&2
+  echo "pre-commit: scrub the absolute home path (use a relative path, \$HOME, ~, or a <name> placeholder), re-stage, and re-commit." >&2
+  echo "pre-commit: local scope = home-paths only; the internal-identifier denylist is enforced by CI, not here." >&2
+  echo "pre-commit: bypass once (discouraged): git commit --no-verify" >&2
+fi
+
+exit "${rc}"
