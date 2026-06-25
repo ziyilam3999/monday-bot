@@ -26,36 +26,57 @@
 
 set -u
 
-# --- Resolve the diff range, fail-closed (the single most important property) ---
-BASE_REF="${GITHUB_BASE_REF:-master}"
+# --- Scan-source switch (#1222 Leg 2) -----------------------------------------
+# SCAN_MODE selects WHAT content is scanned. The detection logic (token + home-path
+# scans below) is shared and UNCHANGED across modes — no re-inlined pattern.
+#   range  (DEFAULT, unset) — scan a PR's ADDED diff (merge-base...HEAD). Used by CI
+#                             (.github/workflows/privacy.yml runs with no SCAN_MODE),
+#                             so the default path is byte-for-byte the prior behavior.
+#   staged — scan STAGED content (git diff --cached) for a LOCAL pre-commit hook.
+# M4: staged mode computes ADDED from `git diff --cached` and SHORT-CIRCUITS here,
+# BEFORE any base-ref / merge-base resolution. A fresh clone with no resolvable
+# origin/master must NOT reach the range-mode fail-closed `exit 1` below — otherwise
+# the local pre-commit hook would brick EVERY commit. Staged mode resolves no range.
+SCAN_MODE="${SCAN_MODE:-range}"
 
-# Prefer the remote-tracking ref if it resolves; else the bare ref.
-RANGE_BASE=""
-if git rev-parse --verify --quiet "origin/${BASE_REF}" >/dev/null; then
-  RANGE_BASE="origin/${BASE_REF}"
-elif git rev-parse --verify --quiet "${BASE_REF}" >/dev/null; then
-  RANGE_BASE="${BASE_REF}"
+if [ "${SCAN_MODE}" = "staged" ]; then
+  # Staged mode: scan what is staged for commit; resolve NO range (M4).
+  ADDED="$(git diff --cached --no-color | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)"
+  SCAN_DESC="staged content (git diff --cached)"
 else
-  echo "privacy-denylist: ERROR — base ref '${BASE_REF}' does not resolve (tried 'origin/${BASE_REF}' and '${BASE_REF}')." >&2
-  echo "privacy-denylist: refusing to run on an unresolvable base (a vacuous pass would hide leaks). Ensure fetch-depth: 0." >&2
-  exit 1
-fi
+  # --- Range mode (DEFAULT, CI): resolve the diff range, fail-closed (M2 — the ---
+  #     single most important property; an unresolvable base must FAIL, never pass).
+  BASE_REF="${GITHUB_BASE_REF:-master}"
 
-MERGE_BASE="$(git merge-base "${RANGE_BASE}" HEAD 2>/dev/null || true)"
-if [ -z "${MERGE_BASE}" ]; then
-  echo "privacy-denylist: ERROR — git merge-base '${RANGE_BASE}' HEAD failed or returned empty." >&2
-  echo "privacy-denylist: refusing to run on an unresolvable diff range (a vacuous pass would hide leaks)." >&2
-  exit 1
-fi
+  # Prefer the remote-tracking ref if it resolves; else the bare ref.
+  RANGE_BASE=""
+  if git rev-parse --verify --quiet "origin/${BASE_REF}" >/dev/null; then
+    RANGE_BASE="origin/${BASE_REF}"
+  elif git rev-parse --verify --quiet "${BASE_REF}" >/dev/null; then
+    RANGE_BASE="${BASE_REF}"
+  else
+    echo "privacy-denylist: ERROR — base ref '${BASE_REF}' does not resolve (tried 'origin/${BASE_REF}' and '${BASE_REF}')." >&2
+    echo "privacy-denylist: refusing to run on an unresolvable base (a vacuous pass would hide leaks). Ensure fetch-depth: 0." >&2
+    exit 1
+  fi
 
-# --- Compute ADDED lines (lines starting with '+', excluding '+++ ' headers) ---
-ADDED="$(git diff --no-color "${MERGE_BASE}...HEAD" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)"
+  MERGE_BASE="$(git merge-base "${RANGE_BASE}" HEAD 2>/dev/null || true)"
+  if [ -z "${MERGE_BASE}" ]; then
+    echo "privacy-denylist: ERROR — git merge-base '${RANGE_BASE}' HEAD failed or returned empty." >&2
+    echo "privacy-denylist: refusing to run on an unresolvable diff range (a vacuous pass would hide leaks)." >&2
+    exit 1
+  fi
+
+  # --- Compute ADDED lines (lines starting with '+', excluding '+++ ' headers) ---
+  ADDED="$(git diff --no-color "${MERGE_BASE}...HEAD" | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)"
+  SCAN_DESC="range ${MERGE_BASE}...HEAD"
+fi
 
 ADDED_COUNT=0
 if [ -n "${ADDED}" ]; then
   ADDED_COUNT="$(printf '%s\n' "${ADDED}" | grep -c '' || true)"
 fi
-echo "privacy-denylist: scanning ${ADDED_COUNT} added line(s) in range ${MERGE_BASE}...HEAD"
+echo "privacy-denylist: scanning ${ADDED_COUNT} added line(s) in ${SCAN_DESC}"
 
 FAIL=0
 
