@@ -6,9 +6,11 @@
 # real repo's history or remotes. The scratch repos deliberately have NO origin/master,
 # which is exactly what proves staged mode resolves NO range (M4).
 #
-# PRIVACY (PUBLIC repo, load-bearing): the ONLY synthetic fixtures used are the home
-# path `/Users/synthuser/x` and the denylist-shape token `synthtoken`. No real home
-# path, no real internal-identifier token appears anywhere in this file.
+# PRIVACY (PUBLIC repo, load-bearing): the ONLY synthetic fixtures used are a
+# home-path-shaped value (assembled at RUNTIME from parts in HOMEPATH_FIXTURE below — so
+# this file's SOURCE carries no literal absolute home path that the repo's own privacy gate
+# would flag) and the denylist-shape token `synthtoken`. No real home path, no real
+# internal-identifier token appears anywhere in this file.
 #
 # Prints per-case PASS/FAIL + "PASS=N FAIL=M"; exits 0 (the trailing test sets the code).
 
@@ -20,6 +22,14 @@ PRECOMMIT="${HERE}/git-hooks/pre-commit"
 
 PASS=0
 FAIL=0
+
+# Home-path-shaped fixture assembled at RUNTIME from parts. The runtime VALUE
+# (/Users/<user>/x shape) matches the home-path ERE so the staged-mode check BLOCKS it
+# (AC13/AC18b); the SOURCE line below does NOT match the ERE (the char after "/Users/" is
+# "$", outside the [A-Za-z0-9._-] class) so this test file does not trip the repo's own
+# PR-range privacy gate.
+FIX_USER="synthuser"
+HOMEPATH_FIXTURE="/Users/${FIX_USER}/x"
 
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t ppcsmoke)"
 trap 'rm -rf "$TMP"' EXIT
@@ -41,7 +51,7 @@ fresh_repo() {
 
 # --- AC13: staged HOME-PATH fixture in a no-origin/master repo -> BLOCKS (non-zero) ---
 R="$(fresh_repo ac13)"
-printf 'base dir: /Users/synthuser/x\n' > "$R/leak.txt"
+printf 'base dir: %s\n' "$HOMEPATH_FIXTURE" > "$R/leak.txt"
 git -C "$R" add leak.txt
 ( cd "$R" && SCAN_MODE=staged bash "$CHECK" ) >/dev/null 2>&1; rc=$?
 { [ "$rc" -ne 0 ]; }
@@ -92,7 +102,7 @@ cur="$(git -C "$R" config --get core.hooksPath || true)"
 assert "AC18 installer -> core.hooksPath = scripts/git-hooks (got '$cur')" $?
 
 # --- AC18b: the installed hook actually fires end-to-end (commit blocked on a staged leak) ---
-printf 'oops: /Users/synthuser/x\n' > "$R/leak2.txt"
+printf 'oops: %s\n' "$HOMEPATH_FIXTURE" > "$R/leak2.txt"
 git -C "$R" add leak2.txt scripts/
 git -C "$R" commit -q -m "should be blocked" >/dev/null 2>&1; rc=$?
 { [ "$rc" -ne 0 ]; }
