@@ -12,7 +12,6 @@ function makeStatusService(overrides: Partial<AdminService> = {}): AdminService 
   return {
     getStatus: () => ({
       documentCount: 42,
-      watcherAlive: true,
       uptimeSeconds: 3661, // 1h 1m 1s
     }),
     ...overrides,
@@ -35,23 +34,12 @@ describe("slack/commands — registry shape", () => {
 });
 
 describe("slack/commands — status", () => {
-  it("returns a string containing doc count, watcher status, and uptime", () => {
+  it("returns a string containing doc count and uptime", () => {
     const result = statusCommand(makeStatusService());
     expect(typeof result).toBe("string");
     const text = result as string;
     expect(text).toContain("42");
-    expect(text).toMatch(/alive|true|active|yes/i);
     expect(text).toMatch(/uptime|[0-9]+\s*(s|sec|m|min|h|hr)/i);
-  });
-
-  it("uses 'stopped' wording when the watcher is not alive", () => {
-    const result = statusCommand(
-      makeStatusService({
-        getStatus: () => ({ documentCount: 0, watcherAlive: false, uptimeSeconds: 5 }),
-      }),
-    );
-    expect(typeof result).toBe("string");
-    expect((result as string).toLowerCase()).toContain("stopped");
   });
 
   it("degrades gracefully when service has no getStatus", () => {

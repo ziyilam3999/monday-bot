@@ -52,9 +52,8 @@ export interface KnowledgeSourcesHandle {
   syncConfluence(spaceKey?: string): Promise<string>;
   /**
    * Re-run every configured Confluence space + Jira project. Returns a summary;
-   * never throws. Note: watched folders are kept live continuously by the folder
-   * watchers and KnowledgeService exposes no on-demand folder-rescan method, so
-   * reindexAll intentionally covers Confluence + Jira only.
+   * never throws. Local folder ingestion has been removed, so reindexAll covers
+   * Confluence + Jira — the bot's only knowledge sources.
    */
   reindexAll(): Promise<string>;
 }
@@ -242,8 +241,8 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
   /**
    * Re-run every configured Confluence space + Jira project. Handles partial
    * config (confluence-only / jira-only) and reports each configured source.
-   * Non-throwing. Watched folders are intentionally excluded — folder watchers
-   * keep them live continuously and KnowledgeService exposes no folder-rescan.
+   * Non-throwing. Local folder ingestion has been removed; Confluence + Jira are
+   * the bot's only knowledge sources.
    */
   const reindexAll = async (): Promise<string> => {
     try {

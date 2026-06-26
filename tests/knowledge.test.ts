@@ -95,10 +95,8 @@ describe("KnowledgeService", () => {
       const svc = new KnowledgeService();
       const status = svc.getStatus();
       expect(typeof status.documentCount).toBe("number");
-      expect(typeof status.watcherAlive).toBe("boolean");
       expect(typeof status.uptimeSeconds).toBe("number");
       expect(status.documentCount).toBe(0);
-      expect(status.watcherAlive).toBe(false);
       expect(status.uptimeSeconds).toBeGreaterThanOrEqual(0);
     });
 

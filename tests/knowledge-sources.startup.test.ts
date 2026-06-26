@@ -6,7 +6,6 @@ import { runMonday } from "../src/index";
 import { ConfluenceFetcher, ConfluencePage } from "../src/confluence/sync";
 import { JiraFetcher, JiraIssue } from "../src/jira/sync";
 import { Scheduler, ScheduledTimer } from "../src/knowledge/startup";
-import * as knowledgeModule from "../src/knowledge/service";
 
 const BOT_TOKEN = "bot-token-test-value";
 const APP_TOKEN = "app-token-test-value";
@@ -96,7 +95,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     };
 
     const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
     // No `logger` is passed, so `log()` falls back to console.log — spy on it to
     // assert the per-source index-count lines are emitted after initial sync.
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
@@ -144,7 +143,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
       },
     };
     const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
 
     const handle = await runMonday({
       configPath: cfg,
@@ -185,7 +184,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     };
     const fake = makeFakeScheduler();
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
 
     const handle = await runMonday({
       configPath: cfg,
@@ -229,7 +228,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     };
 
     const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
 
     const handle = await runMonday({
@@ -262,7 +261,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     process.env.SLACK_APP_TOKEN = APP_TOKEN;
 
     const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
 
     const handle = await runMonday({
       configPath: cfg,
@@ -299,7 +298,7 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
     };
 
     const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
+    const cfg = makeTempConfigYaml("indexPath: ./tmp/index\n");
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
 
     const handle = await runMonday({
@@ -320,25 +319,5 @@ describe("runMonday — knowledge sources wiring (Confluence + Jira)", () => {
 
     await handle.shutdown();
     logSpy.mockRestore();
-  });
-
-  it("empty watchedFolders → watchFolder is never called (AC-5 parity)", async () => {
-    process.env.SLACK_BOT_TOKEN = BOT_TOKEN;
-    process.env.SLACK_APP_TOKEN = APP_TOKEN;
-
-    const watchSpy = jest.spyOn(knowledgeModule.KnowledgeService.prototype, "watchFolder");
-    const fake = makeFakeScheduler();
-    const cfg = makeTempConfigYaml("watchedFolders: []\n");
-
-    const handle = await runMonday({
-      configPath: cfg,
-      exitOnError: false,
-      scheduler: fake.scheduler,
-    });
-
-    expect(watchSpy).not.toHaveBeenCalled();
-
-    await handle.shutdown();
-    watchSpy.mockRestore();
   });
 });

@@ -11,7 +11,6 @@
 
 export interface AdminServiceStatus {
   documentCount: number;
-  watcherAlive: boolean;
   uptimeSeconds: number;
 }
 
@@ -24,7 +23,7 @@ export interface AdminService {
   getStatus?(): AdminServiceStatus;
   /** Trigger a Confluence sync. The result string (if any) is surfaced verbatim. */
   syncConfluence?(spaceKey?: string): Promise<string | void> | string | void;
-  /** Re-index all watched files / Confluence pages. */
+  /** Re-index all Confluence pages and Jira issues. */
   reindex?(): Promise<string | void> | string | void;
   /** Optional sink for collected feedback. Defaults to console.log. */
   recordFeedback?(message: string): Promise<void> | void;
@@ -37,9 +36,9 @@ export type CommandHandler = (
 
 const AVAILABLE_COMMANDS: ReadonlyArray<{ name: string; description: string }> = [
   { name: "/ask <question>", description: "Ask the bot a question against the indexed docs." },
-  { name: "/status-monday", description: "Show document count, watcher status, and uptime." },
+  { name: "/status-monday", description: "Show document count and uptime." },
   { name: "/sync-confluence [space]", description: "Trigger a fresh sync of the Confluence space." },
-  { name: "/reindex", description: "Re-index all watched files and Confluence pages." },
+  { name: "/reindex", description: "Re-index all Confluence pages and Jira issues." },
   { name: "/help", description: "Show this help message." },
   { name: "/feedback-monday <message>", description: "Send feedback to the bot maintainers." },
 ];
@@ -66,11 +65,10 @@ export const statusCommand: CommandHandler = (service) => {
   const status =
     service && typeof service.getStatus === "function"
       ? service.getStatus()
-      : { documentCount: 0, watcherAlive: false, uptimeSeconds: 0 };
+      : { documentCount: 0, uptimeSeconds: 0 };
   const docCount = Number.isFinite(status.documentCount) ? status.documentCount : 0;
-  const watcherToken = status.watcherAlive ? "alive" : "stopped";
   const uptime = formatUptime(status.uptimeSeconds ?? 0);
-  return `Status: ${docCount} documents indexed | watcher: ${watcherToken} | uptime: ${uptime}`;
+  return `Status: ${docCount} documents indexed | uptime: ${uptime}`;
 };
 
 /**
@@ -91,8 +89,8 @@ export const syncConfluenceCommand: CommandHandler = async (service, arg) => {
 };
 
 /**
- * `/reindex` — rebuild the in-memory index from the watched folder + Confluence
- * pages. Async because rebuilds typically involve disk + network.
+ * `/reindex` — rebuild the in-memory index from Confluence pages + Jira issues.
+ * Async because rebuilds typically involve network I/O.
  */
 export const reindexCommand: CommandHandler = async (service) => {
   if (!service || typeof service.reindex !== "function") {

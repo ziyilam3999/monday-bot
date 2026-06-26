@@ -2,10 +2,6 @@ import { ingestFile, Chunk as IngestChunk } from "../ingestion/ingest";
 import { splitIntoPassages } from "../ingestion/chunkText";
 import { VectorIndex, SearchResult, Chunk as IndexChunk } from "../index/vectorIndex";
 import { generateAnswer, Chunk as LlmChunk, Citation } from "../llm/generate";
-import {
-  FolderWatcher,
-  FolderWatcherOptions,
-} from "../watcher/folderWatcher";
 import { expandQuery, QueryExpansionConfig } from "./queryExpansion";
 import { applyDiversityCap, DiversityCapConfig } from "./diversity";
 import { rerank, RerankConfig } from "./rerank";
@@ -101,7 +97,6 @@ export interface ConfluencePageInput {
 
 export interface ServiceStatus {
   documentCount: number;
-  watcherAlive: boolean;
   uptimeSeconds: number;
 }
 
@@ -113,29 +108,12 @@ export interface FileIngestor {
   (absolutePath: string): Promise<IngestChunk[]>;
 }
 
-export interface WatcherFactory {
-  (
-    dir: string,
-    callbacks: {
-      onAdd: (p: string) => Promise<void>;
-      onChange: (p: string) => Promise<void>;
-      onUnlink: (p: string) => Promise<void>;
-      onError?: (e: Error) => void;
-    },
-    opts?: FolderWatcherOptions,
-  ): { start(): void; close(): void; isAlive(): boolean };
-}
-
 export interface KnowledgeServiceOptions {
   index?: VectorIndex;
   ingest?: FileIngestor;
   generator?: AnswerGenerator;
   topK?: number;
   now?: () => number;
-  /** Inject a watcher factory for tests. Defaults to `FolderWatcher`. */
-  watcherFactory?: WatcherFactory;
-  /** Forwarded to the watcher (e.g. debounceMs). Defaults `{}`. */
-  watcherOptions?: FolderWatcherOptions;
   /**
    * Recall v2 ranking levers (#1191). Omitted/partial → SHIPPED defaults
    * (expansion ON, diversity cap ON, rerank OFF). Threaded from config.yaml at
@@ -156,9 +134,6 @@ function toLlmChunk(result: SearchResult): LlmChunk {
   return out;
 }
 
-const defaultWatcherFactory: WatcherFactory = (dir, callbacks, opts) =>
-  new FolderWatcher(dir, callbacks, opts);
-
 export class KnowledgeService {
   private readonly vectorIndex: VectorIndex;
   private readonly ingest: FileIngestor;
@@ -167,9 +142,6 @@ export class KnowledgeService {
   private readonly now: () => number;
   private readonly startedAt: number;
   private readonly indexedSources = new Set<string>();
-  private readonly watcherFactory: WatcherFactory;
-  private readonly watcherOptions: FolderWatcherOptions;
-  private readonly watchers: Array<{ start(): void; close(): void; isAlive(): boolean }> = [];
   private readonly recall: ResolvedRecall;
 
   constructor(opts: KnowledgeServiceOptions = {}) {
@@ -179,8 +151,6 @@ export class KnowledgeService {
     this.topK = opts.topK ?? DEFAULT_TOP_K;
     this.now = opts.now ?? Date.now;
     this.startedAt = this.now();
-    this.watcherFactory = opts.watcherFactory ?? defaultWatcherFactory;
-    this.watcherOptions = opts.watcherOptions ?? {};
     this.recall = resolveRecall(opts.recall);
   }
 
@@ -294,8 +264,8 @@ export class KnowledgeService {
         : `confluence:${page.id}`;
 
     // Replace-on-resync: drop any prior version under the same source first so
-    // we don't accumulate stale chunks (US-06's removeBySource is the same path
-    // the file watcher uses on change events).
+    // we don't accumulate stale chunks (US-06's removeBySource is the same
+    // replace-on-resync path).
     await this.vectorIndex.removeBySource(source);
 
     const text = page.body.trim();
@@ -351,66 +321,9 @@ export class KnowledgeService {
     this.indexedSources.delete(resolved);
   }
 
-  /**
-   * Start watching `dir` for new/changed/deleted files and keep the in-memory
-   * index in sync. Returns immediately; events are processed asynchronously.
-   * Safe to call multiple times with different directories.
-   */
-  watchFolder(dir: string): void {
-    if (typeof dir !== "string" || dir.length === 0) {
-      throw new TypeError("KnowledgeService.watchFolder: dir must be a non-empty string");
-    }
-    const watcher = this.watcherFactory(
-      dir,
-      {
-        onAdd: async (p) => {
-          try {
-            await this.indexFile(p);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error(`KnowledgeService watcher onAdd failed for ${p}:`, err);
-          }
-        },
-        onChange: async (p) => {
-          try {
-            await this.unindexFile(p);
-            await this.indexFile(p);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error(`KnowledgeService watcher onChange failed for ${p}:`, err);
-          }
-        },
-        onUnlink: async (p) => {
-          try {
-            await this.unindexFile(p);
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.error(`KnowledgeService watcher onUnlink failed for ${p}:`, err);
-          }
-        },
-      },
-      this.watcherOptions,
-    );
-    watcher.start();
-    this.watchers.push(watcher);
-  }
-
-  /** Stop all watchers. Useful in tests and on shutdown. */
-  stopWatching(): void {
-    for (const w of this.watchers) {
-      try {
-        w.close();
-      } catch {
-        // best-effort
-      }
-    }
-    this.watchers.length = 0;
-  }
-
   getStatus(): ServiceStatus {
     return {
       documentCount: this.indexedSources.size,
-      watcherAlive: this.watchers.some((w) => w.isAlive()),
       uptimeSeconds: Math.max(0, Math.floor((this.now() - this.startedAt) / 1000)),
     };
   }
