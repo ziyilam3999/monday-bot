@@ -1,3 +1,10 @@
+## [0.13.0](https://github.com/ziyilam3999/monday-bot/compare/v0.12.22...v0.13.0) (2026-06-26)
+
+### Removed
+
+* **watcher:** removed the dead-by-default local folder watcher (folderWatcher + watchFolder/stopWatching wiring + watchedFolders config). Confluence + Jira ingestion unaffected. Recoverable from git history.
+* **deploy:** removed the Oracle Cloud A1 / ARM-Linux PM2 deployment surface (ecosystem.config.js + README PM2/ARM sections). Local launchd deployment is now the documented path. Recoverable from git history.
+
 ## [0.12.22](https://github.com/ziyilam3999/monday-bot/compare/v0.12.21...v0.12.22) (2026-06-24)
 
 ### Bug Fixes

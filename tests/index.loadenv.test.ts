@@ -69,7 +69,7 @@ describe("#1165 — CLI entry loads .env via process.loadEnvFile()", () => {
       ].join("\n"),
       "utf8",
     );
-    writeFileSync(join(dir, "config.yaml"), "watchedFolders: []\n", "utf8");
+    writeFileSync(join(dir, "config.yaml"), "indexPath: ./tmp/index\n", "utf8");
 
     // (G2) Build the child env by COPY + DELETE so SLACK_* are truly absent —
     // not set to the literal string "undefined" (which validateEnv treats as
@@ -95,7 +95,7 @@ describe("#1165 — CLI entry loads .env via process.loadEnvFile()", () => {
   it("(b) a missing .env does not crash — guard swallows ENOENT, falls back to shell env", () => {
     const dir = mkTempDir("no-env");
     // config.yaml present, but NO .env file.
-    writeFileSync(join(dir, "config.yaml"), "watchedFolders: []\n", "utf8");
+    writeFileSync(join(dir, "config.yaml"), "indexPath: ./tmp/index\n", "utf8");
 
     // Tokens passed DIRECTLY in the child env (the shell-exported fallback).
     const childEnv = {

@@ -19,8 +19,6 @@ const yaml: YamlModule = require("js-yaml");
  * required for their feature.
  */
 export interface AppConfig {
-  /** Local document folders the watcher ingests. Empty/undefined disables. */
-  watchedFolders?: string[];
   /** Filesystem root for vector index, embed cache, generated artefacts. */
   indexPath?: string;
   /** Top-level cron schedule for the primary sync loop. */

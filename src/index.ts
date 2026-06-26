@@ -38,7 +38,7 @@ export interface RunMondayHandle {
   knowledge: KnowledgeService;
   /** Knowledge-source sync handle (Confluence + Jira). Exposed for tests. */
   sources: KnowledgeSourcesHandle;
-  /** Idempotent shutdown — stops the Slack adapter, folder watchers, and sync timers. */
+  /** Idempotent shutdown — stops the Slack adapter and sync timers. */
   shutdown: () => Promise<void>;
 }
 
@@ -108,11 +108,9 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     return handleStartupError(err);
   }
 
-  let watchedFolders: string[];
   let config: AppConfig;
   try {
     config = loadConfig(opts.configPath);
-    watchedFolders = config.watchedFolders ?? [];
   } catch (err) {
     return handleStartupError(err);
   }
@@ -123,14 +121,6 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
   // real Slack path, not just in tests. config.recall omitted → shipped defaults
   // (expansion ON, diversity cap ON, rerank OFF).
   const knowledge = new KnowledgeService({ recall: config.recall });
-  for (const folder of watchedFolders) {
-    try {
-      knowledge.watchFolder(folder);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`Monday: failed to watch folder ${folder}: ${message} (continuing)`);
-    }
-  }
 
   // Wire Confluence + Jira knowledge sources (env-driven; skips cleanly when
   // creds absent). Initial sync runs in the background — it MUST NOT block
@@ -201,7 +191,6 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
       console.error(`Monday: error stopping Slack adapter: ${message}`);
     }
     sources.stop();
-    knowledge.stopWatching();
   };
 
   if (exitOnError) {

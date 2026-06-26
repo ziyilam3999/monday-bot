@@ -19,15 +19,11 @@ describe("loadConfig", () => {
     fs.writeFileSync(
       file,
       [
-        "watchedFolders:",
-        "  - ./docs",
-        "  - ./notes",
         "indexPath: ./tmp/index",
         'confluenceSchedule: "0 */6 * * *"',
       ].join("\n")
     );
     const cfg = loadConfig(file);
-    expect(cfg.watchedFolders).toEqual(["./docs", "./notes"]);
     expect(cfg.indexPath).toBe("./tmp/index");
     expect(cfg.confluenceSchedule).toBe("0 */6 * * *");
   });
@@ -45,7 +41,7 @@ describe("loadConfig", () => {
 
   it("throws ConfigLoadError on YAML syntax errors", () => {
     const file = path.join(tmpDir, "config.yaml");
-    fs.writeFileSync(file, "watchedFolders:\n  - ./docs\n  badly:indented");
+    fs.writeFileSync(file, "indexPath:\n  - ./docs\n  badly:indented");
     expect(() => loadConfig(file)).toThrow(ConfigLoadError);
   });
 
