@@ -20,6 +20,10 @@ export interface JiraIssue {
   descriptionText: string;
   commentTexts: string[];
   projectKey?: string;
+  /** Issue labels (`fields.labels`); omitted when the issue carries none. */
+  labels?: string[];
+  /** Issue type name (`fields.issuetype.name`); omitted when absent. */
+  issueType?: string;
 }
 
 /**
@@ -31,10 +35,29 @@ export interface JiraFetcher {
   fetchIssues(projectKey: string): Promise<JiraIssue[]>;
 }
 
+/** Fetcher for the OPEN-DEFECTS scope (a different JQL + extra `fields`). */
+export interface OpenDefectsFetcher {
+  fetchOpenDefects(projectKey: string): Promise<JiraIssue[]>;
+}
+
 export interface JiraClientConfig {
   baseUrl: string;
   email: string;
   apiToken: string;
+}
+
+/**
+ * Environment-specific JQL fragments for the open-defects scope. Both default to
+ * generic, universally-valid clauses; override per project when the team's
+ * status/issuetype names differ. Pass an empty string to drop a clause entirely.
+ */
+export interface OpenDefectsScope {
+  /** Open-state JQL clause. Default: `statusCategory != Done`. */
+  statusJql?: string;
+  /** Defect-issuetype JQL clause. Default: `issuetype in (Bug)`. */
+  issueTypeJql?: string;
+  /** Page size. Default 100. */
+  maxResults?: number;
 }
 
 export interface JiraSyncOptions {
@@ -103,14 +126,102 @@ function collapse(text: string): string {
 }
 
 /**
- * Build a `JiraFetcher` backed by the real Atlassian REST API. Hits
- * `GET <baseUrl>/rest/api/3/search/jql?jql=project=<KEY>&fields=summary,description,comment&maxResults=100`
- * with Basic auth (email + API token). Paginates via the `nextPageToken` cursor:
- * the first request omits the token, each response returns
- * `{ issues, nextPageToken, isLast }`, and subsequent requests append
- * `&nextPageToken=<token>`. Stops when `isLast === true` OR no token is returned.
- * Description and comment bodies are ADF objects (or plain strings / null) and
- * are flattened to text.
+ * Single source of truth for the Jira Basic-auth header (email + API token,
+ * Base64-encoded). EVERY authenticated Jira call — the knowledge-sync fetch, the
+ * open-defects fetch, and the category writer — routes through here, so there is
+ * exactly ONE Base64-auth site in `src/jira` (AC-9, anti-fork).
+ */
+export function basicAuthHeader(config: JiraClientConfig): string {
+  return `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString("base64")}`;
+}
+
+/** Parameters for the single shared paginated-GET helper. */
+interface PaginatedSearchParams {
+  /** Raw (un-encoded) JQL — encoded once inside the helper. */
+  jql: string;
+  /** Comma-separated `fields` list, passed through verbatim. */
+  fields: string;
+  /** Page size; default 100. */
+  maxResults?: number;
+}
+
+/**
+ * The ONE shared paginated-GET + Basic-auth implementation for Jira reads.
+ *
+ * Hits `GET <baseUrl>/rest/api/3/search/jql?jql=<JQL>&fields=<FIELDS>&maxResults=<N>`
+ * with Basic auth. Paginates via the `nextPageToken` cursor: the first request
+ * omits the token, each response returns `{ issues, nextPageToken, isLast }`, and
+ * subsequent requests append `&nextPageToken=<token>`. Stops when `isLast === true`
+ * OR no token is returned. Description / comment bodies (ADF or plain) are
+ * flattened to text by `toJiraIssue`.
+ *
+ * BOTH `buildJiraFetcher` (knowledge scope) and `buildOpenDefectsFetcher` (defect
+ * scope) construct their reads from THIS helper — the JQL + `fields` are the only
+ * things they parameterize. The auth line and cursor loop live here and nowhere
+ * else (AC-9, anti-fork): no module may copy them.
+ */
+async function fetchPaginatedIssues(
+  config: JiraClientConfig,
+  fetchImpl: typeof fetch,
+  params: PaginatedSearchParams,
+): Promise<JiraIssue[]> {
+  const auth = basicAuthHeader(config);
+  const base = config.baseUrl.replace(/\/$/, "");
+  const maxResults = params.maxResults ?? 100;
+  // Hard cap on pages walked — defends against a server that never sets
+  // `isLast` and keeps echoing a cursor (1000 pages * 100 = 100k issues).
+  const MAX_PAGES = 1000;
+
+  const out: JiraIssue[] = [];
+  let token: string | undefined;
+  let pages = 0;
+  // Cursor pagination: the first request omits the token; each response returns
+  // the next page's cursor. Stop on `isLast === true` OR no token.
+  for (;;) {
+    let url =
+      `${base}/rest/api/3/search/jql?jql=${encodeURIComponent(params.jql)}` +
+      `&fields=${params.fields}&maxResults=${maxResults}`;
+    if (token) url += `&nextPageToken=${encodeURIComponent(token)}`;
+    const res = await fetchImpl(url, {
+      headers: {
+        Authorization: auth,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Jira REST API returned ${res.status} ${res.statusText} for jql=${params.jql}`,
+      );
+    }
+    const data = (await res.json()) as {
+      issues?: unknown;
+      nextPageToken?: unknown;
+      isLast?: unknown;
+    };
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    for (const raw of issues) {
+      const mapped = toJiraIssue(raw);
+      if (mapped) out.push(mapped);
+    }
+    token = typeof data.nextPageToken === "string" ? data.nextPageToken : undefined;
+    pages++;
+    // Primary stop: the server says this was the last page, or no cursor.
+    if (data.isLast === true || !token) break;
+    // Loop guards (server misbehaving): bail after a sane page cap, and on a
+    // 0-issue page that still hands back a token (would otherwise spin).
+    if (pages >= MAX_PAGES) break;
+    if (issues.length === 0) break;
+  }
+  return out;
+}
+
+/**
+ * Build a `JiraFetcher` for the KNOWLEDGE scope (all issues in a project) backed
+ * by the real Atlassian REST API. Constructed FROM the shared
+ * `fetchPaginatedIssues` helper — it only parameterizes the JQL (`project=<KEY>`)
+ * and `fields` (`summary,description,comment`); the auth + cursor loop are NOT
+ * re-implemented here. The knowledge-sync URL contract (locked by
+ * `tests/jira.test.ts`) is byte-identical to the pre-extraction behavior.
  *
  * Not used by tests — tests inject a stub fetcher OR a fake `fetchImpl`. Exposed
  * so the scheduler / CLI can wire production usage in one line.
@@ -124,56 +235,53 @@ export function buildJiraFetcher(
       "buildJiraFetcher: no global fetch available; pass an explicit fetchImpl",
     );
   }
-  const auth = Buffer.from(`${config.email}:${config.apiToken}`).toString("base64");
-  const base = config.baseUrl.replace(/\/$/, "");
-  const MAX_RESULTS = 100;
-  // Hard cap on pages walked — defends against a server that never sets
-  // `isLast` and keeps echoing a cursor (1000 pages * 100 = 100k issues).
-  const MAX_PAGES = 1000;
-
   return {
     async fetchIssues(projectKey: string): Promise<JiraIssue[]> {
-      const out: JiraIssue[] = [];
-      let token: string | undefined;
-      let pages = 0;
-      // Cursor pagination: the first request omits the token; each response
-      // returns the next page's cursor. Stop on `isLast === true` OR no token.
-      for (;;) {
-        let url =
-          `${base}/rest/api/3/search/jql?jql=${encodeURIComponent(`project=${projectKey}`)}` +
-          `&fields=summary,description,comment&maxResults=${MAX_RESULTS}`;
-        if (token) url += `&nextPageToken=${encodeURIComponent(token)}`;
-        const res = await fetchImpl(url, {
-          headers: {
-            Authorization: `Basic ${auth}`,
-            Accept: "application/json",
-          },
-        });
-        if (!res.ok) {
-          throw new Error(
-            `Jira REST API returned ${res.status} ${res.statusText} for project=${projectKey}`,
-          );
-        }
-        const data = (await res.json()) as {
-          issues?: unknown;
-          nextPageToken?: unknown;
-          isLast?: unknown;
-        };
-        const issues = Array.isArray(data.issues) ? data.issues : [];
-        for (const raw of issues) {
-          const mapped = toJiraIssue(raw);
-          if (mapped) out.push(mapped);
-        }
-        token = typeof data.nextPageToken === "string" ? data.nextPageToken : undefined;
-        pages++;
-        // Primary stop: the server says this was the last page, or no cursor.
-        if (data.isLast === true || !token) break;
-        // Loop guards (server misbehaving): bail after a sane page cap, and on a
-        // 0-issue page that still hands back a token (would otherwise spin).
-        if (pages >= MAX_PAGES) break;
-        if (issues.length === 0) break;
-      }
-      return out;
+      return fetchPaginatedIssues(config, fetchImpl, {
+        jql: `project=${projectKey}`,
+        fields: "summary,description,comment",
+        maxResults: 100,
+      });
+    },
+  };
+}
+
+/**
+ * Compose the open-defects JQL from a project key + the (configurable) scope.
+ * Defaults are generic and universally valid (`statusCategory != Done`,
+ * `issuetype in (Bug)`); an empty-string clause is dropped.
+ */
+export function buildOpenDefectsJql(projectKey: string, scope: OpenDefectsScope = {}): string {
+  const status = scope.statusJql ?? "statusCategory != Done";
+  const issueType = scope.issueTypeJql ?? "issuetype in (Bug)";
+  return [`project=${projectKey}`, status, issueType]
+    .filter((clause) => clause.trim().length > 0)
+    .join(" AND ");
+}
+
+/**
+ * Build an `OpenDefectsFetcher` for the DEFECT scope. Constructed FROM the same
+ * shared `fetchPaginatedIssues` helper as `buildJiraFetcher` — it only swaps the
+ * JQL (open-defects scope) and the `fields` (adds `labels,issuetype` so the
+ * categorizer's input fields are surfaced). No copied auth / pagination loop.
+ */
+export function buildOpenDefectsFetcher(
+  config: JiraClientConfig,
+  scope: OpenDefectsScope = {},
+  fetchImpl: typeof fetch = globalThis.fetch,
+): OpenDefectsFetcher {
+  if (typeof fetchImpl !== "function") {
+    throw new TypeError(
+      "buildOpenDefectsFetcher: no global fetch available; pass an explicit fetchImpl",
+    );
+  }
+  return {
+    async fetchOpenDefects(projectKey: string): Promise<JiraIssue[]> {
+      return fetchPaginatedIssues(config, fetchImpl, {
+        jql: buildOpenDefectsJql(projectKey, scope),
+        fields: "summary,description,comment,labels,issuetype",
+        maxResults: scope.maxResults ?? 100,
+      });
     },
   };
 }
@@ -187,6 +295,8 @@ function toJiraIssue(raw: unknown): JiraIssue | null {
       description?: unknown;
       comment?: { comments?: unknown };
       project?: { key?: unknown };
+      labels?: unknown;
+      issuetype?: { name?: unknown };
     };
   };
   if (typeof r.key !== "string" || r.key.length === 0) return null;
@@ -199,6 +309,14 @@ function toJiraIssue(raw: unknown): JiraIssue | null {
   );
   const issue: JiraIssue = { key: r.key, summary, descriptionText, commentTexts };
   if (typeof fields.project?.key === "string") issue.projectKey = fields.project.key;
+  // Extended mapping (AC-11): surface labels + issuetype for the categorizer.
+  if (Array.isArray(fields.labels)) {
+    const labels = (fields.labels as unknown[]).filter(
+      (l): l is string => typeof l === "string",
+    );
+    if (labels.length > 0) issue.labels = labels;
+  }
+  if (typeof fields.issuetype?.name === "string") issue.issueType = fields.issuetype.name;
   return issue;
 }
 
