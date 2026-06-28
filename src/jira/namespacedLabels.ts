@@ -148,6 +148,20 @@ export function buildDesiredLabels(
 }
 
 /**
+ * Render a SORTED, DE-DUPED, double-quoted `labels in (...)` JQL clause from a
+ * list of label strings. Jira label matching is EXACT — there is NO `mb-*`
+ * wildcard — so an explicit enumerated list is the only way to match "these
+ * labels". This is the ONE shared clause builder: both `buildBotLabelJql` and
+ * the NL→JQL builder (`buildJqlFromFilter`) compose their `labels in (...)`
+ * clauses through here so quoting/sort/dedupe never drift. Deterministic.
+ */
+export function labelsInClause(labels: readonly string[]): string {
+  const sorted = [...new Set(labels)].sort();
+  const quoted = sorted.map((l) => `"${l}"`).join(",");
+  return `labels in (${quoted})`;
+}
+
+/**
  * Generate the ENUMERATED `labels in (...)` JQL for every bot label the catalog
  * can produce. Jira label matching is EXACT — there is NO `mb-*` wildcard — so
  * "only the bot's labels" must be an explicit, sorted, double-quoted list the
@@ -162,7 +176,5 @@ export function buildBotLabelJql(
     ...catalog.flows.map((e) => `mb-${e.id}`),
     ...symptoms.map((s) => `${NS_SYMPTOM}${s}`),
   ];
-  const sorted = [...new Set(labels)].sort();
-  const quoted = sorted.map((l) => `"${l}"`).join(",");
-  return `labels in (${quoted})`;
+  return labelsInClause(labels);
 }

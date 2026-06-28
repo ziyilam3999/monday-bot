@@ -286,6 +286,41 @@ export function buildOpenDefectsFetcher(
   };
 }
 
+/** Fetcher for an ARBITRARY read-only JQL query (the NL→JQL viewing layer, #1332). */
+export interface JqlSearchFetcher {
+  /** Run a read-only search for `jql`, returning the matched issues. */
+  search(jql: string): Promise<JiraIssue[]>;
+}
+
+/**
+ * Build a `JqlSearchFetcher` for the NL→JQL viewing layer (#1332). Constructed
+ * FROM the SAME shared `fetchPaginatedIssues` helper as `buildJiraFetcher` /
+ * `buildOpenDefectsFetcher` — it only parameterizes the (caller-supplied) JQL and
+ * a minimal `summary,labels` field set. READ-ONLY GET: no copied auth/pagination
+ * loop and NO new search URL (anti-fork — the one search URL stays in the shared
+ * helper). The JQL is built by the PURE `buildJqlFromFilter` upstream; this seam
+ * never constructs or mutates a label.
+ */
+export function buildJqlSearchFetcher(
+  config: JiraClientConfig,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): JqlSearchFetcher {
+  if (typeof fetchImpl !== "function") {
+    throw new TypeError(
+      "buildJqlSearchFetcher: no global fetch available; pass an explicit fetchImpl",
+    );
+  }
+  return {
+    async search(jql: string): Promise<JiraIssue[]> {
+      return fetchPaginatedIssues(config, fetchImpl, {
+        jql,
+        fields: "summary,labels",
+        maxResults: 100,
+      });
+    },
+  };
+}
+
 function toJiraIssue(raw: unknown): JiraIssue | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as {
