@@ -48,6 +48,136 @@ export interface JqlReply {
   warnings?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Mention-intent routing (#1344)
+//
+// Decide whether a natural @-mention is a DEFECT/JQL question or a plain DOC
+// question — with a PURE, no-network classifier so the adapter can route a
+// mention to the same `jqlCommand` seam the `/jql` slash already uses. The
+// matcher is deliberately conservative (cairn 2026-06-16: NL matching is
+// structurally leaky; each patch widens the surface):
+//   1. An explicit lead token (`jql`/`defects:`) — matched as a WHOLE WORD /
+//      prefix-token, then stripped — ALWAYS forces the JQL route (the
+//      zero-ambiguity escape hatch).
+//   2. Otherwise a SMALL, configurable defect lexicon matched on a WORD
+//      BOUNDARY (optional plural suffix), NOT a naive `includes()` — so
+//      "debugging guide", "asymptomatic screening", "defective hardware" stay
+//      `doc` while "crashes"/"bugs"/"regressions" route `jql`.
+//   3. Everything else → `doc` (the SAFE default = today's behaviour).
+// ---------------------------------------------------------------------------
+
+export type MentionRoute = "jql" | "doc";
+
+export interface MentionIntent {
+  /** "jql" → route to the defect-slice skill; "doc" → ordinary doc Q&A. */
+  route: MentionRoute;
+  /**
+   * The query to forward: the original cleaned text with any explicit lead
+   * token STRIPPED (jql route), or the unchanged cleaned text (doc route).
+   */
+  query: string;
+}
+
+/**
+ * Default, conservative defect lexicon. Matched as a WHOLE WORD (with an
+ * optional `s`/`es` plural), never as a substring of a longer word. Override
+ * without a code change via the `MENTION_DEFECT_LEXICON` env var
+ * (comma-separated).
+ */
+export const DEFAULT_MENTION_DEFECT_LEXICON: readonly string[] = [
+  "defect",
+  "bug",
+  "crash",
+  "regression",
+  "symptom",
+];
+
+/**
+ * Explicit lead tokens that ALWAYS force the JQL route. Matched as a whole
+ * word / prefix-token at the START of the cleaned text, then stripped.
+ * Override via `MENTION_JQL_LEAD_TOKENS` (comma-separated).
+ */
+export const DEFAULT_MENTION_JQL_LEAD_TOKENS: readonly string[] = ["jql", "defects:"];
+
+/** Resolved configuration for {@link classifyMentionIntent}. */
+export interface MentionIntentConfig {
+  lexicon: string[];
+  leadTokens: string[];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseEnvList(raw: string | undefined): string[] | null {
+  if (typeof raw !== "string") return null;
+  const items = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+  return items.length > 0 ? items : null;
+}
+
+function resolveConfig(config?: Partial<MentionIntentConfig>): MentionIntentConfig {
+  return {
+    lexicon:
+      config?.lexicon ??
+      parseEnvList(process.env.MENTION_DEFECT_LEXICON) ??
+      [...DEFAULT_MENTION_DEFECT_LEXICON],
+    leadTokens:
+      config?.leadTokens ??
+      parseEnvList(process.env.MENTION_JQL_LEAD_TOKENS) ??
+      [...DEFAULT_MENTION_JQL_LEAD_TOKENS],
+  };
+}
+
+/**
+ * If `text` begins with a lead token (as a whole word / prefix-token), return
+ * the remaining query with that token stripped; otherwise `null`. A token that
+ * ends in a word character (e.g. `jql`) is anchored with `\b` so a longer word
+ * like `jqlite` does NOT strip-and-route (AC11).
+ */
+function stripLeadToken(text: string, leadTokens: string[]): string | null {
+  for (const tok of leadTokens) {
+    if (tok.length === 0) continue;
+    const endsWithWordChar = /\w$/.test(tok);
+    const re = new RegExp(`^${escapeRegExp(tok)}${endsWithWordChar ? "\\b" : ""}\\s*`, "i");
+    const m = text.match(re);
+    if (m) return text.slice(m[0].length).trim();
+  }
+  return null;
+}
+
+/**
+ * True iff `text` contains a defect-lexicon token as a WHOLE WORD (with an
+ * optional `s`/`es` plural) — NOT as a substring of a longer word. So
+ * "crashes"/"bugs"/"regressions" match, but "debugging"/"asymptomatic"/
+ * "defective" do not (AC10).
+ */
+function containsDefectNoun(text: string, lexicon: string[]): boolean {
+  const tokens = lexicon.map(escapeRegExp).filter((t) => t.length > 0);
+  if (tokens.length === 0) return false;
+  const re = new RegExp(`\\b(?:${tokens.join("|")})(?:es|s)?\\b`, "i");
+  return re.test(text);
+}
+
+/**
+ * PURE, no-network mention classifier. Decides the route and returns the query
+ * to forward. Safe by default: any ambiguity → `doc` (today's behaviour).
+ */
+export function classifyMentionIntent(
+  text: string,
+  config?: Partial<MentionIntentConfig>,
+): MentionIntent {
+  const cleaned = typeof text === "string" ? text.trim() : "";
+  if (cleaned.length === 0) return { route: "doc", query: "" };
+  const cfg = resolveConfig(config);
+  const stripped = stripLeadToken(cleaned, cfg.leadTokens);
+  if (stripped !== null) return { route: "jql", query: stripped };
+  if (containsDefectNoun(cleaned, cfg.lexicon)) return { route: "jql", query: cleaned };
+  return { route: "doc", query: cleaned };
+}
+
 /**
  * PURE formatter for the Slack `/jql` reply (option A — auto-run, read-only).
  *

@@ -8,6 +8,7 @@ import {
   jqlCommand,
   helpCommand,
   feedbackCommand,
+  classifyMentionIntent,
 } from "./commands";
 
 /**
@@ -134,14 +135,32 @@ export class SlackAdapter {
       }
 
       try {
-        // handleQuery centralises the success/error split — never throws.
-        const payload = await handleQuery(question, this.knowledgeService);
-        await client?.chat?.postMessage?.({
-          channel,
-          thread_ts: threadTs,
-          text: payload.text,
-          blocks: payload.blocks,
-        });
+        // #1344 — route a natural mention to the defect-slice (NL→JQL) skill
+        // when it reads as a defect question, else the unchanged doc-Q&A path.
+        // The classifier is PURE/no-network so routing needs no Jira creds;
+        // both branches sit INSIDE this try/catch so a failing postMessage logs
+        // + falls back instead of escaping into the Bolt event loop (AC12).
+        const intent = classifyMentionIntent(question);
+        if (intent.route === "jql") {
+          // jqlCommand reuses the exact /jql seam: it calls answerJql, formats
+          // JQL-first via formatJqlReply, and NEVER throws — it degrades to a
+          // safe "not configured"/"failed" STRING when Jira isn't wired (AC12).
+          const reply = await jqlCommand(this.adminService, intent.query);
+          await client?.chat?.postMessage?.({
+            channel,
+            thread_ts: threadTs,
+            text: reply,
+          });
+        } else {
+          // handleQuery centralises the success/error split — never throws.
+          const payload = await handleQuery(question, this.knowledgeService);
+          await client?.chat?.postMessage?.({
+            channel,
+            thread_ts: threadTs,
+            text: payload.text,
+            blocks: payload.blocks,
+          });
+        }
       } catch (err) {
         // Should only fire if the Slack client itself fails.
         logger.error?.("SlackAdapter app_mention post failed:", err);
