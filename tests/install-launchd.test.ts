@@ -46,13 +46,18 @@ describe("launchd plist template", () => {
   });
 
   it("carries every placeholder token the installer resolves", () => {
-    for (const token of ["<NODE_PATH>", "<REPO_DIR>", "<LOG_DIR>", "<PATH_VALUE>"]) {
+    for (const token of ["<REPO_DIR>", "<LOG_DIR>", "<PATH_VALUE>"]) {
       expect(template).toContain(token);
     }
-    // Entrypoint + WorkingDirectory are derived from <REPO_DIR>.
-    expect(template).toContain("<REPO_DIR>/dist/index.js");
-    // PATH is set so node resolves under launchd's minimal env.
+    // PATH is set so node (resolved by the wrapper) works under launchd's minimal env.
     expect(template).toContain("<key>PATH</key>");
+  });
+
+  it("execs the build-on-start wrapper, NOT dist/index.js directly (#1348 Layer 3)", () => {
+    // The wrapper path appears inside ProgramArguments.
+    expect(template).toContain("<REPO_DIR>/scripts/launchd-wrapper.sh");
+    // dist/index.js is no longer the direct entrypoint launchd runs.
+    expect(template).not.toContain("<REPO_DIR>/dist/index.js");
   });
 
   it("leaks NO real machine paths (PUBLIC repo)", () => {
@@ -63,11 +68,18 @@ describe("launchd plist template", () => {
 });
 
 describe("install-launchd.sh", () => {
-  it("is strict-mode and fails loudly on missing prerequisites", () => {
+  it("is strict-mode and fails loudly on missing ACTIVATION prerequisites", () => {
     expect(script).toContain("set -euo pipefail");
-    expect(script).toContain("dist/index.js"); // build guard
-    expect(script).toContain(".env"); // env guard
-    expect(script).toMatch(/command -v node/); // node-path resolution
+    // #1348 M4: the dist/index.js-exists install guard is GONE (the wrapper
+    // builds dist on start), so it must NOT reappear as a hard precondition.
+    expect(script).not.toMatch(/-f "\$\{REPO_DIR\}\/dist\/index\.js"/);
+    expect(script).toContain(".env"); // .env still required to ACTIVATE
+    expect(script).toMatch(/command -v node/); // node-path resolution (for PATH_VALUE)
+  });
+
+  it("splits render-safe prereqs from activation prereqs so --print-only never dies on missing .env/dist (#1348 M4)", () => {
+    expect(script).toContain("resolve_render_prereqs");
+    expect(script).toContain("resolve_activation_prereqs");
   });
 
   it("drives launchctl idempotently (bootout before bootstrap) and offers status/uninstall", () => {

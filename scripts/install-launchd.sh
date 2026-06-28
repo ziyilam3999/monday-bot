@@ -50,22 +50,31 @@ require_macos() {
     [ "$(uname -s)" = "Darwin" ] || die "this installer is for macOS (launchd) only; on Linux use PM2 (see ecosystem.config.js / README)."
 }
 
-# --- resolve + validate prerequisites, failing loudly -------------------------
-resolve_prereqs() {
+# --- render-safe prerequisites (#1348 M4) -------------------------------------
+# The ONLY things needed to RENDER the plist: node on PATH (its bin dir seeds the
+# launchd PATH) + the template file. Deliberately does NOT require a built dist/
+# or a populated .env — under the Layer-3 build-on-start wrapper, dist/ is built
+# at launch (not an install precondition), and `--print-only` is a pure
+# rendering/inspection path that must succeed on a CLEAN copy (no .env, no dist).
+resolve_render_prereqs() {
     NODE_PATH="$(command -v node || true)"
     [ -n "${NODE_PATH}" ] || die "node not found on PATH. Install Node 18+ and retry."
 
     [ -f "${TEMPLATE}" ] || die "plist template not found at ${TEMPLATE}."
 
-    [ -f "${REPO_DIR}/dist/index.js" ] || die "dist/index.js not found — run 'npm run build' first (tsc -> dist/)."
-
-    [ -f "${REPO_DIR}/.env" ] || die ".env not found in ${REPO_DIR}. Populate it (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ...) before installing; the bot self-loads it at startup."
-
     # launchd starts with a minimal env; give node's own bin dir priority, then a
-    # conventional default PATH so child tools still resolve.
+    # conventional default PATH so the wrapper + child tools still resolve.
     local node_bin_dir
     node_bin_dir="$(dirname "${NODE_PATH}")"
     PATH_VALUE="${node_bin_dir}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+# --- activation-only prerequisites --------------------------------------------
+# Checked before we actually load the agent. The dist/index.js-exists guard is
+# GONE (the wrapper builds dist on start). .env is still required to ACTIVATE,
+# since the bot self-loads it at startup — but it is NOT required merely to render.
+resolve_activation_prereqs() {
+    [ -f "${REPO_DIR}/.env" ] || die ".env not found in ${REPO_DIR}. Populate it (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ...) before installing; the bot self-loads it at startup."
 }
 
 # --- render the template to stdout (no side effects) --------------------------
@@ -110,7 +119,8 @@ activate() {
 cmd_install() {
     local auto_activate="${1:-prompt}"
     require_macos
-    resolve_prereqs
+    resolve_render_prereqs
+    resolve_activation_prereqs
     write_plist
     echo
     print_activation_commands
@@ -137,7 +147,8 @@ cmd_install() {
 
 cmd_print_only() {
     require_macos
-    resolve_prereqs
+    # Render-safe ONLY: must succeed on a clean copy (no .env, no dist/) — AC-6.
+    resolve_render_prereqs
     echo "# Rendered plist (NOT written — --print-only):"
     echo "# would be written to: ${PLIST_DST}"
     render_plist
@@ -174,7 +185,9 @@ install-launchd.sh — run Monday 24/7 on macOS via a launchd LaunchAgent.
   uninstall      Stop (bootout) and remove the agent plist.
   --help, -h     This help.
 
-Prerequisites: 'npm run build' (produces dist/) and a populated .env in the repo root.
+Prerequisites: a populated .env in the repo root (required to ACTIVATE; the
+build-on-start wrapper compiles dist/ on launch, so a prebuilt dist/ is NOT
+required). '--print-only' renders on a clean copy with no .env/dist.
 EOF
 }
 
