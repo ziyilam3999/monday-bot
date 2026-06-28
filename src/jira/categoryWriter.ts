@@ -21,6 +21,26 @@ export interface JiraCategoryWriterOptions {
   labelPrefix?: string;
 }
 
+/**
+ * A Jira-label-safe prefix: lowercase alphanumerics joined by single internal
+ * hyphens (matches the repo's slug convention). Rejects spaces, `@`, `/`, `:`,
+ * uppercase, the empty string, and leading/trailing/double hyphens.
+ */
+const LABEL_PREFIX_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * Fail-loud construction-time guard for `labelPrefix` (mirrors the issueKey
+ * `TypeError` style). Throws before any PUT, so a malformed prefix can never be
+ * stamped into a Jira label that would silently fail server-side.
+ */
+export function assertValidLabelPrefix(prefix: string): void {
+  if (typeof prefix !== "string" || !LABEL_PREFIX_RE.test(prefix)) {
+    throw new TypeError(
+      `buildJiraCategoryWriter: labelPrefix ${JSON.stringify(prefix)} is not a valid Jira label prefix (lowercase alphanumerics with single internal hyphens)`,
+    );
+  }
+}
+
 export function buildJiraCategoryWriter(
   config: JiraClientConfig,
   fetchImpl: typeof fetch = globalThis.fetch,
@@ -33,6 +53,7 @@ export function buildJiraCategoryWriter(
   }
   const base = config.baseUrl.replace(/\/$/, "");
   const prefix = options.labelPrefix ?? "defect-category";
+  assertValidLabelPrefix(prefix);
 
   return {
     async setCategory(issueKey: string, category: string): Promise<void> {
