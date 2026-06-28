@@ -14,6 +14,7 @@ import { ConfluenceFetcher } from "./confluence/sync";
 import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
 import { AdminService } from "./slack/commands";
+import { buildAnswerJql } from "./jira/answerJql";
 
 export interface RunMondayOptions {
   /** Override Bolt App factory (jest tests + AC-06 shell-spawn path). */
@@ -40,6 +41,8 @@ export interface RunMondayHandle {
   sources: KnowledgeSourcesHandle;
   /** Idempotent shutdown — stops the Slack adapter and sync timers. */
   shutdown: () => Promise<void>;
+  /** Admin surface wired onto the Slack slash commands. Exposed for tests (#1346). */
+  adminService: AdminService;
 }
 
 /**
@@ -148,6 +151,7 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     syncConfluence: (spaceKey?: string) => sources.syncConfluence(spaceKey),
     reindex: () => sources.reindexAll(),
     recordFeedback: (message: string) => recordFeedbackToSink(message),
+    answerJql: buildAnswerJql({ env: process.env }),
   };
 
   let adapter: SlackAdapter;
@@ -222,7 +226,7 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     }
   }
 
-  return { adapter, knowledge, sources, shutdown };
+  return { adapter, knowledge, sources, shutdown, adminService };
 }
 
 if (require.main === module) {
