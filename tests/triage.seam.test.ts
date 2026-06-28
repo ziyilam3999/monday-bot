@@ -15,12 +15,12 @@ describe("AC-12 — #1280 reuse seam (importable, no CLI/env coupling)", () => {
     const envBefore = JSON.stringify(process.env);
 
     const { results, counts } = categorizeAll([
-      { key: "S-1", summary: "crash on null pointer", issueType: "Bug" },
-      { key: "S-2", summary: "update the readme doc", issueType: "Task" },
+      { key: "S-1", summary: "the app crashed on launch", issueType: "Bug" },
+      { key: "S-2", summary: "the running total shows the wrong amount", issueType: "Bug" },
     ]);
     expect(results).toHaveLength(2);
-    expect(counts["correctness-bug"]).toBe(1);
-    expect(counts.documentation).toBe(1);
+    expect(counts["crash-error"]).toBe(1);
+    expect(counts["data-incorrect"]).toBe(1);
 
     const writes: Array<[string, string]> = [];
     const fetchImpl = jest.fn(async (_url: unknown, init: unknown) => {

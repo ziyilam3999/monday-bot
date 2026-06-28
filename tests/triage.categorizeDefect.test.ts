@@ -7,42 +7,52 @@ import {
 } from "../src/triage/categorizeDefect";
 
 /**
- * Synthetic fixtures — ALL invented placeholder text shaped like real entries.
- * No internal hostname, project/space key, colleague name, or codename (PS-1/PS-2).
- * One fixture per category, including the `other` fallback.
+ * Synthetic fixtures — ALL invented, generic-English symptom sentences. No real
+ * defect text, product name, feature name, codename, hostname, or project/space
+ * key. One fixture per symptom category, including the `other` fallback.
+ *
+ * Fixture-isolation: `cannot-complete` and `display-ui` are broad + high in
+ * precedence, so each per-bucket fixture is crafted to trigger on a word UNIQUE to
+ * its intended bucket and to avoid any higher-precedence bucket's vocabulary
+ * (precedence: crash-error > cannot-complete > data-incorrect > missing-element >
+ * display-ui > navigation-flow > performance > other).
  */
 const SYNTHETIC: Array<{ input: DefectInput; expected: DefectCategory }> = [
   {
-    input: { key: "X-1", summary: "handler silently swallows errors and returns empty", issueType: "Bug" },
-    expected: "correctness-bug",
+    input: { key: "X-1", summary: "the application crashed unexpectedly on launch" },
+    expected: "crash-error",
   },
   {
-    input: { key: "X-2", summary: "rename mockFoo for test-runner hoist compatibility", labels: ["chore"] },
-    expected: "test-infra",
+    input: { key: "X-2", summary: "the user is unable to submit the new entry" },
+    expected: "cannot-complete",
   },
   {
-    input: { key: "X-3", summary: "doc page: link the changelog instead of an inline date", issueType: "Task" },
-    expected: "documentation",
+    input: { key: "X-3", summary: "the running total shows the wrong amount" },
+    expected: "data-incorrect",
   },
   {
-    input: { key: "X-4", summary: "tighten the Foo type to forbid the empty case", issueType: "Bug" },
-    expected: "type-safety",
+    input: { key: "X-4", summary: "the avatar is missing after saving" },
+    expected: "missing-element",
   },
   {
-    input: { key: "X-5", summary: "extract duplicated factory into one helper", labels: ["refactor"] },
-    expected: "code-quality",
+    input: { key: "X-5", summary: "the button label overlaps the icon" },
+    expected: "display-ui",
   },
   {
-    input: { key: "X-6", summary: "add an optional pagination knob to the fetcher", issueType: "Story" },
-    expected: "enhancement",
+    input: { key: "X-6", summary: "the navigation transition skips a route" },
+    expected: "navigation-flow",
   },
   {
-    input: { key: "X-7", summary: "miscellaneous unclassifiable note", labels: [] },
+    input: { key: "X-7", summary: "the feed is very slow and takes too long" },
+    expected: "performance",
+  },
+  {
+    input: { key: "X-8", summary: "general miscellaneous note" },
     expected: "other",
   },
 ];
 
-describe("categorizeDefect — taxonomy + rules", () => {
+describe("categorizeDefect — symptom taxonomy + rules", () => {
   it("AC-3: at least one synthetic input lands in EACH category (incl. other) — no dead category", () => {
     const landed = new Set<DefectCategory>();
     for (const { input, expected } of SYNTHETIC) {
@@ -56,34 +66,34 @@ describe("categorizeDefect — taxonomy + rules", () => {
     }
   });
 
-  it("AC-4: determinism — same input twice yields an identical result", () => {
+  it("AC-5: determinism — same input twice yields an identical result", () => {
     for (const { input } of SYNTHETIC) {
       const a = categorizeDefect(input);
       const b = categorizeDefect(input);
       expect(a).toEqual(b);
     }
-    // A representative deep-equality check, not just category.
-    const sample = { summary: "crash: null pointer exception in the cast path" };
+    // A representative deep-equality check, not just category (re-grounded to a
+    // new-taxonomy fixture that lands in crash-error).
+    const sample = { summary: "the application crashed unexpectedly" };
     expect(categorizeDefect(sample)).toEqual(categorizeDefect(sample));
   });
 
-  it("AC-5: precedence — an input matching two type-rules resolves to the higher one", () => {
-    // Matches BOTH correctness-bug (crash/throws/null pointer/exception) AND
-    // type-safety (cast/type). Precedence: correctness-bug > type-safety.
-    const multi: DefectInput = {
-      summary: "crash: the cast to the Foo type throws a null pointer exception",
+  it("AC-4: precedence — an input matching two rules resolves to the HIGHER one", () => {
+    // Collision near the TOP: matches crash-error (crashed) AND data-incorrect
+    // (wrong/total). Precedence: crash-error > data-incorrect.
+    const high: DefectInput = {
+      summary: "the app crashed and then showed the wrong total",
     };
-    const { category } = categorizeDefect(multi);
-    expect(category).toBe("correctness-bug");
+    expect(categorizeDefect(high).category).toBe("crash-error");
 
-    // And a test-infra vs code-quality collision: "rename" (code-quality) +
-    // "test-runner"/"mock" (test-infra). Precedence: test-infra > code-quality.
-    const collide: DefectInput = { summary: "rename the mock in the test-runner setup" };
-    expect(categorizeDefect(collide).category).toBe("test-infra");
+    // A SECOND collision LOWER in the order: matches navigation-flow (redirect)
+    // AND performance (slow/laggy). Precedence: navigation-flow > performance.
+    const low: DefectInput = { summary: "the redirect is slow and laggy" };
+    expect(categorizeDefect(low).category).toBe("navigation-flow");
   });
 
   it("fallback — an unmatched input is `other` / matchedRule: fallback", () => {
-    const r = categorizeDefect({ summary: "miscellaneous unclassifiable note" });
+    const r = categorizeDefect({ summary: "general miscellaneous note" });
     expect(r.category).toBe("other");
     expect(r.matchedRule).toBe("fallback");
   });
