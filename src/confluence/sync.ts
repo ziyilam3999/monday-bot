@@ -46,15 +46,23 @@ export interface ConfluenceClientConfig {
   /**
    * Page-fetch size for the `&limit=` query param. Default 100.
    *
-   * NOTE (#1189): this only makes the per-request page size CONFIGURABLE — it is
-   * NOT a full large-space fix. The Atlassian content REST API caps `limit`
-   * (commonly 100) and paginates further results via `_links.next` cursors,
-   * which this fetcher does NOT follow. A space with more results than one page
-   * is therefore still truncated regardless of the `limit` value. Cursor
-   * pagination is a deferred follow-up (see the plan's Deferred section).
+   * NOTE (#1189): this controls only the per-request page SIZE. The Atlassian
+   * content REST API caps `limit` (commonly 100) and paginates further results
+   * via `_links.next` cursors. The fetcher now FOLLOWS those cursors to
+   * exhaustion (see `fetchPages`), so a space with more results than one page is
+   * fully retrieved regardless of the `limit` value — `pageLimit` just tunes how
+   * many pages the walk takes, not whether large spaces are truncated.
    */
   pageLimit?: number;
 }
+
+/**
+ * Hard cap on the number of result pages walked while following `_links.next`.
+ * Defends against a server that never drops the next link and keeps echoing a
+ * cursor (1000 pages * 100 = 100k pages). Mirrors `src/jira/sync.ts`'s
+ * `MAX_PAGES`. Exported so the pagination guard is assertable from tests.
+ */
+export const MAX_PAGES = 1000;
 
 /**
  * Build a `ConfluenceFetcher` backed by real Atlassian REST API. Hits
@@ -74,26 +82,54 @@ export function buildConfluenceFetcher(
     );
   }
   const auth = Buffer.from(`${config.email}:${config.apiToken}`).toString("base64");
-  // Configurable page size (default 100). Does NOT follow `_links.next` cursors,
-  // so large spaces are still truncated at one page — see ConfluenceClientConfig.
+  // Configurable page size (default 100). Follows `_links.next` cursors to walk
+  // every page of a large space — see `fetchPages` below and ConfluenceClientConfig.
   const limit = typeof config.pageLimit === "number" && config.pageLimit > 0 ? config.pageLimit : 100;
+  const base = config.baseUrl.replace(/\/$/, "");
   return {
     async fetchPages(spaceKey: string): Promise<ConfluencePage[]> {
-      const url = `${config.baseUrl.replace(/\/$/, "")}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=${limit}`;
-      const res = await fetchImpl(url, {
-        headers: {
-          Authorization: `Basic ${auth}`,
-          Accept: "application/json",
-        },
-      });
-      if (!res.ok) {
-        throw new Error(
-          `Confluence REST API returned ${res.status} ${res.statusText} for spaceKey=${spaceKey}`,
-        );
+      const out: ConfluencePage[] = [];
+      // Cursor pagination: the first request is the well-known content URL; each
+      // response carries `_links.next` (a path) pointing at the following page.
+      // We follow it to exhaustion, mirroring the Jira `nextPageToken` loop.
+      let url: string | undefined =
+        `${base}/wiki/rest/api/content?spaceKey=${encodeURIComponent(spaceKey)}&expand=body.storage&limit=${limit}`;
+      let pages = 0;
+      while (url) {
+        const res = await fetchImpl(url, {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+          },
+        });
+        if (!res.ok) {
+          throw new Error(
+            `Confluence REST API returned ${res.status} ${res.statusText} for spaceKey=${spaceKey}`,
+          );
+        }
+        const data = (await res.json()) as { results?: unknown; _links?: { next?: unknown } };
+        const results = Array.isArray(data.results) ? data.results : [];
+        for (const raw of results) {
+          const page = toConfluencePage(raw);
+          if (page) out.push(page);
+        }
+        pages++;
+        const next = typeof data._links?.next === "string" ? data._links.next : undefined;
+        // Primary stop: no next link → this was the last page (Confluence has no
+        // `isLast` flag; absence of the cursor IS the terminal signal).
+        if (!next) break;
+        // Loop guards (server misbehaving): bail after a sane page cap, and on a
+        // 0-result page that still hands back a cursor (would otherwise spin).
+        if (pages >= MAX_PAGES) break;
+        if (results.length === 0) break;
+        // `_links.next` omits the `/wiki` context prefix (e.g.
+        // `/rest/api/content?...&start=100`); restore it so the next GET does not
+        // 404. Reuse the trailing-slash-trimmed base so a trailing slash on
+        // `baseUrl` does not produce a double slash.
+        const nextPath = next.startsWith("/wiki") ? next : `/wiki${next.startsWith("/") ? "" : "/"}${next}`;
+        url = `${base}${nextPath}`;
       }
-      const data = (await res.json()) as { results?: unknown };
-      const results = Array.isArray(data.results) ? data.results : [];
-      return results.map(toConfluencePage).filter((p): p is ConfluencePage => p !== null);
+      return out;
     },
   };
 }

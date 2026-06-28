@@ -6,6 +6,7 @@ import {
   ConfluenceFetcher,
   ConfluencePage,
   buildConfluenceFetcher,
+  MAX_PAGES,
 } from "../src/confluence/sync";
 import { KnowledgeService } from "../src/knowledge/service";
 import { Chunk as LlmChunk, Citation } from "../src/llm/generate";
@@ -334,6 +335,146 @@ describe("buildConfluenceFetcher (HTTP wiring)", () => {
       fetchImpl,
     );
     await expect(fetcher.fetchPages("DEMO")).rejects.toThrow(/401/);
+  });
+});
+
+describe("buildConfluenceFetcher pagination cursor (#1189)", () => {
+  // Build a fake fetch Response whose json() yields the given results + optional
+  // `_links.next` cursor. `results` are minimal synthetic Confluence page shapes.
+  function makeResponse(results: Array<{ id: string }>, next?: string) {
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async json() {
+        const body: { results: unknown[]; _links?: { next: string } } = {
+          results: results.map((r) => ({
+            id: r.id,
+            title: `Title ${r.id}`,
+            body: { storage: { value: `<p>Body for ${r.id}</p>` } },
+            space: { key: "DEMO" },
+          })),
+        };
+        if (next !== undefined) body._links = { next };
+        return body;
+      },
+    };
+  }
+
+  it("AC-3: follows _links.next across N=3 pages, restores /wiki prefix, stops on terminal page", async () => {
+    // 3 chained pages. Pages 1 and 2 carry `_links.next` (page 1's omits the
+    // `/wiki` context prefix — the exact real-API shape); the final page has no
+    // next link (clean terminal). baseUrl WITHOUT a trailing slash.
+    const responses = [
+      // page 1 → next omits /wiki (must be restored)
+      makeResponse([{ id: "p1" }], "/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=100"),
+      // page 2 → next already carries /wiki (must NOT be double-prefixed)
+      makeResponse([{ id: "p2" }], "/wiki/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=200"),
+      // page 3 → no next link (terminal)
+      makeResponse([{ id: "p3" }]),
+    ];
+    let call = 0;
+    const fetchImpl = jest.fn(async () => responses[call++]) as unknown as typeof fetch;
+
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    const pages = await fetcher.fetchPages("DEMO");
+
+    // (a) all pages accumulated — one from every page in the chain
+    expect(pages).toHaveLength(3);
+    const ids = pages.map((p) => p.id).sort();
+    expect(ids).toEqual(["p1", "p2", "p3"]);
+
+    // (b) fetchImpl called EXACTLY N=3 times — walks every page, stops on the
+    // terminal page (no over-/under-fetch).
+    const mock = fetchImpl as unknown as jest.Mock;
+    expect(mock).toHaveBeenCalledTimes(3);
+
+    // (c) /wiki prefix restored on the cursor that omitted it. Call index 1 is
+    // the follow-up driven by page 1's `_links.next` (which lacked /wiki).
+    const followUpUrl = mock.mock.calls[1][0] as string;
+    expect(followUpUrl).toContain("/wiki/rest/api/content");
+    expect(followUpUrl).toContain("start=100");
+    // Exactly ONE slash between host and /wiki (trailing-slash-trim join).
+    expect(followUpUrl).toBe(
+      "https://example.atlassian.net/wiki/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=100",
+    );
+    // Page 2's cursor already had /wiki — confirm it was NOT double-prefixed.
+    const thirdUrl = mock.mock.calls[2][0] as string;
+    expect(thirdUrl).not.toContain("/wiki/wiki");
+    expect(thirdUrl).toContain("/wiki/rest/api/content");
+  });
+
+  it("AC-3b: trailing-slash baseUrl does not double-slash the first or followed URL", async () => {
+    const responses = [
+      makeResponse([{ id: "p1" }], "/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=100"),
+      makeResponse([{ id: "p2" }]),
+    ];
+    let call = 0;
+    const fetchImpl = jest.fn(async () => responses[call++]) as unknown as typeof fetch;
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net/", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    await fetcher.fetchPages("DEMO");
+    const mock = fetchImpl as unknown as jest.Mock;
+    const firstUrl = mock.mock.calls[0][0] as string;
+    const followUpUrl = mock.mock.calls[1][0] as string;
+    expect(firstUrl).toBe(
+      "https://example.atlassian.net/wiki/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100",
+    );
+    expect(followUpUrl).toBe(
+      "https://example.atlassian.net/wiki/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=100",
+    );
+  });
+
+  it("AC-4: MAX_PAGES guard terminates a perpetual non-empty cursor at exactly MAX_PAGES", async () => {
+    // Every response has NON-EMPTY results (so the empty-page guard cannot fire)
+    // and ALWAYS carries a next link (cursor never terminates). Only MAX_PAGES
+    // can stop the loop.
+    let n = 0;
+    const fetchImpl = jest.fn(async () => {
+      n++;
+      return makeResponse(
+        [{ id: `page-${n}` }],
+        `/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=${n * 100}`,
+      );
+    }) as unknown as typeof fetch;
+
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    const pages = await fetcher.fetchPages("DEMO");
+
+    const mock = fetchImpl as unknown as jest.Mock;
+    // Loops far past the single first fetch, and stops at EXACTLY the cap.
+    expect(mock.mock.calls.length).toBeGreaterThan(1);
+    expect(mock).toHaveBeenCalledTimes(MAX_PAGES);
+    expect(MAX_PAGES).toBe(1000);
+    // Completed (returned) rather than hung; accumulated one page per fetch.
+    expect(pages).toHaveLength(MAX_PAGES);
+  });
+
+  it("AC-5: regression guard — empty page with a dangling cursor stops (does not spin)", async () => {
+    // A page returns ZERO results but STILL hands back a `_links.next`. The loop
+    // must stop on the empty-results guard rather than follow the dangling
+    // cursor forever. (Regression guard — NOT counted as proof of the #1189 fix.)
+    const fetchImpl = jest.fn(async () =>
+      makeResponse([], "/rest/api/content?spaceKey=DEMO&expand=body.storage&limit=100&start=100"),
+    ) as unknown as typeof fetch;
+
+    const fetcher = buildConfluenceFetcher(
+      { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
+      fetchImpl,
+    );
+    const pages = await fetcher.fetchPages("DEMO");
+
+    const mock = fetchImpl as unknown as jest.Mock;
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect(pages).toHaveLength(0);
   });
 });
 
