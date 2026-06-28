@@ -113,6 +113,101 @@ describe("dedup — entries that slug to the same id merge, unioning provenance"
   });
 });
 
+describe("AC-SLUG-FALLBACK — a single empty-normalizing label stays addressable (#1328 Surface 2)", () => {
+  it("yields exactly one entry with the feature-entry sentinel id", async () => {
+    const distiller: CatalogDistiller = {
+      async distill() {
+        return {
+          // "!@#$" normalizes (via the shared slug()) to the empty string.
+          features: [{ label: "!@#$", provenancePageIds: ["p1"] }],
+          flows: [],
+        };
+      },
+    };
+    const catalog = await distillCatalog(PAGES, { distiller, now: FROZEN_NOW });
+    expect(catalog.features).toHaveLength(1);
+    expect(catalog.features[0].id).toBe("feature-entry");
+    expect(catalog.features[0].provenancePageIds).toEqual(["p1"]);
+  });
+});
+
+describe("AC-SLUG-COLLISION-DETECTABLE — distinct empty-normalizing labels stay distinct (#1328 Surface 2)", () => {
+  it("two different junk labels produce two detectable entries, not one silent merge", async () => {
+    const distiller: CatalogDistiller = {
+      async distill() {
+        return {
+          features: [
+            { label: "!@#$", provenancePageIds: ["p1"] },
+            { label: "🚀", provenancePageIds: ["p3"] }, // emoji-only, also empty-normalizes
+          ],
+          flows: [],
+        };
+      },
+    };
+    const catalog = await distillCatalog(PAGES, { distiller, now: FROZEN_NOW });
+    // Both survive as distinct entries (NOT one merged feature-entry).
+    expect(catalog.features).toHaveLength(2);
+    const ids = catalog.features.map((f) => f.id);
+    expect(ids).toContain("feature-entry");
+    expect(ids).toContain("feature-entry-2");
+    // Provenance is NOT unioned across the two distinct labels.
+    const byId = new Map(catalog.features.map((f) => [f.id, f]));
+    expect(byId.get("feature-entry")!.provenancePageIds).toEqual(["p1"]);
+    expect(byId.get("feature-entry-2")!.provenancePageIds).toEqual(["p3"]);
+    // Both original labels are preserved (provenance/detectability kept).
+    const labels = catalog.features.map((f) => f.label).sort();
+    expect(labels).toEqual(["!@#$", "🚀"]);
+  });
+});
+
+describe("AC-SLUG-EMPTY-NORMALIZE-EDGES — a batch of empty-normalizing labels all stay detectable (#1328 Surface 2)", () => {
+  it("symbols / emoji / whitespace / very-long all-symbol inputs each get a distinct id, deterministically", async () => {
+    const longSymbols = "#".repeat(200);
+    const distiller: CatalogDistiller = {
+      async distill() {
+        return {
+          features: [
+            { label: "!@#$", provenancePageIds: ["p1"] }, // symbols-only
+            { label: "🚀🚀", provenancePageIds: ["p2"] }, // emoji-only
+            { label: "   ", provenancePageIds: ["p3"] }, // whitespace-only
+            { label: longSymbols, provenancePageIds: ["p1"] }, // very-long all-symbol
+          ],
+          flows: [],
+        };
+      },
+    };
+    const r1 = await distillCatalog(PAGES, { distiller, now: FROZEN_NOW });
+    // Four distinct empty-normalizing labels -> four distinct, detectable ids.
+    expect(r1.features).toHaveLength(4);
+    const ids = r1.features.map((f) => f.id);
+    expect(new Set(ids).size).toBe(4);
+    for (const id of ids) {
+      expect(id.startsWith("feature-entry")).toBe(true);
+    }
+    // Deterministic across re-runs (AC-STABLEID preserved on the fallback path).
+    const r2 = await distillCatalog(PAGES, { distiller, now: FROZEN_NOW });
+    expect(JSON.stringify(r2.features)).toBe(JSON.stringify(r1.features));
+  });
+
+  it("an identical empty-normalizing label appearing twice still merges with itself", async () => {
+    const distiller: CatalogDistiller = {
+      async distill() {
+        return {
+          features: [
+            { label: "!@#$", provenancePageIds: ["p1"] },
+            { label: "!@#$", provenancePageIds: ["p3"] }, // same junk label -> one entry
+          ],
+          flows: [],
+        };
+      },
+    };
+    const catalog = await distillCatalog(PAGES, { distiller, now: FROZEN_NOW });
+    expect(catalog.features).toHaveLength(1);
+    expect(catalog.features[0].id).toBe("feature-entry");
+    expect(catalog.features[0].provenancePageIds).toEqual(["p1", "p3"]);
+  });
+});
+
 describe("AC-NO-NETWORK — zero global fetch across the full run() orchestration (N2)", () => {
   it("never touches globalThis.fetch after the whole run(deps) CLI smoke", async () => {
     const fetchSpy = jest.fn();

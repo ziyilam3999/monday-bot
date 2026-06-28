@@ -14,7 +14,12 @@ export async function parsePdf(filePath: string, source: string): Promise<Chunk[
     if (err instanceof Error && err.name === "PasswordException") {
       throw new Error(`${filePath} is password-protected`);
     }
-    throw err;
+    // Any other load/parse failure (corrupted, empty, malformed) is wrapped in a
+    // friendly, typed error so raw pdfjs internals / stack frames never leak to
+    // the caller. The original is preserved out-of-band via `cause` for debugging.
+    throw new Error(`${filePath} is not a readable PDF (corrupted, empty, or malformed)`, {
+      cause: err,
+    });
   }
 
   try {

@@ -28,12 +28,15 @@ export interface DistillDeps {
  *
  * 1. Validate provenance: keep only ids present in the corpus; drop entries
  *    left with zero valid provenance ids.
- * 2. Assign a stable id `<prefix>-<slug(label)>` (empty slugs fall back to a
- *    sentinel so they remain addressable).
- * 3. Dedup: entries that slug to the SAME id are the same feature/flow — merge
- *    them, UNIONing their provenance (insertion-ordered, de-duplicated). Because
- *    same-slug entries merge here, the surviving id space is collision-free by
- *    construction, so no numeric `-2`/`-3` disambiguation is needed.
+ * 2. Assign a stable id `<prefix>-<slug(label)>`. Labels that normalize to an
+ *    EMPTY slug (symbols-only, emoji-only, whitespace-only) fall back to an
+ *    `entry` sentinel so they stay addressable — but DISTINCT empty-normalizing
+ *    labels are disambiguated (`entry`, `entry-2`, …) so two different junk
+ *    labels do NOT silently collapse into one (collision becomes detectable).
+ * 3. Dedup: NON-empty entries that slug to the SAME id are the same feature/flow
+ *    — merge them, UNIONing their provenance (insertion-ordered, de-duplicated).
+ *    An identical empty-normalizing label still merges with itself; only DISTINCT
+ *    empty-normalizing labels are kept apart.
  * 4. Sort by id ascending for deterministic output.
  */
 function buildEntries(
@@ -43,13 +46,30 @@ function buildEntries(
 ): CatalogEntry[] {
   // Map keyed by slug -> merged entry (preserves first-seen label deterministically).
   const bySlug = new Map<string, { label: string; provenance: string[] }>();
+  // Empty-normalizing labels (slug() -> "") share the `entry` fallback. Key them
+  // by their ORIGINAL label so an identical junk label still merges with itself,
+  // while DISTINCT junk labels each get a deterministic, detectable id
+  // (`entry`, `entry-2`, …) instead of silently collapsing into one entry.
+  const emptyLabelToSlug = new Map<string, string>();
 
   for (const entry of raw) {
     const provenance = (entry.provenancePageIds ?? []).filter((id) => corpusIds.has(id));
     // Drop entries with zero valid provenance (AC-PROVENANCE-PRUNE).
     if (provenance.length === 0) continue;
 
-    const s = slug(entry.label) || "entry";
+    const normalized = slug(entry.label);
+    let s: string;
+    if (normalized) {
+      s = normalized;
+    } else {
+      let fallback = emptyLabelToSlug.get(entry.label);
+      if (fallback === undefined) {
+        const n = emptyLabelToSlug.size;
+        fallback = n === 0 ? "entry" : `entry-${n + 1}`;
+        emptyLabelToSlug.set(entry.label, fallback);
+      }
+      s = fallback;
+    }
     const existing = bySlug.get(s);
     if (existing) {
       // Dedup: union provenance, keeping insertion order without duplicates.
