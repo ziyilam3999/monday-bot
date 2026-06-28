@@ -99,6 +99,46 @@ describe("categorizeDefect — symptom taxonomy + rules", () => {
   });
 });
 
+describe("categorizeDefect — #1333 precedence-theft fix", () => {
+  // Synthetic fixtures (invented generic-English) proving the #1333 fix:
+  // (1) rules match the SUMMARY only — a stray "error" in the description no
+  //     longer steals a ticket into crash-error; (2) the bare "flow" token is
+  //     dropped from navigation-flow so a "Flow …" naming prefix is not auto-filed
+  //     as navigation. AC-1/AC-2 are RED on master, GREEN after the fix; AC-3
+  //     guards that real navigation phrasing still classifies as navigation-flow.
+
+  it("#1333 theft-1: description boilerplate 'error' does NOT steal a data-incorrect summary", () => {
+    // Summary is a data-incorrect symptom; the description carries the QA
+    // boilerplate word "error". Pre-fix (summary+description) → crash-error.
+    // Post-fix (summary only) → data-incorrect.
+    const input: DefectInput = {
+      summary: "the running total shows the wrong amount",
+      descriptionText:
+        "Steps to reproduce: open the screen. Expected result: correct value. Actual result: an error occurred.",
+    };
+    expect(categorizeDefect(input).category).toBe("data-incorrect");
+  });
+
+  it("#1333 theft-2: a bare 'Flow' naming prefix is NOT auto-filed as navigation-flow", () => {
+    // Summary begins with the "Flow" naming prefix and contains no other symptom
+    // keyword. Pre-fix the bare "flow" token fired navigation-flow; post-fix it
+    // falls through to `other`.
+    const input: DefectInput = {
+      summary: "Flow Reports: revisit the quarterly digest wording",
+    };
+    expect(categorizeDefect(input).category).toBe("other");
+  });
+
+  it("#1333 nav-guard: genuine navigation phrasing still classifies as navigation-flow", () => {
+    // Removing the bare "flow" token must not break real navigation matching:
+    // redirect/route still trigger navigation-flow. Stays GREEN before and after.
+    const input: DefectInput = {
+      summary: "the redirect loops back to the previous route",
+    };
+    expect(categorizeDefect(input).category).toBe("navigation-flow");
+  });
+});
+
 describe("categorizeAll — grouped counts", () => {
   it("AC-6: per-category counts equal the per-result tally", () => {
     const inputs = SYNTHETIC.map((s) => s.input);
