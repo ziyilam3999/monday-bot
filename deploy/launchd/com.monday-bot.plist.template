@@ -21,12 +21,17 @@
     <key>Label</key>
     <string>com.monday-bot</string>
 
-    <!-- ProgramArguments: [ absolute node, absolute entrypoint ].
-         launchd does NOT use your shell's PATH, so node must be an absolute path. -->
+    <!-- ProgramArguments: launchd execs the build-on-start WRAPPER (Layer 3,
+         #1348), NOT node/dist directly. The wrapper builds on (re)launch, serves
+         the last-good dist if a build fails, skips the rebuild when dist is
+         already fresh for HEAD, and `exec`s node so wrapper-exit == node-exit
+         (no build status leaks to KeepAlive). It resolves node from the PATH set
+         below (the installer puts node's bin dir first). launchd does NOT use
+         your shell's PATH, so /bin/bash is given as an absolute interpreter. -->
     <key>ProgramArguments</key>
     <array>
-        <string><NODE_PATH></string>
-        <string><REPO_DIR>/dist/index.js</string>
+        <string>/bin/bash</string>
+        <string><REPO_DIR>/scripts/launchd-wrapper.sh</string>
     </array>
 
     <!-- Run from the repo root so process.loadEnvFile() finds <REPO_DIR>/.env

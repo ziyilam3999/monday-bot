@@ -84,6 +84,78 @@ export function recordFeedbackToSink(message: string): void {
   }
 }
 
+/**
+ * Layer 2 (#1348) — observability for the always-on launchd bot.
+ *
+ * logBuildStamp(): print the build-stamp the build step captured into
+ * `dist/.build-stamp`, so the running build is identifiable from
+ * `~/Library/Logs/monday-bot.out.log` alone. Read from `__dirname` (the dir the
+ * compiled entrypoint runs from — `dist/` in prod, or `dist-last-good/` on a
+ * Layer-3 fallback) so a degraded run truthfully logs the last-good stamp.
+ *
+ * Build-stamp contract: file line `sha=<short-sha> built=<iso>`; startup line
+ * `build-stamp: sha=<short-sha> built=<iso>`; missing/malformed degrades to the
+ * fixed literal `build-stamp: unavailable` and NEVER crashes the boot.
+ */
+function logBuildStamp(): void {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, ".build-stamp"), "utf8").trim();
+    if (/^sha=[0-9a-f]{7,} built=[0-9TZ:-]+$/.test(raw)) {
+      console.log(`build-stamp: ${raw}`);
+      return;
+    }
+  } catch {
+    /* missing / unreadable — degrade below, never throw */
+  }
+  console.log("build-stamp: unavailable");
+}
+
+/** Newest mtime (ms) across a directory tree; 0 if it can't be read. */
+function newestMtimeMs(dir: string): number {
+  let newest = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        newest = Math.max(newest, newestMtimeMs(full));
+      } else {
+        newest = Math.max(newest, fs.statSync(full).mtimeMs);
+      }
+    } catch {
+      /* skip unreadable entries */
+    }
+  }
+  return newest;
+}
+
+/**
+ * Layer 2 (#1348) — in-process backstop: if `src/` is newer than the compiled
+ * `dist/` the running process is STALE (someone restarted without rebuilding).
+ * Emits a loud WARNING carrying the `stale`/`rebuild` keywords. Never crashes.
+ */
+function warnIfStaleBuild(): void {
+  try {
+    const distDir = __dirname;
+    const repoRoot = path.dirname(distDir);
+    const srcNewest = newestMtimeMs(path.join(repoRoot, "src"));
+    const distNewest = newestMtimeMs(distDir);
+    if (srcNewest > 0 && distNewest > 0 && srcNewest > distNewest) {
+      console.warn(
+        "WARNING: src/ is newer than dist/ — you are running a STALE build. " +
+          "Run 'npm run build' (or 'npm run redeploy') to rebuild.",
+      );
+    }
+  } catch {
+    /* observability only — never break startup */
+  }
+}
+
 export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayHandle> {
   const exitOnError = opts.exitOnError ?? true;
 
@@ -230,6 +302,10 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
 }
 
 if (require.main === module) {
+  // Layer 2 (#1348): announce the running build + warn loudly if it's stale,
+  // on the headless launchd entrypoint (and any `node dist/index.js` run).
+  logBuildStamp();
+  warnIfStaleBuild();
   // Load .env for the CLI entry path only. Native (Node >=20.12), dependency-free.
   // A missing .env is fine — fall back to shell-exported env vars.
   try {

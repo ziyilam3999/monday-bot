@@ -6,8 +6,9 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/write-build-stamp.js",
     "start": "node dist/index.js",
+    "redeploy": "bash scripts/redeploy-local.sh",
     "test": "jest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "eval:recall": "npm run build && node scripts/eval-recall.js",
