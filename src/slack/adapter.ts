@@ -5,6 +5,7 @@ import {
   statusCommand,
   syncConfluenceCommand,
   reindexCommand,
+  jqlCommand,
   helpCommand,
   feedbackCommand,
 } from "./commands";
@@ -198,6 +199,7 @@ export class SlackAdapter {
       syncConfluenceCommand(this.adminService, text),
     );
     this.registerAdminCommand("/reindex", (_args, _text) => reindexCommand(this.adminService));
+    this.registerAdminCommand("/jql", (_args, text) => jqlCommand(this.adminService, text));
     this.registerAdminCommand("/help", (_args, _text) => helpCommand(this.adminService));
     this.registerAdminCommand("/feedback-monday", (_args, text) =>
       feedbackCommand(this.adminService, text),

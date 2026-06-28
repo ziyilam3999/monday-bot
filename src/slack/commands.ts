@@ -27,6 +27,52 @@ export interface AdminService {
   reindex?(): Promise<string | void> | string | void;
   /** Optional sink for collected feedback. Defaults to console.log. */
   recordFeedback?(message: string): Promise<void> | void;
+  /**
+   * Answer an English defect question (`/jql`). Returns the generated JQL plus the
+   * matched defects (Slack default = auto-run, read-only). Optional so the handler
+   * degrades to "not configured" when the bot has no Jira viewing layer wired.
+   */
+  answerJql?(question: string): Promise<JqlReply> | JqlReply;
+}
+
+/** A single matched defect for the `/jql` reply. */
+export interface JqlReplyIssue {
+  key: string;
+  summary?: string;
+}
+
+/** The shape `answerJql` returns and `formatJqlReply` renders. */
+export interface JqlReply {
+  jql: string;
+  issues?: JqlReplyIssue[];
+  warnings?: string[];
+}
+
+/**
+ * PURE formatter for the Slack `/jql` reply (option A — auto-run, read-only).
+ *
+ * Fixed order (AC14): the generated JQL string appears FIRST, then the matched
+ * defects BELOW it — so a reader sees the query, then its results. Warnings (if
+ * any) trail last. No I/O — unit-tested with a stubbed search.
+ */
+export function formatJqlReply(reply: JqlReply): string {
+  const lines: string[] = [];
+  lines.push("*JQL:*");
+  lines.push("```");
+  lines.push(reply.jql);
+  lines.push("```");
+  const issues = Array.isArray(reply.issues) ? reply.issues : [];
+  if (issues.length === 0) {
+    lines.push("No matching defects.");
+  } else {
+    lines.push(`Matched ${issues.length} defect(s):`);
+    for (const issue of issues) {
+      lines.push(issue.summary ? `• ${issue.key} — ${issue.summary}` : `• ${issue.key}`);
+    }
+  }
+  const warnings = Array.isArray(reply.warnings) ? reply.warnings : [];
+  for (const w of warnings) lines.push(`_${w}_`);
+  return lines.join("\n");
 }
 
 export type CommandHandler = (
@@ -39,6 +85,7 @@ const AVAILABLE_COMMANDS: ReadonlyArray<{ name: string; description: string }> =
   { name: "/status-monday", description: "Show document count and uptime." },
   { name: "/sync-confluence [space]", description: "Trigger a fresh sync of the Confluence space." },
   { name: "/reindex", description: "Re-index all Confluence pages and Jira issues." },
+  { name: "/jql <question>", description: "Turn an English defect question into JQL and show the matching defects." },
   { name: "/help", description: "Show this help message." },
   { name: "/feedback-monday <message>", description: "Send feedback to the bot maintainers." },
 ];
@@ -106,6 +153,27 @@ export const reindexCommand: CommandHandler = async (service) => {
 };
 
 /**
+ * `/jql <question>` — Slack auto-run (option A): map the English question to JQL,
+ * perform the one read-only search, and reply JQL-FIRST then the matched defects
+ * (via the pure `formatJqlReply`). Async because the search is network I/O.
+ */
+export const jqlCommand: CommandHandler = async (service, question) => {
+  const q = typeof question === "string" ? question.trim() : "";
+  if (q.length === 0) {
+    return "Usage: `/jql <question>` — for example, `/jql show me crashes`";
+  }
+  if (!service || typeof service.answerJql !== "function") {
+    return "JQL search is not configured on this bot.";
+  }
+  try {
+    const reply = await service.answerJql(q);
+    return formatJqlReply(reply);
+  } catch (err) {
+    return `JQL search failed: ${(err as Error).message ?? "unknown error"}`;
+  }
+};
+
+/**
  * `/help` — static help text listing every command. Synchronous so callers can
  * post the response without awaiting.
  */
@@ -154,6 +222,7 @@ export const commandHandlers: Record<string, CommandHandler> = {
   status: statusCommand,
   syncConfluence: syncConfluenceCommand,
   reindex: reindexCommand,
+  jql: jqlCommand,
   help: helpCommand,
   feedback: feedbackCommand,
 };
