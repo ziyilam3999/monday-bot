@@ -139,6 +139,57 @@ describe("categorizeDefect — #1333 precedence-theft fix", () => {
   });
 });
 
+describe("#1341 keyword enrichment", () => {
+  // PART A — five generic keyword adds (the `jump` add was dropped per
+  // plan-review S1 to avoid stealing display/scroll "jump" symptoms). Each
+  // fixture is SYNTHETIC and isolates its NEW keyword: the only token that
+  // triggers the target category is the newly-added one.
+  const PART_A: Array<{ summary: string; expected: DefectCategory; note: string }> = [
+    { summary: "the eta is not accurate", expected: "data-incorrect", note: "A1 accurate" },
+    { summary: "the upload didn't finish", expected: "cannot-complete", note: "A3 didn't" },
+    { summary: "the session expired", expected: "cannot-complete", note: "A4 expired" },
+    { summary: "the link expires too early", expected: "cannot-complete", note: "A4 expires (S3 widening)" },
+    { summary: "the save control is not there", expected: "missing-element", note: "A5 not there" },
+    { summary: "a pop up covers the panel", expected: "display-ui", note: "A6 pop up" },
+  ];
+
+  it.each(PART_A)("PART A: %o classifies to its target category", ({ summary, expected }) => {
+    expect(categorizeDefect({ summary }).category).toBe(expected);
+  });
+
+  // Extension-via-injected-object (no file I/O) — proves the B.3 precedence
+  // wiring directly. `frobnicate`/`wibble` are invented terms that match no
+  // built-in rule, so they isolate the extension behavior cleanly.
+  it("extension term lands in its category with a :ext matchedRule", () => {
+    const extraRules = { performance: [/frobnicate/i] };
+    const r = categorizeDefect({ summary: "the page will frobnicate on open" }, extraRules);
+    expect(r.category).toBe("performance");
+    expect(r.matchedRule.endsWith(":ext")).toBe(true);
+  });
+
+  it("a higher BASE rule still outranks a lower-rank extension", () => {
+    const extraRules = { performance: [/frobnicate/i] };
+    // Also hits crash-error (crashed) at rank 1 — base wins over a performance ext.
+    const r = categorizeDefect(
+      { summary: "the app crashed while it tried to frobnicate" },
+      extraRules,
+    );
+    expect(r.category).toBe("crash-error");
+  });
+
+  it("an extension is evaluated at its category's RANK, not appended after other", () => {
+    const extraRules = { "missing-element": [/frobnicate/i] };
+    const r = categorizeDefect({ summary: "the widget will frobnicate" }, extraRules);
+    expect(r.category).toBe("missing-element");
+  });
+
+  it("no-extensions parity: a synthetic term matches nothing built-in (one-arg → other)", () => {
+    expect(categorizeDefect({ summary: "the page will frobnicate on open" }).category).toBe(
+      "other",
+    );
+  });
+});
+
 describe("categorizeAll — grouped counts", () => {
   it("AC-6: per-category counts equal the per-result tally", () => {
     const inputs = SYNTHETIC.map((s) => s.input);
