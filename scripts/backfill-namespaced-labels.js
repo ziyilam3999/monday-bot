@@ -23,6 +23,14 @@
  *   Read it:       node scripts/backfill-namespaced-labels.js            (dry-run)
  *   Apply it:      node scripts/backfill-namespaced-labels.js --apply    (outward write)
  *
+ * UNSTAMP (reverse — REMOVE all the bot's labels, #1342). DRY-RUN by default;
+ * `--apply` is the ONLY mutating path; `--keys K1,K2` scopes to those issues
+ * (a typo'd/wrong-case/closed key FAILS LOUD, non-zero exit — never a silent
+ * zero-touch "success"):
+ *   Preview removes: node scripts/backfill-namespaced-labels.js --unstamp
+ *   Remove (scoped): node scripts/backfill-namespaced-labels.js --unstamp --keys ABC-1,ABC-2 --apply
+ *   Remove (sweep):  node scripts/backfill-namespaced-labels.js --unstamp --apply
+ *
  * Env: CONFLUENCE_URL (or CONFLUENCE_BASE_URL), CONFLUENCE_EMAIL,
  *      CONFLUENCE_API_TOKEN (Jira reuses the Atlassian creds), JIRA_PROJECTS
  *      (comma-separated; the FIRST entry is backfilled). Optional JQL overrides:
@@ -38,7 +46,7 @@ const fs = require("fs");
 const path = require("path");
 
 const DIST = path.resolve(__dirname, "..", "dist");
-const { run } = require(path.join(DIST, "triage", "backfill"));
+const { run, runUnstamp } = require(path.join(DIST, "triage", "backfill"));
 const { loadKeywordExtensions } = require(path.join(DIST, "triage", "keywordExtensions"));
 const { buildNullClassifier } = require(path.join(DIST, "triage", "classifier"));
 const { buildOpenDefectsFetcher } = require(path.join(DIST, "jira", "sync"));
@@ -71,6 +79,12 @@ function splitList(raw) {
     .filter(Boolean);
 }
 
+/** Value following a `--flag` on argv (e.g. `--keys A,B` → "A,B"); else undefined. */
+function argValue(flag) {
+  const i = process.argv.indexOf(flag);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
+
 /** Read the gitignored catalog (or an empty catalog if absent). */
 function loadCatalog() {
   try {
@@ -87,6 +101,8 @@ function loadCatalog() {
 async function main() {
   const apply = process.argv.includes("--apply");
   const printJql = process.argv.includes("--print-jql");
+  const unstamp = process.argv.includes("--unstamp");
+  const keys = splitList(argValue("--keys"));
   const env = process.env;
 
   const catalog = loadCatalog();
@@ -119,6 +135,29 @@ async function main() {
   };
   const projectKey = projects[0];
   const fetcher = buildOpenDefectsFetcher(config, scope, globalThis.fetch);
+
+  // UNSTAMP route (#1342): remove ALL the bot's labels. DRY-RUN by default; the
+  // writer is constructed ONLY on --apply (mirrors the add path). Counts only.
+  if (unstamp) {
+    const unstampDeps = {
+      fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
+      keys,
+      apply,
+    };
+    if (apply) {
+      unstampDeps.writer = buildJiraNamespacedLabelWriter(config, globalThis.fetch);
+    }
+    const unstampResult = await runUnstamp(unstampDeps);
+    if (!apply) {
+      console.log(
+        `\n(dry-run: no Jira writes performed. ${unstampResult.removable} issue(s) ` +
+          "carry bot labels. Re-run with --apply to remove them.)",
+      );
+    } else {
+      console.log(`\nremoved the bot's labels from ${unstampResult.removed} issue(s).`);
+    }
+    return;
+  }
 
   const deps = {
     fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),

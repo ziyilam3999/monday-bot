@@ -1,5 +1,5 @@
 import { JiraClientConfig, basicAuthHeader } from "./sync";
-import { NS_FEATURE, NS_SYMPTOM, ValidatedLabels } from "./namespacedLabels";
+import { NS_FEATURE, NS_FLOW, NS_SYMPTOM, ValidatedLabels } from "./namespacedLabels";
 
 /**
  * OUTWARD-write seam for the bot's namespaced labels (#1322).
@@ -35,9 +35,42 @@ export interface JiraNamespacedLabelWriter {
     currentLabels: string[],
     target: ValidatedLabels,
   ): Promise<boolean>;
+
+  /**
+   * REMOVE every bot-namespace label (`mb-feature-*` / `mb-flow-*` /
+   * `mb-symptom-*`) from `issueKey`, given its CURRENT labels — the reverse of
+   * `applyLabels` ("peel off ALL the bot's stickers"). Human/other labels are
+   * provably untouched. Returns `true` if a mutating PUT was issued, `false` if
+   * the issue carried no bot labels (empty diff → NO PUT → idempotent re-run /
+   * already-clean issue makes zero network calls).
+   */
+  unstampLabels(issueKey: string, currentLabels: string[]): Promise<boolean>;
 }
 
 type LabelOp = { add: string } | { remove: string };
+
+/** The bot's three private namespaces. */
+const NS_PREFIXES = [NS_FEATURE, NS_FLOW, NS_SYMPTOM];
+
+/**
+ * Compute the diff-driven REMOVE op list for an UNSTAMP: a `{ remove }` op for
+ * EVERY current label in one of the bot's three namespaces, and NOTHING else
+ * (exported for direct unit assertion — mirrors `computeLabelOps`).
+ *
+ * Bot-namespace-only by construction: a human/other label can never enter the
+ * op list. Empty result when the issue carries no bot labels (the idempotency
+ * short-circuit consumed by the writer → no PUT).
+ */
+export function computeUnstampOps(currentLabels: string[]): LabelOp[] {
+  const current = currentLabels ?? [];
+  const ops: LabelOp[] = [];
+  for (const label of current) {
+    if (NS_PREFIXES.some((prefix) => label.startsWith(prefix))) {
+      ops.push({ remove: label });
+    }
+  }
+  return ops;
+}
 
 /** Compute the diff-driven op list (exported for direct unit assertion). */
 export function computeLabelOps(currentLabels: string[], target: ValidatedLabels): LabelOp[] {
@@ -79,31 +112,43 @@ export function buildJiraNamespacedLabelWriter(
   }
   const base = config.baseUrl.replace(/\/$/, "");
 
+  // SINGLE shared PUT site (no forked auth): both apply + unstamp diff their
+  // own op list, then route through this one `{ update: { labels: ops } }` PUT.
+  async function putLabelOps(issueKey: string, ops: LabelOp[]): Promise<boolean> {
+    // Empty-diff short-circuit: issue NO PUT at all (idempotency guarantee).
+    if (ops.length === 0) return false;
+
+    const url = `${base}/rest/api/3/issue/${encodeURIComponent(issueKey)}`;
+    const res = await fetchImpl(url, {
+      method: "PUT",
+      headers: {
+        Authorization: basicAuthHeader(config),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ update: { labels: ops } }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Jira REST API returned ${res.status} ${res.statusText} for PUT issue ${issueKey}`,
+      );
+    }
+    return true;
+  }
+
   return {
     async applyLabels(issueKey, currentLabels, target): Promise<boolean> {
       if (typeof issueKey !== "string" || issueKey.length === 0) {
         throw new TypeError("applyLabels: issueKey must be a non-empty string");
       }
-      const ops = computeLabelOps(currentLabels, target);
-      // Empty-diff short-circuit: issue NO PUT at all (idempotency guarantee).
-      if (ops.length === 0) return false;
+      return putLabelOps(issueKey, computeLabelOps(currentLabels, target));
+    },
 
-      const url = `${base}/rest/api/3/issue/${encodeURIComponent(issueKey)}`;
-      const res = await fetchImpl(url, {
-        method: "PUT",
-        headers: {
-          Authorization: basicAuthHeader(config),
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ update: { labels: ops } }),
-      });
-      if (!res.ok) {
-        throw new Error(
-          `Jira REST API returned ${res.status} ${res.statusText} for PUT issue ${issueKey}`,
-        );
+    async unstampLabels(issueKey, currentLabels): Promise<boolean> {
+      if (typeof issueKey !== "string" || issueKey.length === 0) {
+        throw new TypeError("unstampLabels: issueKey must be a non-empty string");
       }
-      return true;
+      return putLabelOps(issueKey, computeUnstampOps(currentLabels));
     },
   };
 }
