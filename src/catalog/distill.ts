@@ -5,6 +5,7 @@ import {
   FeatureCatalog,
   RawCatalogEntry,
 } from "./types";
+import { slug } from "./slug";
 
 /**
  * Pure, injectable distill core (#1314 S2).
@@ -19,14 +20,6 @@ export interface DistillDeps {
   distiller: CatalogDistiller;
   /** Injectable clock for deterministic `generatedAt` in tests. */
   now?: () => number;
-}
-
-/** Lowercase-alnum-hyphen slug. Collapses runs and trims edge hyphens. */
-function slug(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 /**

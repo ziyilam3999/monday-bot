@@ -13,6 +13,7 @@
     "eval:recall": "npm run build && node scripts/eval-recall.js",
     "eval:golden": "npm run build && node scripts/eval-golden.js",
     "triage:categorize": "npm run build && node scripts/categorize-defects.js",
+    "triage:backfill": "npm run build && node scripts/backfill-namespaced-labels.js",
     "catalog:build": "npm run build && node scripts/build-catalog.js"
   },
   "engines": {
