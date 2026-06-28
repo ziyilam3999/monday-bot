@@ -1,4 +1,4 @@
-import { categorizeDefect } from "./categorizeDefect";
+import { categorizeDefect, CategoryExtensions } from "./categorizeDefect";
 import { IssueFeatureFlowClassifier } from "./classifier";
 import type { JiraIssue } from "../jira/sync";
 import type { JiraNamespacedLabelWriter } from "../jira/namespacedLabelWriter";
@@ -36,6 +36,11 @@ export interface BackfillRunDeps {
   apply?: boolean;
   /** Logger sink; defaults to `console.log`. */
   log?: (msg: string) => void;
+  /**
+   * Optional runtime keyword extensions (compiled by the shell's loader from a
+   * gitignored local file). When absent, classification is identical to today.
+   */
+  extensions?: CategoryExtensions;
 }
 
 export interface BackfillRunResult {
@@ -59,13 +64,16 @@ export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
   let applied = 0;
 
   for (const issue of issues) {
-    const { category } = categorizeDefect({
-      key: issue.key,
-      summary: issue.summary,
-      descriptionText: issue.descriptionText,
-      labels: issue.labels,
-      issueType: issue.issueType,
-    });
+    const { category } = categorizeDefect(
+      {
+        key: issue.key,
+        summary: issue.summary,
+        descriptionText: issue.descriptionText,
+        labels: issue.labels,
+        issueType: issue.issueType,
+      },
+      deps.extensions,
+    );
     const ff = await deps.classifier.classify(issue);
     const assignment: LabelAssignment = {
       feature: ff.feature,

@@ -9,6 +9,11 @@ dist/
 .claude/
 tmp/
 
+# Local symptom-keyword extension file (#1341) — real internal vocab, NEVER committed.
+# Matches at repo root and any subdir (no leading slash). Path is supplied via
+# MONDAY_KEYWORD_EXTENSIONS_FILE; populated by the operator locally after merge.
+keyword-extensions*.json
+
 # Tier-B golden eval PRIVATE fixture (#1170): 5 real UAT questions + real
 # ground-truth source ids + a real saved index. NEVER committed to this public
 # repo. The synthetic golden-private.example.json template stays tracked.

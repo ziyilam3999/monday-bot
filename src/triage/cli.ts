@@ -1,5 +1,6 @@
 import {
   categorizeAll,
+  CategoryExtensions,
   DEFECT_CATEGORIES,
   DefectCategory,
   DefectInput,
@@ -28,6 +29,11 @@ export interface CategorizeRunDeps {
   apply?: boolean;
   /** Logger sink; defaults to `console.log`. */
   log?: (msg: string) => void;
+  /**
+   * Optional runtime keyword extensions (compiled by the shell's loader from a
+   * gitignored local file). When absent, classification is identical to today.
+   */
+  extensions?: CategoryExtensions;
 }
 
 export interface CategorizeRunResult {
@@ -53,7 +59,7 @@ export async function run(deps: CategorizeRunDeps): Promise<CategorizeRunResult>
 
   const issues = await deps.fetchOpenDefects();
   const inputs = issues.map(toDefectInput);
-  const { results, counts } = categorizeAll(inputs);
+  const { results, counts } = categorizeAll(inputs, deps.extensions);
 
   // Per-defect planned category (preview).
   log(`Categorized ${results.length} open defect(s) (${apply ? "APPLY" : "dry-run"}):`);

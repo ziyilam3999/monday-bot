@@ -39,6 +39,7 @@ const path = require("path");
 
 const DIST = path.resolve(__dirname, "..", "dist");
 const { run } = require(path.join(DIST, "triage", "backfill"));
+const { loadKeywordExtensions } = require(path.join(DIST, "triage", "keywordExtensions"));
 const { buildNullClassifier } = require(path.join(DIST, "triage", "classifier"));
 const { buildOpenDefectsFetcher } = require(path.join(DIST, "jira", "sync"));
 const {
@@ -123,6 +124,9 @@ async function main() {
     fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
     classifier: buildNullClassifier(),
     catalog: membershipFromCatalog(catalog),
+    // Optional keyword extensions read from a gitignored local file (path via
+    // MONDAY_KEYWORD_EXTENSIONS_FILE). Absent/malformed → {} → classify as today.
+    extensions: loadKeywordExtensions(undefined, (msg) => console.error(msg)),
     apply,
   };
   // The writer is constructed ONLY on --apply (dry-run never builds it).
