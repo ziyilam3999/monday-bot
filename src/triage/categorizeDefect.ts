@@ -1,43 +1,50 @@
 /**
  * Pure, deterministic defect categorizer — no I/O, no network, no LLM.
  *
- * Given a defect's structural signals (summary + description text + labels +
- * issuetype), an ordered rule table assigns exactly ONE `DefectCategory`. The
- * table is evaluated in PRECEDENCE order (first match wins); anything that
- * matches no rule lands in `other` via the fallback. The categorizer is the
- * reusable core EPIC #1280 calls directly (no CLI / env coupling).
+ * Given a defect's text (summary + optional description), an ordered rule table
+ * assigns exactly ONE `DefectCategory` by SYMPTOM — the way a user describes what
+ * went wrong, not the way a developer would tag the underlying task. The table is
+ * evaluated in PRECEDENCE order (first match wins); anything that matches no rule
+ * lands in `other` via the fallback. The categorizer is the reusable core EPIC
+ * #1280 calls directly (no CLI / env coupling).
  *
- * Rules key ONLY on generic structural tokens (defect-type words, public
- * Atlassian field/label/issuetype names) — never on internal hostnames,
- * project/space keys, codenames, or colleague identifiers.
+ * Rules key ONLY on generic English symptom words (crash / cannot / wrong /
+ * missing / button / navigate / slow …) — never on product names, feature names,
+ * codenames, hostnames, project/space keys, or colleague identifiers.
  */
 
 /**
- * The defect taxonomy.
+ * The defect symptom taxonomy.
  *
- * IMPORTANT: the DECLARATION order below is an arbitrary, readable order and is
- * INTENTIONALLY NOT the precedence order. Tie-breaking uses a SEPARATE precedence
- * defined by `RULES` below (`correctness-bug > type-safety > test-infra >
- * code-quality > documentation > enhancement > other`). Do NOT "align" the two —
- * they are deliberately distinct, and AC-5 asserts the precedence directly.
+ * DECLARATION order below IS the precedence order (highest → lowest), with `other`
+ * as the fallback. One ordered set serves as both the readable declaration order
+ * and the first-match-wins precedence:
+ *
+ *   crash-error > cannot-complete > data-incorrect > missing-element >
+ *   display-ui > navigation-flow > performance > other
+ *
+ * The precedence is still asserted directly by the precedence test (via the
+ * behavior of a colliding fixture), independent of this array's order.
  */
 export type DefectCategory =
-  | "correctness-bug"
-  | "code-quality"
-  | "documentation"
-  | "test-infra"
-  | "type-safety"
-  | "enhancement"
+  | "crash-error"
+  | "cannot-complete"
+  | "data-incorrect"
+  | "missing-element"
+  | "display-ui"
+  | "navigation-flow"
+  | "performance"
   | "other";
 
-/** Every category value, in declaration order — used to seed a complete tally. */
+/** Every category value, in precedence/declaration order — seeds a complete tally. */
 export const DEFECT_CATEGORIES: readonly DefectCategory[] = [
-  "correctness-bug",
-  "code-quality",
-  "documentation",
-  "test-infra",
-  "type-safety",
-  "enhancement",
+  "crash-error",
+  "cannot-complete",
+  "data-incorrect",
+  "missing-element",
+  "display-ui",
+  "navigation-flow",
+  "performance",
   "other",
 ];
 
@@ -70,48 +77,47 @@ interface DefectRule {
 
 /**
  * Ordered rule table — evaluated top-to-bottom, FIRST MATCH WINS. The order here
- * IS the precedence: correctness-bug > type-safety > test-infra > code-quality >
- * documentation > enhancement. A defect matching multiple rules resolves to the
- * highest one (AC-5). Nothing here keys on `issueType: "Bug"` alone, so a
- * type-safety task tagged Bug is not swallowed by correctness-bug.
+ * IS the precedence (see `DEFECT_CATEGORIES`). A defect matching multiple rules
+ * resolves to the highest one. Every regex keys ONLY on generic English symptom
+ * words; the `labels`/`issueTypes` fields stay on the interface for
+ * shape-compatibility but the symptom rules do not rely on them (a symptom is a
+ * text phenomenon; corpus labels/issuetypes are product-specific → privacy risk).
  */
 const RULES: readonly DefectRule[] = [
   {
-    category: "correctness-bug",
-    name: "correctness-bug:keyword",
-    text: /\b(crash(?:es|ed)?|broken|incorrect|wrong|regress(?:ion|es|ed)?|exception|throws?|swallow(?:s|ed)?|hang(?:s|ed)?|deadlock|race condition|memory leak|null pointer|npe|returns? empty|infinite loop|off-by-one|corrupt(?:s|ed|ion)?|fails?|failing|errors?)\b/i,
-    labels: ["bug"],
+    category: "crash-error",
+    name: "crash-error:keyword",
+    text: /\b(crash(?:e[sd]|ing)?|freeze|frozen|freezing|hang(?:s|ing)?|stuck|anr|force ?clos(?:e|ed|ing)|exception|fatal|reboot(?:s|ed|ing)?|restart(?:s|ed|ing)?|error(?:s|ed)?|bug(?:s|ged)?|glitch)\b/i,
   },
   {
-    category: "type-safety",
-    name: "type-safety:keyword",
-    text: /\b(type|types|typing|typed|typecheck|type-safety|typesafe|cast|casting|generic|generics|nullable|non-null|narrow(?:ing)?)\b/i,
-    labels: ["type-safety", "typing"],
+    category: "cannot-complete",
+    name: "cannot-complete:keyword",
+    text: /\b(can ?not|cant|can.?t|unable|not able|doesn.?t|does not|won.?t|will not|fail(?:s|ed|ing|ure)?|not work(?:ing)?|no response|unresponsive|block(?:s|ed)?|disabled|greyed|grayed|stop(?:s|ped|ping)? working|unavailable|reject(?:s|ed|ing)?)\b/i,
   },
   {
-    category: "test-infra",
-    name: "test-infra:keyword",
-    text: /\b(test|tests|testing|spec|specs|mock(?:s|ed)?|fixture|fixtures|ci|flaky|hoist|test-runner|jest|snapshot|e2e|coverage|stub|stubs)\b/i,
-    labels: ["test", "test-infra", "ci"],
+    category: "data-incorrect",
+    name: "data-incorrect:keyword",
+    text: /\b(wrong|incorrect|mismatch|not match|inaccurate|miscalc(?:ulat\w*)?|invalid|should be|instead of|not correct|calcul\w*|amount|price|fee|total|count|balance|number|value|duplicat\w*|wrongly|null|reflect(?:s|ed|ing)?|update(?:s|d|ing)?|outdated|sync(?:s|ed|ing|hroni\w*)?|reset(?:s|ting)?)\b/i,
   },
   {
-    category: "code-quality",
-    name: "code-quality:keyword",
-    text: /\b(refactor(?:ing)?|dedupe|deduplicate|duplicat(?:e|ed|ion)|cleanup|clean up|rename|extract|simplify|lint|tidy|consolidate|readability|dead code)\b/i,
-    labels: ["refactor", "chore", "tech-debt"],
+    category: "missing-element",
+    name: "missing-element:keyword",
+    text: /\b(missing|not show(?:n|ing)?|not display(?:ed|ing)?|not appear(?:ing)?|blank|empty|no data|not visible|disappear(?:s|ed|ing)?|absent|without|gone|nothing show)\b/i,
   },
   {
-    category: "documentation",
-    name: "documentation:keyword",
-    text: /\b(doc|docs|document|documentation|readme|changelog|comment|comments|typo|wording|link|links|guide|tutorial|docstring|javadoc)\b/i,
-    labels: ["docs", "documentation"],
+    category: "display-ui",
+    name: "display-ui:keyword",
+    text: /\b(ui|layout|align(?:ment|ed)?|overlap(?:s|ping|ped)?|cut ?off|button|icon|colou?r|font|spacing|display|design|truncat\w*|responsive|scroll(?:s|ing)?|padding|margin|image|photo|text|label|popup|pop-up|modal|banner|grey|gray|black|white|keyboard|swipe|tap|stack(?:s|ed|ing)?|indicator|toggle|theme)\b/i,
   },
   {
-    category: "enhancement",
-    name: "enhancement:keyword",
-    text: /\b(add|adds|added|feature|features|support|enhance(?:ment)?|improve(?:ment)?|introduce|new|option|optional|knob|configurable|extend)\b/i,
-    labels: ["enhancement", "feature"],
-    issueTypes: ["story", "epic", "new feature", "feature"],
+    category: "navigation-flow",
+    name: "navigation-flow:keyword",
+    text: /\b(navigat\w*|redirect(?:s|ed|ing)?|back button|transition(?:s|ed|ing)?|route(?:s|d|ing)?|deep ?link|flow)\b/i,
+  },
+  {
+    category: "performance",
+    name: "performance:keyword",
+    text: /\b(slow(?:ness|ly)?|lag(?:s|ging|gy)?|delay(?:s|ed)?|timed? ?out|timeout|loading|performance|takes? (?:too )?long|laggy|spinner|spinning|stutter\w*)\b/i,
   },
 ];
 
@@ -124,8 +130,8 @@ function ruleMatches(rule: DefectRule, text: string, labels: string[], issueType
 
 /**
  * Categorize a single defect. Deterministic + pure: the same input always yields
- * the same `{ category, matchedRule }` (AC-4). First matching rule in precedence
- * order wins (AC-5); no match → `{ category: "other", matchedRule: "fallback" }`.
+ * the same `{ category, matchedRule }`. First matching rule in precedence order
+ * wins; no match → `{ category: "other", matchedRule: "fallback" }`.
  */
 export function categorizeDefect(input: DefectInput): { category: DefectCategory; matchedRule: string } {
   const text = `${input.summary ?? ""} ${input.descriptionText ?? ""}`;
@@ -143,7 +149,7 @@ export function categorizeDefect(input: DefectInput): { category: DefectCategory
 /**
  * Categorize a list of defects and aggregate the grouped counts. `counts` is
  * seeded with EVERY category at 0 (so the shape is stable + no category is
- * silently absent), then incremented per result (AC-6).
+ * silently absent), then incremented per result.
  */
 export function categorizeAll(inputs: DefectInput[]): {
   results: DefectResult[];

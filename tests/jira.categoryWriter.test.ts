@@ -16,7 +16,7 @@ describe("buildJiraCategoryWriter — outward write (mocked, never live)", () =>
       fetchImpl,
     );
 
-    await writer.setCategory("PROJ-42", "correctness-bug");
+    await writer.setCategory("PROJ-42", "crash-error");
 
     expect((fetchImpl as unknown as jest.Mock)).toHaveBeenCalledTimes(1);
     const [url, init] = (fetchImpl as unknown as jest.Mock).mock.calls[0] as [
@@ -28,7 +28,7 @@ describe("buildJiraCategoryWriter — outward write (mocked, never live)", () =>
     expect(init.headers.Authorization).toMatch(/^Basic /);
     expect(init.headers["Content-Type"]).toBe("application/json");
     const body = JSON.parse(init.body);
-    expect(body).toEqual({ update: { labels: [{ add: "defect-category:correctness-bug" }] } });
+    expect(body).toEqual({ update: { labels: [{ add: "defect-category:crash-error" }] } });
   });
 
   it("honors a configurable label prefix", async () => {
@@ -45,9 +45,9 @@ describe("buildJiraCategoryWriter — outward write (mocked, never live)", () =>
       fetchImpl,
       { labelPrefix: "kind" },
     );
-    await writer.setCategory("PROJ-9", "documentation");
+    await writer.setCategory("PROJ-9", "display-ui");
     const init = (fetchImpl as unknown as jest.Mock).mock.calls[0][1] as { body: string };
-    expect(JSON.parse(init.body)).toEqual({ update: { labels: [{ add: "kind:documentation" }] } });
+    expect(JSON.parse(init.body)).toEqual({ update: { labels: [{ add: "kind:display-ui" }] } });
   });
 
   it("throws on a non-2xx response and on an empty issueKey", async () => {

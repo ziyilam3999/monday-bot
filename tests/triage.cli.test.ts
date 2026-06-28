@@ -5,8 +5,8 @@ import type { JiraIssue } from "../src/jira/sync";
 
 /** Two synthetic open defects, both with keys (so --apply has something to write). */
 const FIXTURE_ISSUES: JiraIssue[] = [
-  { key: "X-1", summary: "handler swallows an error", descriptionText: "", commentTexts: [], issueType: "Bug" },
-  { key: "X-2", summary: "add an optional knob", descriptionText: "", commentTexts: [], issueType: "Story" },
+  { key: "X-1", summary: "the app crashed on launch", descriptionText: "", commentTexts: [], issueType: "Bug" },
+  { key: "X-2", summary: "the running total shows the wrong amount", descriptionText: "", commentTexts: [], issueType: "Bug" },
 ];
 
 /** A writer spy whose setCategory is bound to a fake — NEVER live Jira. */
@@ -48,8 +48,8 @@ describe("run(deps) — dry-run default + flag-gated outward write (AC-7)", () =
     expect(result.applied).toBe(FIXTURE_ISSUES.length);
     // Each write stamps the computed category for that key.
     expect(calls).toEqual([
-      ["X-1", "correctness-bug"],
-      ["X-2", "enhancement"],
+      ["X-1", "crash-error"],
+      ["X-2", "data-incorrect"],
     ]);
   });
 
@@ -58,7 +58,7 @@ describe("run(deps) — dry-run default + flag-gated outward write (AC-7)", () =
     // is a spy. Proves both ends bind to fakes.
     const rawIssue = {
       key: "X-9",
-      fields: { summary: "doc: link the changelog", description: null, comment: { comments: [] } },
+      fields: { summary: "the feed is slow and laggy", description: null, comment: { comments: [] } },
     };
     const fetchImpl = jest.fn(async () => ({
       ok: true,
@@ -81,6 +81,6 @@ describe("run(deps) — dry-run default + flag-gated outward write (AC-7)", () =
       log: () => undefined,
     });
     expect(calls).toHaveLength(0);
-    expect(result.counts.documentation).toBe(1);
+    expect(result.counts.performance).toBe(1);
   });
 });
