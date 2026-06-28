@@ -1,7 +1,10 @@
 import { categorizeDefect, CategoryExtensions } from "./categorizeDefect";
 import { IssueFeatureFlowClassifier } from "./classifier";
 import type { JiraIssue } from "../jira/sync";
-import type { JiraNamespacedLabelWriter } from "../jira/namespacedLabelWriter";
+import {
+  computeUnstampOps,
+  type JiraNamespacedLabelWriter,
+} from "../jira/namespacedLabelWriter";
 import {
   LabelAssignment,
   LabelCatalog,
@@ -106,4 +109,102 @@ export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
   );
 
   return { total: issues.length, validated, rejected, applied };
+}
+
+/**
+ * Raised when one or more requested `--keys` are NOT present in the fetched
+ * open-defects set (S1, #1342). A typo'd / lowercase / already-closed key must
+ * FAIL LOUD — never silently no-op — because `--keys` drives a LIVE add→delete
+ * smoke and a zero-touch "success" would be a dangerous false-green. Carries the
+ * COUNT only (never the key values) so the structured error stays privacy-safe.
+ */
+export class UnmatchedUnstampKeysError extends Error {
+  constructor(public readonly count: number) {
+    super(
+      `unstamp: ${count} requested --keys had no match in the fetched open-defects set ` +
+        `(typo / wrong case / already-closed?) — refusing to run`,
+    );
+    this.name = "UnmatchedUnstampKeysError";
+  }
+}
+
+/** Injected deps for the UNSTAMP core (remove ALL bot labels). */
+export interface UnstampRunDeps {
+  /** Injected open-defects read. */
+  fetchOpenDefects: () => Promise<JiraIssue[]>;
+  /** Injected writer — constructed by the shell ONLY on `--apply`. */
+  writer?: JiraNamespacedLabelWriter;
+  /** Real-write flag. Default false (dry-run). */
+  apply?: boolean;
+  /**
+   * Optional scoping: restrict the run to EXACTLY these issue keys (client-side
+   * filter over the fetched open set). An unmatched key throws
+   * `UnmatchedUnstampKeysError` (S1 fail-loud). Empty / undefined → full sweep.
+   */
+  keys?: string[];
+  /** Logger sink; defaults to `console.log`. */
+  log?: (msg: string) => void;
+}
+
+export interface UnstampRunResult {
+  /** Issues in scope (after the optional `--keys` filter). */
+  total: number;
+  /** Issues carrying ≥1 bot label (would be / were peeled). */
+  removable: number;
+  /** Issues that actually received a remove-PUT (0 in dry-run / on a clean set). */
+  removed: number;
+}
+
+/**
+ * UNSTAMP core (#1342) — fetch open defects, optionally scope to `deps.keys`,
+ * compute the bot-namespace REMOVE ops per issue, and (only with `apply` +
+ * `writer`) issue the remove-PUT. Mirrors `run`'s dry-run-default +
+ * writer-optional + counts-result contract. Logs COUNTS/STRUCTURE only.
+ *
+ * Dry-run is the DEFAULT: with `apply !== true` (or no writer) it computes +
+ * previews and issues ZERO writes. `removed` counts only issues that actually
+ * received a mutating PUT — an issue with no bot labels produces an empty op
+ * list → NO PUT → does NOT increment `removed` (the idempotency guarantee).
+ */
+export async function runUnstamp(deps: UnstampRunDeps): Promise<UnstampRunResult> {
+  const log = deps.log ?? ((msg: string) => console.log(msg));
+  const apply = deps.apply === true;
+
+  const issues = await deps.fetchOpenDefects();
+
+  let scoped = issues;
+  if (deps.keys && deps.keys.length > 0) {
+    const fetchedKeys = new Set(issues.map((i) => i.key));
+    // S1 fail-loud: an EXACT-match miss (typo / wrong case / already-closed)
+    // must abort, not silently touch zero issues.
+    const unmatched = deps.keys.filter((k) => !fetchedKeys.has(k));
+    if (unmatched.length > 0) {
+      log(
+        `unstamp: ABORT — ${unmatched.length} requested key(s) not in the fetched ` +
+          `open-defects set (count only; values withheld)`,
+      );
+      throw new UnmatchedUnstampKeysError(unmatched.length);
+    }
+    const wanted = new Set(deps.keys);
+    scoped = issues.filter((i) => wanted.has(i.key));
+  }
+
+  let removable = 0;
+  let removed = 0;
+  for (const issue of scoped) {
+    const ops = computeUnstampOps(issue.labels ?? []);
+    if (ops.length === 0) continue; // no bot labels — nothing to peel.
+    removable++;
+    if (apply && deps.writer && issue.key) {
+      const didPut = await deps.writer.unstampLabels(issue.key, issue.labels ?? []);
+      if (didPut) removed++;
+    }
+  }
+
+  log(
+    `unstamp: total=${scoped.length} removable=${removable} removed=${removed} ` +
+      `(${apply ? "APPLY" : "dry-run"})`,
+  );
+
+  return { total: scoped.length, removable, removed };
 }
