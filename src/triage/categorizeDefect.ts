@@ -67,7 +67,7 @@ export interface DefectResult {
 interface DefectRule {
   category: Exclude<DefectCategory, "other">;
   name: string;
-  /** Keyword/regex over the combined text (summary + description). */
+  /** Keyword/regex over the defect SUMMARY text. */
   text?: RegExp;
   /** Label values (lowercased) that trigger this rule. */
   labels?: string[];
@@ -112,7 +112,7 @@ const RULES: readonly DefectRule[] = [
   {
     category: "navigation-flow",
     name: "navigation-flow:keyword",
-    text: /\b(navigat\w*|redirect(?:s|ed|ing)?|back button|transition(?:s|ed|ing)?|route(?:s|d|ing)?|deep ?link|flow)\b/i,
+    text: /\b(navigat\w*|redirect(?:s|ed|ing)?|back button|transition(?:s|ed|ing)?|route(?:s|d|ing)?|deep ?link)\b/i,
   },
   {
     category: "performance",
@@ -134,7 +134,12 @@ function ruleMatches(rule: DefectRule, text: string, labels: string[], issueType
  * wins; no match → `{ category: "other", matchedRule: "fallback" }`.
  */
 export function categorizeDefect(input: DefectInput): { category: DefectCategory; matchedRule: string } {
-  const text = `${input.summary ?? ""} ${input.descriptionText ?? ""}`;
+  // Match rules on the SUMMARY only. The summary carries the user's symptom
+  // signal; the long description boilerplate (e.g. a QA "Actual result: an error
+  // occurred." line) would otherwise let a stray keyword steal precedence
+  // (#1333). `descriptionText` stays on `DefectInput` for shape-compat with
+  // `cli.ts`; it is simply no longer fed to the matcher.
+  const text = input.summary ?? "";
   const labels = (input.labels ?? []).map((l) => l.toLowerCase());
   const issueType = (input.issueType ?? "").toLowerCase();
 
