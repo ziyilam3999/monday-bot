@@ -1,4 +1,5 @@
 import { SlackAdapter, SlackConfigError, AnswerProvider } from "../src/slack/adapter";
+import { AdminService } from "../src/slack/commands";
 
 function fakeKnowledge(): AnswerProvider & { calls: string[] } {
   const calls: string[] = [];
@@ -266,6 +267,177 @@ describe("slack/adapter — admin commands wired through adminService", () => {
 
     await fakeApp._triggerCommand("/reindex", {});
     expect(fakeApp._respondMessages[0].text.toLowerCase()).toContain("not configured");
+  });
+});
+
+describe("slack/adapter — app_mention defect routing (#1344)", () => {
+  const JQL = 'labels in ("mb-symptom-crash-error") AND statusCategory != Done';
+
+  function fakeAdmin(): AdminService & { jqlCalls: string[] } {
+    const jqlCalls: string[] = [];
+    return {
+      jqlCalls,
+      async answerJql(question: string) {
+        jqlCalls.push(question);
+        return {
+          jql: JQL,
+          issues: [
+            { key: "DEMO-1", summary: "checkout boom" },
+            { key: "DEMO-2", summary: "another crash" },
+          ],
+        };
+      },
+    };
+  }
+
+  it("AC5: a DEFECT mention routes to answerJql, posts JQL-first in-thread, and does NOT query the knowledge service", async () => {
+    const ks = fakeKnowledge();
+    const admin = fakeAdmin();
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: ks,
+      adminService: admin,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerEvent(name: string, ev: unknown): Promise<void>;
+      _postMessages: Array<{ channel: string; text: string; blocks?: unknown[]; thread_ts?: string }>;
+    };
+    await fakeApp._triggerEvent("app_mention", {
+      text: "<@U12345> show me the crashes",
+      channel: "C123",
+      ts: "1700000000.000500",
+    });
+    // answerJql received the cleaned question; the doc path was NOT taken.
+    expect(admin.jqlCalls).toEqual(["show me the crashes"]);
+    expect(ks.calls).toEqual([]);
+    expect(fakeApp._postMessages.length).toBe(1);
+    const msg = fakeApp._postMessages[0];
+    expect(msg.channel).toBe("C123");
+    expect(msg.thread_ts).toBe("1700000000.000500");
+    // JQL-first: the *JQL:* header + the JQL appear BEFORE the first defect key.
+    expect(msg.text).toContain("*JQL:*");
+    expect(msg.text.indexOf(JQL)).toBeGreaterThanOrEqual(0);
+    expect(msg.text.indexOf(JQL)).toBeLessThan(msg.text.indexOf("DEMO-1"));
+    // The JQL reply is a plain string (no blocks), matching the /jql slash reply.
+    expect(msg.blocks).toBeUndefined();
+  });
+
+  it("AC6: a DOC mention still queries the knowledge service and posts a blocks payload (unchanged)", async () => {
+    const ks = fakeKnowledge();
+    const admin = fakeAdmin();
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: ks,
+      adminService: admin,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerEvent(name: string, ev: unknown): Promise<void>;
+      _postMessages: Array<{ text: string; blocks?: unknown[] }>;
+    };
+    await fakeApp._triggerEvent("app_mention", {
+      text: "<@U12345> how many days of leave?",
+      channel: "C123",
+      ts: "1700000000.000600",
+    });
+    expect(ks.calls).toEqual(["how many days of leave?"]);
+    expect(admin.jqlCalls).toEqual([]);
+    expect(fakeApp._postMessages.length).toBe(1);
+    expect(Array.isArray(fakeApp._postMessages[0].blocks)).toBe(true);
+  });
+
+  it("AC7: an EMPTY mention still posts the greeting and calls NEITHER answerJql NOR query", async () => {
+    const ks = fakeKnowledge();
+    const admin = fakeAdmin();
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: ks,
+      adminService: admin,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerEvent(name: string, ev: unknown): Promise<void>;
+      _postMessages: Array<{ text: string }>;
+    };
+    await fakeApp._triggerEvent("app_mention", {
+      text: "<@U12345>   ",
+      channel: "C123",
+      ts: "1700000000.000700",
+    });
+    expect(ks.calls).toEqual([]);
+    expect(admin.jqlCalls).toEqual([]);
+    expect(fakeApp._postMessages.length).toBe(1);
+    expect(fakeApp._postMessages[0].text.toLowerCase()).toContain("ask me");
+  });
+
+  it("AC8: /jql stays registered as an admin command (slash behaviour unchanged)", () => {
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: fakeKnowledge(),
+      adminService: fakeAdmin(),
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _commandHandlers: Map<string, unknown>;
+    };
+    expect(fakeApp._commandHandlers.has("/jql")).toBe(true);
+  });
+
+  it("AC12: a DEFECT mention with NO answerJql posts the 'not configured' string in-thread and does NOT query", async () => {
+    const ks = fakeKnowledge();
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      // No adminService → defaults to knowledgeService, which has no answerJql.
+      knowledgeService: ks,
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerEvent(name: string, ev: unknown): Promise<void>;
+      _postMessages: Array<{ text: string; thread_ts?: string }>;
+    };
+    await fakeApp._triggerEvent("app_mention", {
+      text: "<@U12345> show me the crashes",
+      channel: "C123",
+      ts: "1700000000.000800",
+    });
+    // Routing decided without any Jira creds; degraded safely to a string.
+    expect(ks.calls).toEqual([]);
+    expect(fakeApp._postMessages.length).toBe(1);
+    expect(fakeApp._postMessages[0].text.toLowerCase()).toContain("not configured");
+    expect(fakeApp._postMessages[0].thread_ts).toBe("1700000000.000800");
+  });
+
+  it("AC12: throw-safety — a rejecting postMessage in the JQL branch does NOT escape the Bolt loop", async () => {
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: fakeKnowledge(),
+      adminService: fakeAdmin(),
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _eventHandlers: Map<string, (args: unknown) => Promise<void>>;
+    };
+    const handler = fakeApp._eventHandlers.get("app_mention")!;
+    const errors: unknown[] = [];
+    // postMessage rejects on EVERY call (primary + fallback). The handler must
+    // catch it (mirroring the doc branch) and resolve without an unhandled
+    // rejection — proving the new JQL branch sits inside the try/catch.
+    await expect(
+      handler({
+        event: { text: "<@U1> show me the crashes", channel: "C1", ts: "1700000000.000900" },
+        client: {
+          chat: {
+            postMessage: async () => {
+              throw new Error("slack down");
+            },
+          },
+        },
+        logger: { error: (...a: unknown[]) => errors.push(a) },
+      }),
+    ).resolves.toBeUndefined();
+    // The handler logged the failure rather than throwing.
+    expect(errors.length).toBeGreaterThan(0);
   });
 });
 
