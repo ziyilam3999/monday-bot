@@ -20,8 +20,9 @@
  * NEVER printed/committed; logs are COUNTS/STRUCTURE only.
  *
  *   Print filter:  node scripts/backfill-namespaced-labels.js --print-jql
- *   Read it:       node scripts/backfill-namespaced-labels.js            (dry-run)
- *   Apply it:      node scripts/backfill-namespaced-labels.js --apply    (outward write)
+ *   Preview (free):node scripts/backfill-namespaced-labels.js            (dry-run, symptom-only, ZERO cost)
+ *   Preview (paid):node scripts/backfill-namespaced-labels.js --real     (dry-run, real classifier — gated, no write)
+ *   Apply it:      node scripts/backfill-namespaced-labels.js --apply    (outward write — gated)
  *
  * UNSTAMP (reverse — REMOVE all the bot's labels, #1342). DRY-RUN by default;
  * `--apply` is the ONLY mutating path; `--keys K1,K2` scopes to those issues
@@ -37,15 +38,19 @@
  *      JIRA_OPEN_DEFECTS_STATUS_JQL, JIRA_DEFECT_ISSUETYPE_JQL. Optional
  *      ANTHROPIC_MODEL overrides the feature/flow matcher model.
  *
- * NOTE: the production feature/flow classifier (LLM matching issue text ->
- * catalog ids) now SHIPS (#1343) and is wired by default — the add-path stamps
- * the full `mb-feature-*` / `mb-flow-*` / `mb-symptom-*` set. The interim
- * SYMPTOM-ONLY mode (the deterministic axis only, via the null classifier) stays
- * reachable for debugging behind the `--symptom-only` escape hatch.
+ * COST MODEL (#1355): the DEFAULT no-flag run is a FREE preview — it classifies
+ * with the deterministic SYMPTOM-ONLY null classifier (no LLM, no spend) and
+ * writes NOTHING. The paid production feature/flow classifier (#1343 — an LLM
+ * matching issue text -> catalog ids, stamping the full `mb-feature-*` /
+ * `mb-flow-*` set) is an explicit OPT-IN, constructed ONLY under `--real` (a paid
+ * dry-run PREVIEW: classifies but does not write) or `--apply` (paid classify +
+ * live write). `--symptom-only` forces the free null classifier even under
+ * `--real` / `--apply`.
  *
- * SAFETY (nit 3): the live `--apply` write REFUSES to run unless the loaded
- * catalog's `reviewed` flag is set — an unreviewed (auto-distilled, unverified)
- * menu must never drive a live Jira label write. Fails closed.
+ * SAFETY (nit 3): the catalog's `reviewed` flag gates BOTH paid paths —
+ * `assertCatalogReviewed` fails closed BEFORE the production classifier is ever
+ * constructed (no unreviewed, auto-distilled menu can drive a cost-incurring
+ * run), and again before any live `--apply` Jira write.
  */
 "use strict";
 
@@ -55,8 +60,7 @@ const path = require("path");
 const DIST = path.resolve(__dirname, "..", "dist");
 const { run, runUnstamp } = require(path.join(DIST, "triage", "backfill"));
 const { loadKeywordExtensions } = require(path.join(DIST, "triage", "keywordExtensions"));
-const { buildNullClassifier } = require(path.join(DIST, "triage", "classifier"));
-const { buildFeatureFlowClassifier } = require(path.join(DIST, "triage", "featureFlowMatcher"));
+const { selectBackfillClassifier } = require(path.join(DIST, "triage", "selectBackfillClassifier"));
 const { assertCatalogReviewed } = require(path.join(DIST, "catalog", "reviewedGate"));
 const { buildOpenDefectsFetcher } = require(path.join(DIST, "jira", "sync"));
 const {
@@ -138,10 +142,12 @@ function buildProductionComplete() {
 
 async function main() {
   const apply = process.argv.includes("--apply");
+  // Paid dry-run PREVIEW: build the REAL production classifier but write NOTHING.
+  const real = process.argv.includes("--real");
   const printJql = process.argv.includes("--print-jql");
   const unstamp = process.argv.includes("--unstamp");
-  // Escape hatch: re-select the SYMPTOM-ONLY null classifier (the documented
-  // interim mode), so debugging the deterministic axis stays code-change-free.
+  // Escape hatch: force the SYMPTOM-ONLY null classifier (the documented free
+  // mode) even under --real/--apply, so debugging the deterministic axis is free.
   const symptomOnly = process.argv.includes("--symptom-only");
   const keys = splitList(argValue("--keys"));
   const env = process.env;
@@ -200,14 +206,19 @@ async function main() {
     return;
   }
 
-  // Production feature/flow matcher by default (#1343); --symptom-only re-selects
-  // the interim null classifier (deterministic symptom axis only).
-  const classifier = symptomOnly
-    ? buildNullClassifier()
-    : buildFeatureFlowClassifier(
-        { features: catalog.features, flows: catalog.flows },
-        buildProductionComplete(),
-      );
+  // Cost-safe classifier selection (#1355): FREE null classifier by default;
+  // the paid production classifier is built ONLY under --real/--apply, and the
+  // catalog-reviewed gate fires (inside the seam) BEFORE it is ever constructed.
+  // `buildProductionComplete` is passed as a FACTORY so getClient is never
+  // touched on the free/symptom paths nor against an unreviewed catalog.
+  const classifier = selectBackfillClassifier({
+    apply,
+    real,
+    symptomOnly,
+    catalog,
+    completeFactory: buildProductionComplete,
+    action: `backfill-namespaced-labels ${apply ? "--apply" : "--real"}`,
+  });
 
   const deps = {
     fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
