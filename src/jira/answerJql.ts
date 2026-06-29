@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { parseDefaultProjects } from "../config/env";
 import { buildVocab } from "./labelVocab";
 import { buildLlmFilterMapper } from "./nlFilterMapper";
 import { CatalogIdSource } from "./namespacedLabels";
@@ -27,7 +28,8 @@ import { JqlReply } from "../slack/commands";
  *
  * - `env` — the credential source (defaults to `process.env` via the caller in
  *   `src/index.ts`). Read for `CONFLUENCE_URL`/`CONFLUENCE_BASE_URL`,
- *   `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`.
+ *   `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`, and the optional
+ *   `JIRA_DEFAULT_PROJECTS` (#1363 — default defect-search scope).
  * - `search` — override the read-only Jira search seam (the zero-network test
  *   seam). Production passes none → a real `buildJqlSearchFetcher` is built.
  * - `fetchImpl` — override the global fetch passed to the real fetcher (tests).
@@ -110,8 +112,17 @@ export function buildAnswerJql(deps: BuildAnswerJqlDeps): (question: string) => 
         deps.fetchImpl ?? globalThis.fetch,
       );
 
-    // Step 4 — run the ONE read-only GET (Slack auto-run, option A).
-    const result = await answerNlQuery(question, { mapper, vocab, search, run: true });
+    // Step 4 — run the ONE read-only GET (Slack auto-run, option A). #1363 —
+    // scope an empty-filter question to the configured default project(s) so the
+    // search no longer degrades to a whole-site scan (unset → unchanged).
+    const defaultProjects = parseDefaultProjects(deps.env.JIRA_DEFAULT_PROJECTS);
+    const result = await answerNlQuery(question, {
+      mapper,
+      vocab,
+      search,
+      run: true,
+      defaultProjects,
+    });
 
     // Step 5 — map to the Slack `JqlReply` (drops the debug-only `filter`).
     return { jql: result.jql, issues: result.issues, warnings: result.warnings };

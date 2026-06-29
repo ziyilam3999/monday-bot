@@ -16,6 +16,25 @@ export class MissingEnvVarError extends Error {
   }
 }
 
+/**
+ * Parse the optional `JIRA_DEFAULT_PROJECTS` env value into a list of project
+ * keys (#1363). Comma-separated, trimmed, empties dropped — mirrors the
+ * `JIRA_PROJECTS` convention (see `splitList` in `src/knowledge/startup.ts`).
+ *
+ * Deliberately does NOT uppercase: the pure JQL builder already
+ * uppercases/sanitises every project key for injection-safety
+ * (`jqlFromFilter.ts` — `project in (...)` clause), so re-uppercasing here would
+ * be redundant. Kept as a standalone, side-effect-free helper so the parse seam
+ * is unit-testable in isolation.
+ */
+export function parseDefaultProjects(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
   const missing = REQUIRED_ENV_VARS.filter((key) => !env[key]?.trim());
   if (missing.length > 0) {

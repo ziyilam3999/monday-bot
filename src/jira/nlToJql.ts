@@ -21,6 +21,15 @@ export interface AnswerNlQueryDeps {
   search?: JqlSearchFetcher;
   /** When true, perform the one read-only GET and attach matched issues. */
   run?: boolean;
+  /**
+   * Configured DEFAULT defect-project key(s) (#1363). When the mapper-resolved
+   * filter names NO project, these scope the search via the builder's existing
+   * `project in (...)` clause — so an empty-filter question no longer degrades to
+   * a whole-site `statusCategory != Done` scan. A project NAMED in the question
+   * always WINS (the default is never merged over / does not override it). Unset
+   * / empty → behaviour unchanged.
+   */
+  defaultProjects?: string[];
 }
 
 export interface NlQueryResult {
@@ -41,8 +50,16 @@ export async function answerNlQuery(
   deps: AnswerNlQueryDeps,
 ): Promise<NlQueryResult> {
   const filter = await deps.mapper.map(question, deps.vocab);
-  const { jql, warnings } = buildJqlFromFilter(filter, deps.vocab);
-  const result: NlQueryResult = { jql, warnings, filter };
+  // #1363 — UPSTREAM default-project scoping. Only fill `projects` when the
+  // mapper named none AND a default is configured; a question's explicit project
+  // always wins. Build a scoped COPY (never mutate the mapper's filter).
+  const needsDefault =
+    (filter.projects?.length ?? 0) === 0 && (deps.defaultProjects?.length ?? 0) > 0;
+  const scopedFilter = needsDefault
+    ? { ...filter, projects: deps.defaultProjects! }
+    : filter;
+  const { jql, warnings } = buildJqlFromFilter(scopedFilter, deps.vocab);
+  const result: NlQueryResult = { jql, warnings, filter: scopedFilter };
   if (deps.run && deps.search) {
     result.issues = await deps.search.search(jql);
   }
