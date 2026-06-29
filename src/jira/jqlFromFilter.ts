@@ -40,8 +40,67 @@ export interface StructuredFilter {
   flows: string[];
   /** Jira project keys, e.g. `["DEMO"]`. */
   projects: string[];
+  /**
+   * OPTIONAL single-value priority axis — ONE closed token (e.g. `high`).
+   * Resolved against a HARDCODED token→fragment table; an unknown token is
+   * DROPPED + warned (never reaches the JQL). Omitted = no priority clause.
+   */
+  priority?: string;
+  /**
+   * OPTIONAL single-value recency/time-window axis — ONE closed token (e.g.
+   * `this-week`). Resolved against a HARDCODED token→fragment table; an unknown
+   * token is DROPPED + warned. Omitted = no recency clause.
+   */
+  recency?: string;
   /** OPERATOR-ONLY raw status clause override. Default = `statusCategory != Done`. */
   extraStatus?: string;
+}
+
+/**
+ * HARDCODED, audited closed-enum token→JQL-fragment tables for the two
+ * single-value axes. A KNOWN token emits its pre-written fragment verbatim; an
+ * unknown/hostile token is DROPPED + axis-named-warned (see `resolveSingleAxis`).
+ * The closed table IS the injection-safety mechanism: NO caller string ever
+ * reaches the JQL, so these axes deliberately BYPASS the project-key char-strip
+ * and `slug()` (which would mangle a valid date expression like `-14d` /
+ * `startOfWeek()`). Lookup is via `Map` (not a plain object) so hostile keys
+ * like `__proto__` cannot resolve to a prototype member.
+ */
+const PRIORITY_FRAGMENTS: ReadonlyMap<string, string> = new Map([
+  ["high", "priority in (High, Highest)"],
+  ["critical", "priority = Highest"],
+  ["urgent", "priority = Highest"],
+]);
+
+const RECENCY_FRAGMENTS: ReadonlyMap<string, string> = new Map([
+  ["this-week", "created >= startOfWeek()"],
+  ["last-release", "created >= -14d"],
+  ["latest", "created >= -7d"],
+]);
+
+/**
+ * Resolve a single-value closed-enum axis to its audited JQL fragment.
+ *   - axis UNSET (undefined/empty) → `null`, NO warning (no clause emitted).
+ *   - KNOWN token → the table's audited fragment.
+ *   - unknown/hostile token → `null` + ONE axis-named warning that echoes NO
+ *     raw value (mirrors the symptom/catalog drop discipline; PUBLIC repo).
+ * The raw value is used ONLY as a lookup key — it never reaches the output.
+ */
+function resolveSingleAxis(
+  raw: string | undefined,
+  table: ReadonlyMap<string, string>,
+  axisName: string,
+  warnings: string[],
+): string | null {
+  if (typeof raw !== "string") return null;
+  const key = raw.trim().toLowerCase();
+  if (key.length === 0) return null;
+  const fragment = table.get(key);
+  if (fragment === undefined) {
+    warnings.push(`dropped unknown ${axisName} value (not in the allowed set).`);
+    return null;
+  }
+  return fragment;
 }
 
 /**
@@ -165,7 +224,11 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
     ),
   ].sort();
 
-  // --- Assemble: project AND feature AND flow AND symptom AND status ---
+  // --- Priority / recency single-value axes (closed-enum, never char-stripped) ---
+  const priorityFragment = resolveSingleAxis(filter.priority, PRIORITY_FRAGMENTS, "priority", warnings);
+  const recencyFragment = resolveSingleAxis(filter.recency, RECENCY_FRAGMENTS, "recency", warnings);
+
+  // --- Assemble: project AND feature AND flow AND symptom AND priority AND recency AND status ---
   const clauses: string[] = [];
   if (projectKeys.length > 0) {
     clauses.push(`project in (${projectKeys.join(",")})`);
@@ -173,6 +236,8 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
   if (featureLabels.length > 0) clauses.push(labelsInClause(featureLabels));
   if (flowLabels.length > 0) clauses.push(labelsInClause(flowLabels));
   if (symptomLabels.length > 0) clauses.push(labelsInClause(symptomLabels));
+  if (priorityFragment !== null) clauses.push(priorityFragment);
+  if (recencyFragment !== null) clauses.push(recencyFragment);
 
   const status =
     typeof filter.extraStatus === "string" && filter.extraStatus.trim().length > 0

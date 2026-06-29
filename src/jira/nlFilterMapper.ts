@@ -62,6 +62,11 @@ function toStringArray(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
+/** A non-empty trimmed string, else `undefined` (so the optional key is omitted). */
+function toOptionalString(v: unknown): string | undefined {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+}
+
 /**
  * Extract the first balanced-ish JSON object substring (`{ ... }`) from the raw
  * model text — tolerant of code fences / chatter around the JSON.
@@ -90,19 +95,104 @@ export function parseFilterJson(raw: string): StructuredFilter {
   }
   if (!obj || typeof obj !== "object") return emptyFilter();
   const o = obj as Record<string, unknown>;
-  return {
+  const filter: StructuredFilter = {
     symptoms: toStringArray(o.symptoms),
     features: toStringArray(o.features),
     flows: toStringArray(o.flows),
     projects: toStringArray(o.projects),
     // extraStatus deliberately NOT read — operator-only, never LLM-emitted.
   };
+  // Optional single-value axes: only ADD the key when present + non-empty, so a
+  // filter with neither still `toEqual`s `emptyFilter()` (degrade-path contract).
+  // The closed-enum table in the builder is the injection guard — we pass the
+  // raw token through verbatim (unknown tokens are dropped THERE, not here).
+  const priority = toOptionalString(o.priority);
+  if (priority !== undefined) filter.priority = priority;
+  const recency = toOptionalString(o.recency);
+  if (recency !== undefined) filter.recency = recency;
+  return filter;
 }
 
-/** Deterministic offline stub: route the question through the pure categorizer. */
-function stubFilter(question: string): StructuredFilter {
-  const { category } = categorizeDefect({ summary: question ?? "" });
-  return { symptoms: [category], features: [], flows: [], projects: [] };
+/**
+ * Closed PRIORITY vocabulary — an English signal → ONE canonical token the pure
+ * builder's `PRIORITY_FRAGMENTS` table knows. First match wins.
+ */
+const PRIORITY_SIGNALS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(critical|sev\s?0|blocker)\b/i, "critical"],
+  [/\b(urgent|asap)\b/i, "urgent"],
+  [/\b(high[-\s]?priority|highest|top[-\s]?priority|p0|p1|important)\b/i, "high"],
+];
+
+/**
+ * Closed RECENCY vocabulary — an English signal → ONE canonical token the pure
+ * builder's `RECENCY_FRAGMENTS` table knows. First match wins.
+ */
+const RECENCY_SIGNALS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(this week|past week|last 7 days)\b/i, "this-week"],
+  [/\b(last release|previous release|prior release)\b/i, "last-release"],
+  [/\b(latest|recently|recent|newest|today)\b/i, "latest"],
+];
+
+/** The allowed closed-enum tokens, surfaced to the production LLM in the prompt. */
+const PRIORITY_TOKENS = ["high", "critical", "urgent"] as const;
+const RECENCY_TOKENS = ["this-week", "last-release", "latest"] as const;
+
+function extractPriorityToken(text: string): string | undefined {
+  for (const [re, token] of PRIORITY_SIGNALS) if (re.test(text)) return token;
+  return undefined;
+}
+
+function extractRecencyToken(text: string): string | undefined {
+  for (const [re, token] of RECENCY_SIGNALS) if (re.test(text)) return token;
+  return undefined;
+}
+
+/**
+ * The SHARED deterministic extraction — pure, zero-I/O. Returns ONLY axes backed
+ * by a GENUINE signal:
+ *   - a NON-FALLBACK symptom (`categorizeDefect` matchedRule !== "fallback"),
+ *   - a recognised priority token,
+ *   - a recognised recency token.
+ * If the question yields NONE of these (categorizer lands in `other`/fallback and
+ * there is no priority/recency word), it returns `emptyFilter()` UNCHANGED — so a
+ * fallback-only question stays empty (preserves the "show usage" degrade UX and
+ * safe composition with the orthogonal project-scoping lane). Used by BOTH the
+ * test-mode stub AND the empty/error floor, so the two share ONE notion of "genuine".
+ */
+export function deterministicSignalFilter(question: string): StructuredFilter {
+  const text = question ?? "";
+  const filter = emptyFilter();
+  const { category, matchedRule } = categorizeDefect({ summary: text });
+  if (matchedRule !== "fallback") filter.symptoms = [category];
+  const priority = extractPriorityToken(text);
+  if (priority !== undefined) filter.priority = priority;
+  const recency = extractRecencyToken(text);
+  if (recency !== undefined) filter.recency = recency;
+  return filter;
+}
+
+/** Is this filter all-empty (every axis blank, no priority/recency/extraStatus)? */
+function isEmptyFilter(f: StructuredFilter): boolean {
+  return (
+    (f.symptoms?.length ?? 0) === 0 &&
+    (f.features?.length ?? 0) === 0 &&
+    (f.flows?.length ?? 0) === 0 &&
+    (f.projects?.length ?? 0) === 0 &&
+    f.priority === undefined &&
+    f.recency === undefined &&
+    (f.extraStatus === undefined || f.extraStatus.trim().length === 0)
+  );
+}
+
+/**
+ * The GATED deterministic floor: when the mapped filter is all-empty (unmapped
+ * words OR a model error / no-creds degrade), fall back to the shared genuine-
+ * signal extraction. If that finds NO genuine signal it returns `emptyFilter()`
+ * unchanged — the floor does NOT fire, the empty→"show usage" path is preserved.
+ */
+function applyDeterministicFloor(question: string, filter: StructuredFilter): StructuredFilter {
+  if (!isEmptyFilter(filter)) return filter;
+  return deterministicSignalFilter(question);
 }
 
 function extractText(response: { content?: unknown }): string {
@@ -122,12 +212,15 @@ function buildSystemPrompt(vocab: LabelVocab): string {
   return [
     "You translate an English question about software defects into a JSON filter.",
     "Answer with a SINGLE JSON object and NOTHING else (no prose, no code fences).",
-    'Shape: {"symptoms":[],"features":[],"flows":[],"projects":[]}',
-    "Use ONLY values from these allowed lists; emit an empty array for an axis you can't fill.",
+    'Shape: {"symptoms":[],"features":[],"flows":[],"projects":[],"priority":"","recency":""}',
+    "Use ONLY values from these allowed lists; emit an empty array (or an empty string for priority/recency) for an axis you can't fill.",
     `Allowed symptoms: ${symptoms.length > 0 ? symptoms.join(", ") : "(none)"}`,
+    "Map generic symptom words to the closest allowed symptom slug — e.g. crash/freeze/hang/error/bug/exception → crash-error; cannot/can't/unable/fails/blocked → cannot-complete; wrong/incorrect/mismatch/duplicate → data-incorrect; missing/blank/empty/not shown → missing-element; layout/button/font/colour/UI → display-ui; navigate/redirect/back button → navigation-flow; slow/lag/delay/timeout → performance.",
     `Allowed features: ${features.length > 0 ? features.join(", ") : "(none)"}`,
     `Allowed flows: ${flows.length > 0 ? flows.join(", ") : "(none)"}`,
     "projects is a list of UPPERCASE Jira project keys mentioned in the question (e.g. DEMO); empty if none.",
+    `priority is exactly ONE token from [${PRIORITY_TOKENS.join(", ")}] when the question implies priority (high priority/critical/urgent); empty string otherwise.`,
+    `recency is exactly ONE token from [${RECENCY_TOKENS.join(", ")}] when the question implies a time window (this week/last release/latest); empty string otherwise.`,
     "Do NOT invent values outside the allowed lists. Do NOT include any other keys.",
   ].join("\n");
 }
@@ -149,8 +242,10 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
   const model = deps.model ?? MODEL;
   return {
     async map(question: string, vocab: LabelVocab): Promise<StructuredFilter> {
-      if (isTestMode()) return stubFilter(question);
+      // Test mode short-circuits to the shared deterministic extraction (no client).
+      if (isTestMode()) return deterministicSignalFilter(question);
       const create = deps.createMessage ?? defaultCreateMessage();
+      let filter: StructuredFilter;
       try {
         const response = await create({
           model,
@@ -159,11 +254,14 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
           system: buildSystemPrompt(vocab),
           messages: [{ role: "user", content: question }],
         });
-        return parseFilterJson(extractText(response));
+        filter = parseFilterJson(extractText(response));
       } catch {
         // No creds / network error / malformed response → degrade to empty.
-        return emptyFilter();
+        filter = emptyFilter();
       }
+      // GATED floor: only fires when the mapped filter is empty AND the question
+      // carries a genuine signal; otherwise returns the empty filter unchanged.
+      return applyDeterministicFloor(question, filter);
     },
   };
 }
