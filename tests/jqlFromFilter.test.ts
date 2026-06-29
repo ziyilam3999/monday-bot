@@ -161,4 +161,58 @@ describe("empty filter degrades to status-only", () => {
     expect(jql).toBe("statusCategory != Done");
     expect(warnings).toEqual([]);
   });
+
+  it("a fixture literal that OMITS priority/recency still compiles + builds status-only", () => {
+    // `filter()` deliberately omits the optional priority/recency keys (F2).
+    const { jql } = buildJqlFromFilter(filter({ symptoms: ["crash-error"] }), VOCAB);
+    expect(jql).toContain('labels in ("mb-symptom-crash-error")');
+    expect(jql).toContain("statusCategory != Done");
+    expect(jql).not.toMatch(/priority/);
+    expect(jql).not.toMatch(/created >=/);
+  });
+});
+
+describe("#1364 — priority / recency closed-enum axes", () => {
+  it("AC1 — two filters differing only by a NEW axis build DISTINCT JQL carrying the right fragment", () => {
+    const priorityJql = buildJqlFromFilter(filter({ priority: "high" }), VOCAB).jql;
+    const recencyJql = buildJqlFromFilter(filter({ recency: "this-week" }), VOCAB).jql;
+
+    expect(priorityJql).toContain("priority in (High, Highest)");
+    expect(recencyJql).toContain("created >= startOfWeek()");
+    expect(priorityJql).not.toBe(recencyJql);
+    // Neither is the bare status query.
+    expect(priorityJql).not.toBe("statusCategory != Done");
+    expect(recencyJql).not.toBe("statusCategory != Done");
+  });
+
+  it("each known recency token emits its own audited date fragment", () => {
+    expect(buildJqlFromFilter(filter({ recency: "last-release" }), VOCAB).jql).toContain(
+      "created >= -14d",
+    );
+    expect(buildJqlFromFilter(filter({ recency: "latest" }), VOCAB).jql).toContain(
+      "created >= -7d",
+    );
+  });
+
+  it("AC5 — an unknown/hostile token is DROPPED (no clause, no raw echo) + axis-named warn", () => {
+    const hostile = '") OR labels in ("evil';
+    const { jql, warnings } = buildJqlFromFilter(filter({ priority: hostile }), VOCAB);
+    // No priority clause emitted; the hostile string never reaches the JQL.
+    expect(jql).toBe("statusCategory != Done");
+    expect(jql).not.toContain("evil");
+    expect(jql).not.toContain("priority");
+    // Axis-named warning that echoes NO raw value.
+    expect(warnings.join(" ")).toMatch(/unknown priority/i);
+    expect(warnings.join(" ")).not.toContain("evil");
+  });
+
+  it("drops a hostile recency token the same way (closed-enum, never char-stripped)", () => {
+    const { jql, warnings } = buildJqlFromFilter(
+      filter({ recency: "startOfWeek()); DROP TABLE" }),
+      VOCAB,
+    );
+    expect(jql).toBe("statusCategory != Done");
+    expect(jql).not.toContain("DROP TABLE");
+    expect(warnings.join(" ")).toMatch(/unknown recency/i);
+  });
 });
