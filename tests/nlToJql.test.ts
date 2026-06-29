@@ -66,3 +66,65 @@ describe("answerNlQuery", () => {
     expect(result.issues).toEqual(issues);
   });
 });
+
+describe("answerNlQuery — default-project scoping (#1363)", () => {
+  // SYNTHETIC keys only (PUBLIC repo): ABC = configured default, DEMO = question's.
+  const EMPTY_FILTER: StructuredFilter = {
+    symptoms: [],
+    features: [],
+    flows: [],
+    projects: [],
+  };
+  const QUESTION_PROJECT_FILTER: StructuredFilter = {
+    symptoms: [],
+    features: [],
+    flows: [],
+    projects: ["DEMO"],
+  };
+
+  it("AC1/AC2 — empty filter + configured default scopes to the default, no whole-site scan", async () => {
+    const result = await answerNlQuery("any open bugs?", {
+      mapper: stubMapper(EMPTY_FILTER),
+      vocab: VOCAB,
+      defaultProjects: ["ABC"],
+    });
+    // AC1: the default fences the search.
+    expect(result.jql).toContain("project in (ABC)");
+    // AC2: it is NOT the bare whole-site scan.
+    expect(result.jql).not.toBe("statusCategory != Done");
+  });
+
+  it("AC3 — a project NAMED in the question wins over the default", async () => {
+    const result = await answerNlQuery("open bugs in DEMO", {
+      mapper: stubMapper(QUESTION_PROJECT_FILTER),
+      vocab: VOCAB,
+      defaultProjects: ["ABC"],
+    });
+    expect(result.jql).toContain("project in (DEMO)");
+    expect(result.jql).not.toContain("ABC");
+  });
+
+  it("AC4 — no default configured ⇒ behaviour unchanged (no project fence forced)", async () => {
+    const result = await answerNlQuery("any open bugs?", {
+      mapper: stubMapper(EMPTY_FILTER),
+      vocab: VOCAB,
+    });
+    expect(result.jql).not.toContain("project in");
+    expect(result.jql).toBe("statusCategory != Done");
+  });
+
+  it("does not mutate the mapper-returned filter object", async () => {
+    const original: StructuredFilter = {
+      symptoms: [],
+      features: [],
+      flows: [],
+      projects: [],
+    };
+    await answerNlQuery("any open bugs?", {
+      mapper: stubMapper(original),
+      vocab: VOCAB,
+      defaultProjects: ["ABC"],
+    });
+    expect(original.projects).toEqual([]);
+  });
+});
