@@ -16,6 +16,9 @@ import {
   generateAnswer,
   selectCitedCitations,
   stripStrayAbstainCitations,
+  opensWithRefusal,
+  compactRenumber,
+  buildCitations,
   NO_CONTEXT_ANSWER,
   Chunk,
   Citation,
@@ -132,6 +135,190 @@ describe("generateAnswer", () => {
         source: "hr-policy.txt",
         heading: "Leave",
       });
+    });
+  });
+
+  // #1374b — code backstop. Nested here so it inherits the ANTHROPIC_API_KEY
+  // beforeAll/afterAll above (R2): without a key, generateAnswer falls to the
+  // offline path and never consults the stub (0 model calls -> wrong path).
+  describe("over-refusal backstop", () => {
+    const AnthropicStub = require("@anthropic-ai/sdk");
+
+    afterEach(() => {
+      // R3 leak-prevention: clear the FIFO queue + counter + lastRequest so
+      // unconsumed responses can't corrupt the next test's call-count assertion.
+      AnthropicStub.__reset();
+    });
+
+    const synthChunks: Chunk[] = [
+      {
+        id: "c1",
+        text: "The onboarding flow is set step X then step Y.",
+        source: "mb-flow-onboarding",
+        heading: "Onboarding",
+      },
+      {
+        id: "c2",
+        text: "The widget config lives under settings.",
+        source: "mb-feature-widget",
+      },
+    ];
+
+    test("B1: chunks>0 + refusal opener -> regenerate once, returns grounded retry", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([
+        "I couldn't find any relevant information about that.",
+        "The documented onboarding flow is set X then Y [1].",
+      ]);
+      const result = await generateAnswer("How does onboarding work?", synthChunks);
+      expect(result.answer).toContain("documented onboarding flow");
+      expect(result.answer).not.toMatch(/^I couldn't find/);
+      expect(result.citations.length).toBeGreaterThanOrEqual(1);
+      expect(AnthropicStub.__getCallCount()).toBe(2);
+    });
+
+    test("B2: chunks===0 -> refusal, citations [], ZERO model calls", async () => {
+      AnthropicStub.__reset();
+      const result = await generateAnswer("Anything?", []);
+      expect(result.answer.toLowerCase()).toMatch(/couldn't find|no relevant/);
+      expect(result.citations).toEqual([]);
+      expect(AnthropicStub.__getCallCount()).toBe(0);
+    });
+
+    test("B3: two refusals in a row -> still abstains, no fabrication, citations []", async () => {
+      AnthropicStub.__reset();
+      // Both refusals carry NO [N] markers (N1): the 2nd uses a non-stripStray
+      // opener on purpose to prove the marker-free path also yields [].
+      AnthropicStub.__setResponses([
+        "I couldn't find anything on that topic.",
+        "I don't have information addressing that topic.",
+      ]);
+      const result = await generateAnswer("How does onboarding work?", synthChunks);
+      expect(result.answer.toLowerCase()).toMatch(/couldn't find|don't have/);
+      expect(result.answer).not.toContain("[1]");
+      expect(result.citations).toEqual([]);
+      expect(AnthropicStub.__getCallCount()).toBe(2);
+    });
+
+    test("B4: MONDAY_REFUSAL_BACKSTOP=0 suppresses the regenerate call", async () => {
+      const prev = process.env.MONDAY_REFUSAL_BACKSTOP;
+      process.env.MONDAY_REFUSAL_BACKSTOP = "0";
+      try {
+        AnthropicStub.__reset();
+        AnthropicStub.__setResponses([
+          "I couldn't find that.",
+          "grounded reply [1]",
+        ]);
+        const result = await generateAnswer("How does onboarding work?", synthChunks);
+        expect(AnthropicStub.__getCallCount()).toBe(1);
+        expect(result.answer.toLowerCase()).toMatch(/couldn't find/);
+      } finally {
+        if (prev === undefined) delete process.env.MONDAY_REFUSAL_BACKSTOP;
+        else process.env.MONDAY_REFUSAL_BACKSTOP = prev;
+      }
+    });
+
+    test("B5: opensWithRefusal detector + override + curly apostrophe", () => {
+      const prev = process.env.MONDAY_REFUSAL_OPENERS;
+      try {
+        // Default openers detected.
+        expect(opensWithRefusal("I couldn't find that.")).toBe(true);
+        expect(opensWithRefusal("I could not find that.")).toBe(true);
+        expect(opensWithRefusal("I don't have that.")).toBe(true);
+        expect(opensWithRefusal("No relevant information here.")).toBe(true);
+        // N2: typographic/curly apostrophe form matches.
+        expect(opensWithRefusal("I couldn’t find that.")).toBe(true);
+        // Leading whitespace tolerated.
+        expect(opensWithRefusal("   I couldn't find that.")).toBe(true);
+        // Content-leading answer is NOT a refusal.
+        expect(opensWithRefusal("The setup doc [1] covers that.")).toBe(false);
+        // Non-string -> false.
+        expect(opensWithRefusal(undefined as unknown as string)).toBe(false);
+
+        // Override: a custom phrase is detected AND a former default is not.
+        process.env.MONDAY_REFUSAL_OPENERS = "Regrettably, no data";
+        expect(opensWithRefusal("Regrettably, no data exists.")).toBe(true);
+        expect(opensWithRefusal("I couldn't find that.")).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.MONDAY_REFUSAL_OPENERS;
+        else process.env.MONDAY_REFUSAL_OPENERS = prev;
+      }
+    });
+  });
+
+  // #1375 — dedup by source + compact renumber. Nested per R2 for the C2
+  // generateAnswer path; pure-function cases (C1, C3-C5) need no key.
+  describe("citation dedup + renumber", () => {
+    const AnthropicStub = require("@anthropic-ai/sdk");
+
+    afterEach(() => {
+      AnthropicStub.__reset();
+    });
+
+    test("C1: buildCitations returns ONE citation per unique source", () => {
+      const chunks: Chunk[] = [
+        { id: "a", text: "onboarding part 1", source: "mb-flow-onboarding", heading: "Onboarding" },
+        { id: "b", text: "onboarding part 2", source: "mb-flow-onboarding" },
+        { id: "c", text: "widget cfg", source: "mb-feature-widget" },
+      ];
+      const cites = buildCitations(chunks);
+      expect(cites).toEqual([
+        { number: 1, source: "mb-flow-onboarding", heading: "Onboarding" },
+        { number: 2, source: "mb-feature-widget" },
+      ]);
+    });
+
+    test("C2: one source over two cited positions -> ONE number, contiguous", async () => {
+      AnthropicStub.__reset();
+      // N3: enqueue-stub path (NOT MONDAY_TEST_MODE). Stub cites BOTH [1] and [2].
+      AnthropicStub.__setResponses([
+        "The onboarding flow is documented [1] and the widget config too [2].",
+      ]);
+      const chunks: Chunk[] = [
+        { id: "a", text: "onboarding part 1", source: "mb-flow-onboarding", heading: "Onboarding" },
+        { id: "b", text: "onboarding part 2", source: "mb-flow-onboarding" },
+        { id: "c", text: "widget cfg", source: "mb-feature-widget" },
+      ];
+      const result = await generateAnswer("How does onboarding work?", chunks);
+      const onboardingCount = result.citations.filter(
+        (c) => c.source === "mb-flow-onboarding",
+      ).length;
+      expect(onboardingCount).toBe(1);
+      const numbers = result.citations.map((c) => c.number).sort((x, y) => x - y);
+      expect(numbers).toEqual([1, 2]);
+      // Answer text markers match the citation numbers.
+      for (const c of result.citations) {
+        expect(result.answer).toContain(`[${c.number}]`);
+      }
+    });
+
+    test("C3: compactRenumber rewrites non-contiguous -> contiguous, text + list", () => {
+      const result = compactRenumber("See [2] and then [4].", [
+        { number: 2, source: "mb-feature-widget" },
+        { number: 4, source: "mb-flow-onboarding" },
+      ]);
+      expect(result.answer).toBe("See [1] and then [2].");
+      expect(result.citations).toEqual([
+        { number: 1, source: "mb-feature-widget" },
+        { number: 2, source: "mb-flow-onboarding" },
+      ]);
+    });
+
+    test("C4: compactRenumber is multi-digit safe ([1] and [10] -> [1] and [2])", () => {
+      const citations: Citation[] = [];
+      for (let i = 1; i <= 10; i++) citations.push({ number: i, source: `s${i}` });
+      const result = compactRenumber("First [1] then last [10].", citations);
+      expect(result.answer).toBe("First [1] then last [2].");
+      expect(result.citations).toEqual([
+        { number: 1, source: "s1" },
+        { number: 2, source: "s10" },
+      ]);
+    });
+
+    test("C5: compactRenumber no-op on an abstain (empty citations)", () => {
+      const result = compactRenumber("I couldn't find it.", []);
+      expect(result.answer).toBe("I couldn't find it.");
+      expect(result.citations).toEqual([]);
     });
   });
 });
