@@ -143,6 +143,33 @@ describe("AC-5 (backfill) — unknown value → rejected + ZERO fetch", () => {
   });
 });
 
+describe("#1381 — classifier returns CANONICAL ids (matcher shape) → validated, not rejected", () => {
+  it("a classifier returning feature-<slug> / flow-<slug> ids validates with ZERO rejects", async () => {
+    const fetchImpl = okFetchSpy();
+    const writer = buildJiraNamespacedLabelWriter(CONFIG, fetchImpl as unknown as typeof fetch);
+    // The real matcher returns canonical catalog ids, not bare names. Before the
+    // #1381 fix this re-prefixed to feature-feature-* and rejected EVERY issue.
+    const canonicalClassifier: IssueFeatureFlowClassifier = {
+      async classify() {
+        return { feature: "feature-checkout", flows: ["flow-signin"] };
+      },
+    };
+    const result = await run({
+      fetchOpenDefects: async () => [
+        { key: "X-1", summary: "the app crashed on launch", descriptionText: "", commentTexts: [] },
+        { key: "X-2", summary: "the app crashed on launch", descriptionText: "", commentTexts: [] },
+      ],
+      classifier: canonicalClassifier,
+      catalog: MEMBERSHIP,
+      writer,
+      apply: true,
+      log: () => undefined,
+    });
+    expect(result.validated).toBeGreaterThan(0);
+    expect(result.rejected).toBe(0);
+  });
+});
+
 describe("AC-7 (#1343) — feature/flow pass is ADDITIVE: mb-symptom-* untouched", () => {
   it("adds mb-feature-* and leaves the pre-existing mb-symptom-* label in place", async () => {
     // Capture the PUT body so we can prove the symptom label is never removed.
