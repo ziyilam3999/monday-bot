@@ -34,11 +34,18 @@
  * Env: CONFLUENCE_URL (or CONFLUENCE_BASE_URL), CONFLUENCE_EMAIL,
  *      CONFLUENCE_API_TOKEN (Jira reuses the Atlassian creds), JIRA_PROJECTS
  *      (comma-separated; the FIRST entry is backfilled). Optional JQL overrides:
- *      JIRA_OPEN_DEFECTS_STATUS_JQL, JIRA_DEFECT_ISSUETYPE_JQL.
+ *      JIRA_OPEN_DEFECTS_STATUS_JQL, JIRA_DEFECT_ISSUETYPE_JQL. Optional
+ *      ANTHROPIC_MODEL overrides the feature/flow matcher model.
  *
  * NOTE: the production feature/flow classifier (LLM matching issue text ->
- * catalog ids) is a DEFERRED follow-up; until it ships this shell wires the
- * SYMPTOM-ONLY null classifier (the documented interim mode).
+ * catalog ids) now SHIPS (#1343) and is wired by default — the add-path stamps
+ * the full `mb-feature-*` / `mb-flow-*` / `mb-symptom-*` set. The interim
+ * SYMPTOM-ONLY mode (the deterministic axis only, via the null classifier) stays
+ * reachable for debugging behind the `--symptom-only` escape hatch.
+ *
+ * SAFETY (nit 3): the live `--apply` write REFUSES to run unless the loaded
+ * catalog's `reviewed` flag is set — an unreviewed (auto-distilled, unverified)
+ * menu must never drive a live Jira label write. Fails closed.
  */
 "use strict";
 
@@ -49,6 +56,8 @@ const DIST = path.resolve(__dirname, "..", "dist");
 const { run, runUnstamp } = require(path.join(DIST, "triage", "backfill"));
 const { loadKeywordExtensions } = require(path.join(DIST, "triage", "keywordExtensions"));
 const { buildNullClassifier } = require(path.join(DIST, "triage", "classifier"));
+const { buildFeatureFlowClassifier } = require(path.join(DIST, "triage", "featureFlowMatcher"));
+const { assertCatalogReviewed } = require(path.join(DIST, "catalog", "reviewedGate"));
 const { buildOpenDefectsFetcher } = require(path.join(DIST, "jira", "sync"));
 const {
   membershipFromCatalog,
@@ -90,18 +99,50 @@ function loadCatalog() {
   try {
     const raw = JSON.parse(fs.readFileSync(CATALOG_OUTPUT_PATH, "utf8"));
     return {
+      reviewed: raw.reviewed === true,
       features: Array.isArray(raw.features) ? raw.features : [],
       flows: Array.isArray(raw.flows) ? raw.flows : [],
     };
   } catch {
-    return { features: [], flows: [] };
+    return { reviewed: false, features: [], flows: [] };
   }
+}
+
+/**
+ * The PRODUCTION `complete(prompt) → text` wrapper for the feature/flow matcher.
+ * This is NEW (#1343): there is no pre-existing `complete()` helper — it is a
+ * thin wrapper over the existing `getClient()` (`src/llm/anthropicClient.ts`),
+ * mirroring build-catalog.js's `buildLlmDistiller`. getClient() is called
+ * lazily (per classify) so the module never touches creds at import; tests of
+ * the matcher core inject a fake `complete` and never reach this.
+ */
+function buildProductionComplete() {
+  const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
+  const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  return async function complete(prompt) {
+    const client = getClient();
+    const res = await client.messages.create({
+      model,
+      max_tokens: 256,
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return Array.isArray(res.content)
+      ? res.content
+          .filter((b) => b && b.type === "text" && typeof b.text === "string")
+          .map((b) => b.text)
+          .join("")
+      : "";
+  };
 }
 
 async function main() {
   const apply = process.argv.includes("--apply");
   const printJql = process.argv.includes("--print-jql");
   const unstamp = process.argv.includes("--unstamp");
+  // Escape hatch: re-select the SYMPTOM-ONLY null classifier (the documented
+  // interim mode), so debugging the deterministic axis stays code-change-free.
+  const symptomOnly = process.argv.includes("--symptom-only");
   const keys = splitList(argValue("--keys"));
   const env = process.env;
 
@@ -159,17 +200,28 @@ async function main() {
     return;
   }
 
+  // Production feature/flow matcher by default (#1343); --symptom-only re-selects
+  // the interim null classifier (deterministic symptom axis only).
+  const classifier = symptomOnly
+    ? buildNullClassifier()
+    : buildFeatureFlowClassifier(
+        { features: catalog.features, flows: catalog.flows },
+        buildProductionComplete(),
+      );
+
   const deps = {
     fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
-    classifier: buildNullClassifier(),
+    classifier,
     catalog: membershipFromCatalog(catalog),
     // Optional keyword extensions read from a gitignored local file (path via
     // MONDAY_KEYWORD_EXTENSIONS_FILE). Absent/malformed → {} → classify as today.
     extensions: loadKeywordExtensions(undefined, (msg) => console.error(msg)),
     apply,
   };
-  // The writer is constructed ONLY on --apply (dry-run never builds it).
+  // The writer is constructed ONLY on --apply (dry-run never builds it). SAFETY
+  // GATE (nit 3): a live write REFUSES to run against an unreviewed catalog.
   if (apply) {
+    assertCatalogReviewed(catalog, "backfill-namespaced-labels --apply");
     deps.writer = buildJiraNamespacedLabelWriter(config, globalThis.fetch);
   }
 

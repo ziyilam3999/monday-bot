@@ -1,6 +1,6 @@
 import { run } from "../src/triage/backfill";
 import { buildJiraNamespacedLabelWriter } from "../src/jira/namespacedLabelWriter";
-import { membershipFromCatalog } from "../src/jira/namespacedLabels";
+import { buildDesiredLabels, membershipFromCatalog } from "../src/jira/namespacedLabels";
 import type { IssueFeatureFlowClassifier } from "../src/triage/classifier";
 import type { JiraIssue } from "../src/jira/sync";
 
@@ -140,5 +140,59 @@ describe("AC-5 (backfill) — unknown value → rejected + ZERO fetch", () => {
     expect(result.validated).toBe(0);
     expect(result.applied).toBe(0);
     expect(fetchImpl).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe("AC-7 (#1343) — feature/flow pass is ADDITIVE: mb-symptom-* untouched", () => {
+  it("adds mb-feature-* and leaves the pre-existing mb-symptom-* label in place", async () => {
+    // Capture the PUT body so we can prove the symptom label is never removed.
+    const calls: Array<{ url: string; ops: unknown[] }> = [];
+    const fetchImpl = jest.fn(async (url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body);
+      calls.push({ url, ops: body.update.labels });
+      return { ok: true, status: 204, statusText: "No Content", async json() {return {};} };
+    });
+    const writer = buildJiraNamespacedLabelWriter(CONFIG, fetchImpl as unknown as typeof fetch);
+
+    // Issue already carries its symptom label (from the shipped symptom backfill);
+    // the classifier now assigns a feature on top.
+    const issues: JiraIssue[] = [
+      {
+        key: "X-7",
+        summary: "the app crashed on launch",
+        descriptionText: "",
+        commentTexts: [],
+        labels: ["mb-symptom-crash-error"],
+      },
+    ];
+    const result = await run({
+      fetchOpenDefects: async () => issues,
+      classifier: CLASSIFIER, // assigns feature "checkout"
+      catalog: MEMBERSHIP,
+      writer,
+      apply: true,
+      log: () => undefined,
+    });
+    expect(result.applied).toBe(1);
+
+    // Exactly one PUT; its op list ADDS the feature and removes NOTHING.
+    expect(calls).toHaveLength(1);
+    const ops = calls[0].ops as Array<{ add?: string; remove?: string }>;
+    expect(ops).toContainEqual({ add: "mb-feature-checkout" });
+    // No op removes the symptom label (additive guarantee).
+    expect(ops.some((o) => o.remove === "mb-symptom-crash-error")).toBe(false);
+    expect(ops.some((o) => "remove" in o)).toBe(false);
+  });
+
+  it("desired set always includes the symptom alongside an assigned feature", () => {
+    const desired = buildDesiredLabels(
+      { feature: "checkout", flows: ["signin"], symptom: "crash-error" },
+      MEMBERSHIP,
+      undefined,
+      () => undefined,
+    );
+    expect(desired.desired).toContain("mb-feature-checkout");
+    expect(desired.desired).toContain("mb-symptom-crash-error");
+    expect(desired.symptom).toBe("mb-symptom-crash-error");
   });
 });
