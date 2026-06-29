@@ -1,4 +1,4 @@
-import { MissingEnvVarError, validateEnv } from "../src/config/env";
+import { MissingEnvVarError, parseDefaultProjects, validateEnv } from "../src/config/env";
 
 describe("validateEnv", () => {
   // Test placeholders deliberately do NOT use the xoxb-/xapp-/xoxp- prefix:
@@ -53,5 +53,23 @@ describe("validateEnv", () => {
     });
     expect(env.slackBotToken).toBe(BOT_TOKEN_PLACEHOLDER);
     expect(env.slackAppToken).toBe(APP_TOKEN_PLACEHOLDER);
+  });
+});
+
+describe("parseDefaultProjects (#1363)", () => {
+  // SYNTHETIC keys only (PUBLIC repo) — the real default is env-driven.
+  it("AC5 — comma-splits, trims, and drops empties", () => {
+    expect(parseDefaultProjects("ABC, DEF ")).toEqual(["ABC", "DEF"]);
+    expect(parseDefaultProjects("ABC,,  ,DEF,")).toEqual(["ABC", "DEF"]);
+  });
+
+  it("returns an empty list for undefined / empty / whitespace-only", () => {
+    expect(parseDefaultProjects(undefined)).toEqual([]);
+    expect(parseDefaultProjects("")).toEqual([]);
+    expect(parseDefaultProjects("   ,  ")).toEqual([]);
+  });
+
+  it("does NOT uppercase — the JQL builder owns case/sanitisation (no redundant work)", () => {
+    expect(parseDefaultProjects("abc, def")).toEqual(["abc", "def"]);
   });
 });
