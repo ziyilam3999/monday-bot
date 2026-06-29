@@ -19,6 +19,10 @@
  * Env: CONFLUENCE_URL (or CONFLUENCE_BASE_URL), CONFLUENCE_EMAIL,
  *      CONFLUENCE_API_TOKEN, CONFLUENCE_SPACES (comma-separated; the FIRST entry
  *      is cataloged). Optional ANTHROPIC_MODEL overrides the distiller model.
+ *      Optional CATALOG_BATCH_TOKEN_BUDGET overrides the per-batch token budget
+ *      (#1378 map-reduce split; default is DEFAULT_BATCH_TOKEN_BUDGET in
+ *      dist/catalog/distill). Optional CATALOG_CHARS_PER_TOKEN overrides the
+ *      chars-per-token size estimate. Both are ignored if unset or non-numeric.
  */
 "use strict";
 
@@ -45,6 +49,13 @@ function splitList(raw) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** Parse an optional positive-number env knob; return undefined if unset/NaN/<=0. */
+function parsePositiveNumberEnv(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /**
@@ -119,11 +130,17 @@ async function main() {
     fs.writeFileSync(target, `${JSON.stringify(catalog, null, 2)}\n`, "utf-8");
   };
 
+  // Optional map-reduce knobs (#1378) — ignored if unset/non-numeric.
+  const batchTokenBudget = parsePositiveNumberEnv(env.CATALOG_BATCH_TOKEN_BUDGET);
+  const charsPerToken = parsePositiveNumberEnv(env.CATALOG_CHARS_PER_TOKEN);
+
   const result = await run({
     fetchPages: (key) => fetcher.fetchPages(key),
     distiller: buildLlmDistiller(),
     writeCatalog,
     spaceKey,
+    batchTokenBudget,
+    charsPerToken,
   });
 
   // Counts/structure ONLY — never a label, body, id, space key, host, or email.

@@ -28,6 +28,14 @@ export interface CatalogRunDeps {
   now?: () => number;
   /** Counts/structure-only logger sink; defaults to `console.log`. */
   log?: (msg: string) => void;
+  /**
+   * Optional per-batch token budget for the distill map-reduce (#1378). When
+   * set, threaded into `distillCatalog`; otherwise the module default applies.
+   * The shell derives this from `CATALOG_BATCH_TOKEN_BUDGET`.
+   */
+  batchTokenBudget?: number;
+  /** Optional chars-per-token estimate override (from `CATALOG_CHARS_PER_TOKEN`). */
+  charsPerToken?: number;
 }
 
 export interface CatalogRunResult {
@@ -75,8 +83,15 @@ export async function run(deps: CatalogRunDeps): Promise<CatalogRunResult> {
   const pages = await deps.fetchPages(deps.spaceKey);
   log(`Ingested ${pages.length} pages.`);
 
-  // 2. Distill (the single LLM call lives inside the injected distiller).
-  const catalog = await distillCatalog(pages, { distiller: deps.distiller, now: deps.now });
+  // 2. Distill (the per-batch LLM calls live inside the injected distiller).
+  //    The batch-count + truncation warnings reach the counts-only sink.
+  const catalog = await distillCatalog(pages, {
+    distiller: deps.distiller,
+    now: deps.now,
+    log,
+    batchTokenBudget: deps.batchTokenBudget,
+    charsPerToken: deps.charsPerToken,
+  });
 
   // 3. Write the gitignored catalog via the injected sink.
   await deps.writeCatalog(catalog);
