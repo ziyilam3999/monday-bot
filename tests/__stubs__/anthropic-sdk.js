@@ -7,6 +7,12 @@
 // generateAnswer's return value, so we surface it on the module instead).
 let __lastRequest = null;
 
+// #1374b test infra: a FIFO response queue + call counter so the backstop's
+// two-call regenerate path is testable. When the queue is empty, messages.create
+// falls back to the canonical answer below (existing tests unchanged).
+let __responseQueue = [];
+let __callCount = 0;
+
 class Anthropic {
   constructor(options) {
     this._options = options || {};
@@ -20,6 +26,7 @@ class Anthropic {
           throw new Error("Anthropic SDK stub: messages.create requires a request object");
         }
         __lastRequest = _req;
+        __callCount += 1;
         if (typeof _req.model !== "string" || _req.model.length === 0) {
           throw new Error("Anthropic SDK stub: _req.model must be a non-empty string");
         }
@@ -41,12 +48,16 @@ class Anthropic {
             throw new Error("Anthropic SDK stub: _req.messages[" + i + "].content is required");
           }
         }
-        // Canonical response the tests can assert on. [1] keeps AC-01 happy;
-        // the word count keeps AC-04 happy if a real call somehow hits the stub.
+        // #1374b: a queued response (FIFO) takes precedence so backstop tests
+        // can script the two-call regenerate path. Empty queue -> canonical
+        // answer below (existing tests unchanged). [1] keeps AC-01 happy; the
+        // word count keeps AC-04 happy if a real call somehow hits the stub.
         const text =
-          "Per the provided context, the documented procedure is to follow the " +
-          "cited source material directly [1]. The context supplies a complete, " +
-          "self-contained answer with no outside knowledge required.";
+          __responseQueue.length > 0
+            ? __responseQueue.shift()
+            : "Per the provided context, the documented procedure is to follow the " +
+              "cited source material directly [1]. The context supplies a complete, " +
+              "self-contained answer with no outside knowledge required.";
         return {
           id: "msg_stub_001",
           type: "message",
@@ -67,6 +78,22 @@ class Anthropic {
 // #1195 test introspection: the most recent messages.create request.
 Anthropic.__getLastRequest = () => __lastRequest;
 Anthropic.__resetLastRequest = () => {
+  __lastRequest = null;
+};
+
+// #1374b test infra: controllable response queue + call counter.
+Anthropic.__enqueueResponse = (text) => {
+  __responseQueue.push(text);
+};
+Anthropic.__setResponses = (texts) => {
+  __responseQueue = Array.isArray(texts) ? [...texts] : [];
+};
+Anthropic.__getCallCount = () => __callCount;
+// __reset() clears the FIFO queue, the call counter, AND __lastRequest
+// (__resetLastRequest semantics folded in) — see plan R3 leak-prevention.
+Anthropic.__reset = () => {
+  __responseQueue = [];
+  __callCount = 0;
   __lastRequest = null;
 };
 
