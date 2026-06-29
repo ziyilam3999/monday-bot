@@ -72,4 +72,12 @@ describe("SYSTEM_PROMPT integrity", () => {
     expect(SYSTEM_PROMPT).toMatch(/what is LIVE now and what is NAMED-planned/);
     expect(SYSTEM_PROMPT).toMatch(/do NOT dismiss a roadmap as/);
   });
+
+  // #1374a — strengthened anti-refusal contrast clause.
+  it("adds the TOPIC-COVERED vs TOPIC-ABSENT contrast clause with GOOD/BAD cues (#1374a)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/TOPIC-COVERED vs TOPIC-ABSENT/);
+    // The clause must carry an explicit GOOD vs BAD contrast cue.
+    expect(SYSTEM_PROMPT).toMatch(/GOOD \(topic covered/);
+    expect(SYSTEM_PROMPT).toMatch(/BAD \(topic covered/);
+  });
 });

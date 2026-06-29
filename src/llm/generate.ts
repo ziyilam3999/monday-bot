@@ -16,6 +16,7 @@ export const SYSTEM_PROMPT =
   "Passages framed as BUSINESS RULES, specs, change-logs, internal-reference notes, or backend/engineering tickets STILL count as grounding when they describe the STEPS, FLOW, or MECHANISM of what the user asked about. Do NOT refuse merely because the material is framed as internal/backend/business-rules rather than a polished end-user guide — translate the documented flow into plain user-facing steps and cite [N]. For example, if the question is how to find/do something and a passage describes the matching/selection/decision flow for exactly that, EXPLAIN that flow as the answer instead of saying there are no user-facing instructions. " +
   "This process/spec clause applies ONLY when that passage is genuinely ON-TOPIC and relevant to the exact question asked; a process or spec passage that is about a DIFFERENT topic than the question is NOT grounding for that question — do not cite it, and abstain if nothing on-topic remains. " +
   "SINGLE-PRODUCT KNOWLEDGE BASE: every passage here is about ONE product, so the ABSENCE of the product's or a feature's NAME (a brand or proper-noun) from the passages is MEANINGLESS — a missing brand word does NOT mean the topic is uncovered, and you must NEVER open with \"I couldn't find\" merely because the exact product or feature name from the question is not present verbatim in the passages. Decide grounding ONLY on whether the passages genuinely DESCRIBE THE TOPIC OR FEATURE the question asks about: if any passage describes that topic's mechanism, flow, rules, locations, or plans — even partially, even as a roadmap or backend/spec note — you MUST lead with that documented answer and cite [N], not prepend a hedge, even though the passage never names the product. The ONLY exception is the no-yes-man clamp: a passage that merely mentions or is generally about the product but does NOT address the specific topic asked is NOT grounding — only in that case do you cleanly decline with no citations. This clause removes ONLY proper-noun ABSENCE as a disqualifier; the existing genuinely ON-TOPIC precondition above still governs — it does NOT relax the requirement that the passage be on-topic to the exact question asked. " +
+  "TOPIC-COVERED vs TOPIC-ABSENT: decide whether to answer on the QUESTION'S TOPIC, never on whether a product or feature NAME string is present verbatim in the passages. GOOD (topic covered, name absent): the question names a product or feature whose NAME does NOT appear in the passages, but a passage describes that topic's mechanism, flow, rules, locations, or plans — you MUST lead with that documented answer and cite [N]; do NOT open with a refusal merely because the name is missing. BAD (topic covered, wrong opener): opening with \"I couldn't find ...\" just because the named thing is not written verbatim, while a passage describes the asked topic. ABSTAIN only when the TOPIC ITSELF is genuinely absent or off-topic — then decline cleanly with no citations. " +
   "When you abstain, your reply MUST contain NO [N] citation markers at all — never cite a loosely-related passage while saying you couldn't find the answer. " +
   "PREFER DOCS OVER TICKET STUBS: when both narrative/document sources and bare issue-tracker ticket stubs cover the same topic, build your answer from and cite the document/narrative passages, not bare ticket titles. " +
   "PHASED / PLANNED ROLLOUTS: when the relevant doc describes a PLANNED or PHASED rollout or roadmap, answer with what is LIVE now and what is NAMED-planned and cite the doc [N]; do NOT dismiss a roadmap as \"no comprehensive list.\" " +
@@ -25,6 +26,80 @@ export const SYSTEM_PROMPT =
 
 export const NO_CONTEXT_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
+
+/**
+ * #1374b — refusal-opener backstop.
+ *
+ * Default phrase set the model tends to OPEN a refusal with. Configurable via
+ * `MONDAY_REFUSAL_OPENERS` (comma-separated; trimmed; empties dropped — mirrors
+ * `parseDefaultProjects` in `src/config/env.ts`). Per the no-magic-string rule:
+ * the phrase set is data, not an inline literal buried in the detector.
+ */
+const DEFAULT_REFUSAL_OPENERS = [
+  "I couldn't find",
+  "I could not find",
+  "I'm unable to find",
+  "I am unable to find",
+  "I don't have",
+  "I do not have",
+  "There is no relevant",
+  "No relevant information",
+];
+
+/**
+ * Firmer, CONDITIONAL retry directive appended on the bad path. It must NOT
+ * order the model to "answer anyway" — there is no relevance threshold upstream
+ * (`service.ts` passes whatever retrieval returns), so the genuine-abstain
+ * escape is preserved verbatim. The retry only corrects a proper-noun-absence
+ * over-refusal; it never manufactures an answer from off-topic chunks.
+ */
+const REGEN_DIRECTIVE =
+  "Re-examine the passages above. IF any passage describes the TOPIC of the question — its mechanism, flow, rules, locations, or plans — even though the product/feature NAME may be absent, then lead with that documented answer and cite it [N], and note any gap only afterward. IF the passages genuinely do NOT address the asked topic, abstain plainly with no citations. Never state facts that are not in the passages.";
+
+/**
+ * Normalize a string for refusal-opener comparison: fold every apostrophe
+ * variant (U+0027 `'` and U+2019 `’`) to a single ASCII apostrophe, then
+ * lower-case. The model frequently emits a typographic apostrophe
+ * (`I couldn’t`), so a naive `startsWith` against the ASCII-stored phrase set
+ * would miss it — this normalization is what makes the curly form match.
+ */
+function normalizeForOpener(s: string): string {
+  return s.replace(/['’]/g, "'").toLowerCase();
+}
+
+/**
+ * Resolve the active refusal-opener set. `MONDAY_REFUSAL_OPENERS` (when set and
+ * non-empty after parsing) fully REPLACES the defaults; otherwise the defaults
+ * apply. Side-effect-free so it can be re-read per call (env may change in
+ * tests).
+ */
+function refusalOpeners(): string[] {
+  const raw = process.env.MONDAY_REFUSAL_OPENERS;
+  if (!raw) return DEFAULT_REFUSAL_OPENERS;
+  const parsed = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return parsed.length > 0 ? parsed : DEFAULT_REFUSAL_OPENERS;
+}
+
+/**
+ * Pure detector: true iff `answer`, after trimming leading whitespace, opens
+ * (case-insensitively, apostrophe-normalized) with any configured refusal
+ * phrase. Defensive: a non-string input is never a refusal opener.
+ */
+export function opensWithRefusal(answer: string): boolean {
+  if (typeof answer !== "string") return false;
+  const head = normalizeForOpener(answer.replace(/^\s+/, ""));
+  return refusalOpeners().some((phrase) =>
+    head.startsWith(normalizeForOpener(phrase)),
+  );
+}
+
+/** Kill-switch: `MONDAY_REFUSAL_BACKSTOP="0"` disables the regenerate step. */
+function backstopEnabled(): boolean {
+  return process.env.MONDAY_REFUSAL_BACKSTOP !== "0";
+}
 
 /**
  * Pure helper: return ONLY the citations whose `number` actually appears as an
@@ -108,10 +183,10 @@ function offlineAnswer(chunks: Chunk[]): AnswerResult {
     body.length > 0
       ? `${body} [1]`
       : NO_CONTEXT_ANSWER;
-  return {
+  return compactRenumber(
     answer,
-    citations: selectCitedCitations(answer, buildCitations(chunks)),
-  };
+    selectCitedCitations(answer, buildCitations(chunks)),
+  );
 }
 
 export interface Chunk {
@@ -134,10 +209,31 @@ export interface AnswerResult {
   citations: Citation[];
 }
 
+/**
+ * #1375 — shared source numbering. Walk chunks in order and assign the next
+ * integer (1, 2, 3 …) to each previously-unseen `source`, reusing the same
+ * number whenever that source recurs. The in-text `[N]` markers the model emits
+ * refer to THIS numbering, so `formatContext` and `buildCitations` MUST share
+ * it — numbering by source in only one of them would desync the answer text
+ * from the citation list. (Dedup key = `source`/docId.)
+ */
+function buildSourceNumbering(chunks: Chunk[]): Map<string, number> {
+  const numbering = new Map<string, number>();
+  let next = 1;
+  for (const c of chunks) {
+    if (!numbering.has(c.source)) {
+      numbering.set(c.source, next);
+      next += 1;
+    }
+  }
+  return numbering;
+}
+
 function formatContext(chunks: Chunk[]): string {
+  const numbering = buildSourceNumbering(chunks);
   return chunks
-    .map((c, i) => {
-      const n = i + 1;
+    .map((c) => {
+      const n = numbering.get(c.source);
       const meta = c.heading
         ? `(source: ${c.source}, heading: ${c.heading})`
         : `(source: ${c.source})`;
@@ -146,12 +242,73 @@ function formatContext(chunks: Chunk[]): string {
     .join("\n\n");
 }
 
-function buildCitations(chunks: Chunk[]): Citation[] {
-  return chunks.map((c, i) => {
-    const entry: Citation = { number: i + 1, source: c.source };
-    if (c.heading) entry.heading = c.heading;
-    return entry;
+/**
+ * #1375 — one citation per UNIQUE source. Uses the shared numbering so the
+ * citation list can never produce two numbers for the same source. The heading
+ * is the first NON-EMPTY heading seen for that source (omitted if none).
+ * Citations are ordered by assigned number.
+ */
+export function buildCitations(chunks: Chunk[]): Citation[] {
+  const numbering = buildSourceNumbering(chunks);
+  const bySource = new Map<string, Citation>();
+  for (const c of chunks) {
+    const number = numbering.get(c.source)!;
+    let entry = bySource.get(c.source);
+    if (!entry) {
+      entry = { number, source: c.source };
+      bySource.set(c.source, entry);
+    }
+    if (entry.heading === undefined && c.heading) {
+      entry.heading = c.heading;
+    }
+  }
+  return [...bySource.values()].sort((a, b) => a.number - b.number);
+}
+
+/**
+ * #1375 — compact, contiguous renumbering. THE single place an old#→new# map is
+ * applied, so the answer text markers and the citation list never diverge.
+ *
+ * - Defensive: non-string `answer` / non-array `citations` -> `{ answer, [] }`.
+ * - Collect old numbers that appear as `[N]` in `answer` AND exist in
+ *   `citations`; sort ascending and assign contiguous new numbers 1, 2, 3 ….
+ * - Rewrite the answer text in ONE pass via a `/\[(\d+)\]/g` replace callback so
+ *   a sequential rewrite can never double-substitute (bracket tokens match
+ *   whole, never partially — multi-digit safe).
+ * - Rewrite each citation's `number` via the same map; drop any not in the map;
+ *   sort by new number.
+ */
+export function compactRenumber(
+  answer: string,
+  citations: Citation[],
+): AnswerResult {
+  if (typeof answer !== "string" || !Array.isArray(citations)) {
+    return { answer, citations: [] };
+  }
+  const present = new Set<number>();
+  for (const c of citations) present.add(c.number);
+
+  const cited = new Set<number>();
+  for (const m of answer.matchAll(/\[(\d+)\]/g)) {
+    const n = Number(m[1]);
+    if (present.has(n)) cited.add(n);
+  }
+
+  const ordered = [...cited].sort((a, b) => a - b);
+  const remap = new Map<number, number>();
+  ordered.forEach((oldNum, i) => remap.set(oldNum, i + 1));
+
+  const newAnswer = answer.replace(/\[(\d+)\]/g, (whole, digits) => {
+    const mapped = remap.get(Number(digits));
+    return mapped === undefined ? whole : `[${mapped}]`;
   });
+
+  const newCitations = citations
+    .filter((c) => remap.has(c.number))
+    .map((c) => ({ ...c, number: remap.get(c.number)! }))
+    .sort((a, b) => a.number - b.number);
+
+  return { answer: newAnswer, citations: newCitations };
 }
 
 export async function generateAnswer(
@@ -188,34 +345,56 @@ export async function generateAnswer(
     `Context:\n${context}\n\n` +
     `Answer the question using only facts from the context. Cite each claim with [N].`;
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    // temperature 0: the ground-vs-abstain drift on the same question was a
-    // high-temperature coin-flip (#1195). Deterministic decoding stabilizes the
-    // answer so a correct prompt grounds consistently and a wrong one fails
-    // consistently (detectable), instead of flip-flopping run-to-run.
-    temperature: 0,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userContent }],
-  });
+  let text = await callModel(client, userContent);
 
-  const text = response.content
-    .filter((block) => block.type === "text")
-    .map((block) => (block as { type: "text"; text: string }).text)
-    .join("")
-    .trim();
+  // #1374b backstop: chunks ARE present, but the model still OPENED with a
+  // configured refusal phrase — a likely proper-noun-absence over-refusal.
+  // Regenerate ONCE at temperature 0 with the firmer CONDITIONAL directive
+  // (gated on the kill-switch). We never fabricate: a still-refusing retry is
+  // accepted as-is, and its citations end empty without invented content.
+  if (
+    text.length > 0 &&
+    chunks.length > 0 &&
+    backstopEnabled() &&
+    opensWithRefusal(text)
+  ) {
+    const harderContent = `${userContent}\n\n${REGEN_DIRECTIVE}`;
+    const retry = await callModel(client, harderContent);
+    if (retry.length > 0) text = retry;
+  }
 
   if (text.length === 0) {
-    const blockTypes = response.content.map((block) => block.type);
     console.warn(
-      `[generateAnswer] model returned non-text-only response: block_types=${JSON.stringify(blockTypes)} stop_reason=${response.stop_reason ?? "unknown"}`,
+      "[generateAnswer] model returned no text content; returning no-context answer",
     );
     return { answer: NO_CONTEXT_ANSWER, citations: [] };
   }
 
-  return stripStrayAbstainCitations(
-    text,
-    selectCitedCitations(text, buildCitations(chunks)),
-  );
+  const built = buildCitations(chunks); // dedup'd by source
+  const cited = selectCitedCitations(text, built); // only cited, may have gaps
+  const abst = stripStrayAbstainCitations(text, cited); // genuine-abstain -> []
+  return compactRenumber(abst.answer, abst.citations); // contiguous, text+list in sync
+}
+
+/**
+ * Private helper: one model call returning the trimmed concatenated text of all
+ * text blocks. Temperature stays 0 — determinism doctrine (#1195). The backstop
+ * differentiates its retry by the CHANGED directive, not by raised temperature.
+ */
+async function callModel(
+  client: ReturnType<typeof getClient>,
+  userContent: string,
+): Promise<string> {
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    temperature: 0,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userContent }],
+  });
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => (block as { type: "text"; text: string }).text)
+    .join("")
+    .trim();
 }
