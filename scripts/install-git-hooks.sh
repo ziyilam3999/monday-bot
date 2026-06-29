@@ -31,14 +31,24 @@ HOOKS_DIR_ABS="${REPO_DIR}/${HOOKS_DIR_REL}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# Tracked hooks this installer validates + arms. core.hooksPath auto-discovers
+# any file in the dir, but each is still validated + chmod'd so a fresh clone is
+# fully armed by ONE command.
+HOOK_FILES="pre-commit post-merge"
+
 cmd_install() {
   [ -d "${HOOKS_DIR_ABS}" ] || die "tracked hooks dir not found: ${HOOKS_DIR_REL}"
-  [ -f "${HOOKS_DIR_ABS}/pre-commit" ] || die "pre-commit not found in ${HOOKS_DIR_REL}"
-  chmod +x "${HOOKS_DIR_ABS}/pre-commit" 2>/dev/null || true
+  for hook in ${HOOK_FILES}; do
+    [ -f "${HOOKS_DIR_ABS}/${hook}" ] || die "${hook} not found in ${HOOKS_DIR_REL}"
+    chmod +x "${HOOKS_DIR_ABS}/${hook}" 2>/dev/null || true
+  done
   git -C "${REPO_DIR}" config core.hooksPath "${HOOKS_DIR_REL}"
   echo "Installed: core.hooksPath -> ${HOOKS_DIR_REL}"
   echo "The pre-commit privacy hook is now live for THIS clone."
   echo "Local scope = home-path leaks only; the internal-identifier denylist is a CI backstop."
+  echo "The post-merge redeploy hook is also live: after a pull that advances bot"
+  echo "source it restarts the launchd bot (#1372). It NO-OPs cleanly when the bot"
+  echo "is not installed (developer clones / CI / Linux)."
   echo "Bypass once (discouraged): git commit --no-verify"
 }
 
@@ -47,8 +57,10 @@ cmd_status() {
   cur="$(git -C "${REPO_DIR}" config --get core.hooksPath || true)"
   if [ -n "${cur}" ]; then
     echo "core.hooksPath = ${cur}"
+    echo "Tracked hooks armed: pre-commit (privacy scan), post-merge (#1372 redeploy)."
   else
-    echo "core.hooksPath is NOT set — hook not installed. Run: bash scripts/install-git-hooks.sh"
+    echo "core.hooksPath is NOT set — hooks not installed. Run: bash scripts/install-git-hooks.sh"
+    echo "Tracked hooks that would arm: pre-commit (privacy scan), post-merge (#1372 redeploy)."
   fi
 }
 
@@ -59,14 +71,18 @@ cmd_uninstall() {
 
 usage() {
   cat <<EOF
-install-git-hooks.sh — wire the local pre-commit privacy hook (monday-bot).
+install-git-hooks.sh — wire the local tracked git hooks (monday-bot).
 
-  (no args)    Install: set core.hooksPath -> ${HOOKS_DIR_REL}.
-  status       Show the current core.hooksPath.
+  (no args)    Install: set core.hooksPath -> ${HOOKS_DIR_REL}, validate + chmod the hooks.
+  status       Show the current core.hooksPath + which hooks are armed.
   uninstall    Unset core.hooksPath (tracked files remain).
   --help, -h   This help.
 
-Local scope is HOME-PATH leaks only; the internal-identifier denylist is enforced by CI.
+Tracked hooks armed by install:
+  pre-commit   Local STAGED privacy scan (home-path leaks; denylist is a CI backstop).
+  post-merge   #1372 redeploy — after a pull that advances bot source, restart the
+               launchd bot so it rebakes dist/. NO-OPs cleanly when the bot is not
+               installed (developer clones / CI / Linux).
 EOF
 }
 

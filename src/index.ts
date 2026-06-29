@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { App } from "@slack/bolt";
-import { MissingEnvVarError, validateEnv, AppEnv } from "./config/env";
+import { MissingEnvVarError, validateEnv, AppEnv, parseDefaultProjects } from "./config/env";
 import { loadConfig, AppConfig } from "./config/config";
 import { KnowledgeService } from "./knowledge/service";
 import {
@@ -154,6 +154,35 @@ function warnIfStaleBuild(): void {
   } catch {
     /* observability only — never break startup */
   }
+}
+
+/**
+ * #1372 Part B — loud startup WARN when the defect-search scope env is unset.
+ *
+ * The #1363 default-scope feature only fences a no-project /jql search to
+ * `JIRA_DEFAULT_PROJECTS`. When that env is blank the feature is INERT: searches
+ * silently scan the WHOLE site (slow + noisy) with no signal that it's happening
+ * — the exact silent-unset-default trap that left the #1363/#1364 fix invisible.
+ *
+ * The setting is genuinely OPTIONAL (.env.example), so this WARNS only — it
+ * never throws. Pure + injectable: the `log` sink lets the unit test assert the
+ * message without capturing global console. Mirrors logBuildStamp /
+ * warnIfStaleBuild in shape + placement.
+ */
+export function warnIfDefectScopeUnset(
+  env: NodeJS.ProcessEnv = process.env,
+  log: (message: string) => void = console.warn,
+): void {
+  if (parseDefaultProjects(env.JIRA_DEFAULT_PROJECTS).length > 0) {
+    return; // scope is set — stay silent on the happy path
+  }
+  log(
+    "WARNING: JIRA_DEFAULT_PROJECTS is not set — defect searches that name no " +
+      "project will scan the WHOLE Jira site (slow + noisy, and easy to miss). " +
+      "Set JIRA_DEFAULT_PROJECTS to a comma-separated list of project key(s) to " +
+      "scope them (see .env.example). This makes the #1363 default-scope feature " +
+      "active; leaving it blank keeps the pre-#1363 whole-site behavior.",
+  );
 }
 
 export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayHandle> {
@@ -313,6 +342,9 @@ if (require.main === module) {
   } catch {
     /* no .env file — rely on shell-exported env vars */
   }
+  // Layer B (#1372): WARN loudly (never throw) if the optional defect-search
+  // scope env is blank, so the silent whole-site fallback can't go unnoticed.
+  warnIfDefectScopeUnset();
   runMonday().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Monday: unhandled error during startup: ${message}`);

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# launchctl — HERMETIC SHIM for the post-merge hook smoke (#1372). This is NOT a
+# real launchctl; it lives on PATH for the bash smoke ONLY (tests/post-merge-hook
+# .test.ts prepends this dir). Behavior is driven by env the smoke sets per case:
+#   SHIM_JOB_LOADED=1  -> `launchctl print <target>` exits 0 (job "loaded")
+#                         (anything else -> exit 1, i.e. NOT loaded)
+#   SHIM_CALL_LOG=<f>  -> each `launchctl kickstart ...` appends a line to <f>
+# Any other subcommand is a benign exit 0.
+#
+set -u
+case "${1:-}" in
+  print)
+    [ "${SHIM_JOB_LOADED:-0}" = "1" ] && exit 0
+    exit 1
+    ;;
+  kickstart)
+    [ -n "${SHIM_CALL_LOG:-}" ] && echo "kickstart" >>"${SHIM_CALL_LOG}"
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

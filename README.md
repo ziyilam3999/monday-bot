@@ -131,6 +131,21 @@ npm run build
 launchctl kickstart -k gui/$(id -u)/com.monday-bot   # restart with the new dist/
 ```
 
+> **Auto-redeploy after a pull (#1372).** Install the tracked git hooks once per
+> clone with `bash scripts/install-git-hooks.sh`. The `post-merge` hook then
+> restarts the launchd bot automatically after any `git pull` that advances bot
+> **source** (`src/**` or a build/dependency manifest) — the build-on-start
+> wrapper rebakes `dist/` on relaunch, so the new code actually takes effect.
+> The hook is a clean NO-OP (exit 0, nothing printed) when the launchd bot is
+> not installed — developer clones, CI, and Linux are unaffected. Docs/test-only
+> pulls do not trigger a restart. See `bash scripts/install-git-hooks.sh status`.
+
+> **Blank defect-search scope warning (#1372 / #1363).** If `JIRA_DEFAULT_PROJECTS`
+> is unset/blank, Monday prints a loud startup WARNING: defect searches that name
+> no project will scan the WHOLE Jira site. The setting is optional (the bot
+> still starts), but set it to a comma-separated list of project key(s) to scope
+> those searches and silence the warning.
+
 **Uninstall:**
 
 ```bash

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# post-merge — auto-redeploy the always-on launchd bot after a SOURCE-advancing
+# pull/merge (#1372). Layer A of the redeploy-prevention pair (Layer B is the
+# blank-scope startup WARN in src/index.ts).
+#
+# WHY: the bot runs a *baked* copy of the code under launchd. A `git pull` that
+# brings in new bot source does NOT take effect until the job is restarted (the
+# build-on-start wrapper rebakes dist/ on relaunch). Doing that by hand is easy
+# to forget — that omission is exactly how the #1363/#1364 fix shipped INERT.
+# This hook makes the restart mechanical.
+#
+# CONTRACT (gates evaluated in this order):
+#   1. launchctl must exist AND the job must be LOADED — checked FIRST. On a
+#      developer clone, CI, or Linux the job is not loaded, so the hook is a
+#      clean NO-OP: exit 0, NO kickstart, NO stderr. (It must NOT call
+#      scripts/redeploy-local.sh — that script `die`s when the job is not
+#      loaded, which would break this required clean NO-OP.)
+#   2. The just-completed merge must have ADVANCED a bot-source path (src/** or a
+#      build/dependency manifest) — docs/tests/workspace-scratch-only merges
+#      NO-OP. When nothing source-y changed: exit 0, NO kickstart.
+#   3. Only when BOTH hold does the hook fire its OWN single
+#      `launchctl kickstart -k <target>`. Idempotent + re-runnable.
+#
+# Self-locates its repo via `readlink -f "$0"` so it works when invoked through
+# git's core.hooksPath (see scripts/install-git-hooks.sh). macOS bash-3.2 clean.
+#
+# Test seams (env-injected; used ONLY by the hermetic smoke — never set in prod):
+#   POST_MERGE_SERVICE_TARGET   launchd service target (default gui/<uid>/com.monday-bot)
+#   POST_MERGE_CHANGED_FILES    newline/space-separated change set to classify
+#                               (default: `git diff --name-only ORIG_HEAD HEAD`)
+#
+set -uo pipefail
+
+LABEL="com.monday-bot"
+
+# Self-locate the hook's repo (resolves a core.hooksPath / symlink invocation).
+# Exercised on the real macOS install path only; the hermetic smoke injects its
+# inputs and does not depend on this resolution.
+HOOK_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+HOOK_DIR="$(cd "$(dirname "${HOOK_PATH}")" 2>/dev/null && pwd || echo ".")"
+REPO_DIR="$(git -C "${HOOK_DIR}" rev-parse --show-toplevel 2>/dev/null || echo "${HOOK_DIR}")"
+
+SERVICE_TARGET="${POST_MERGE_SERVICE_TARGET:-gui/$(id -u 2>/dev/null || echo 0)/${LABEL}}"
+
+# --- Gate 1: job must be LOADED (evaluated FIRST, before anything mutating) ----
+# A clean NO-OP on a clone/CI/Linux: no launchctl, or the job is not loaded.
+# stderr from launchctl is swallowed so the NO-OP path writes nothing to stderr.
+command -v launchctl >/dev/null 2>&1 || exit 0
+launchctl print "${SERVICE_TARGET}" >/dev/null 2>&1 || exit 0
+
+# --- Gate 2: the merge must have advanced a bot-SOURCE path -------------------
+if [ -n "${POST_MERGE_CHANGED_FILES:-}" ]; then
+  CHANGED="${POST_MERGE_CHANGED_FILES}"
+else
+  CHANGED="$(git -C "${REPO_DIR}" diff --name-only ORIG_HEAD HEAD 2>/dev/null || true)"
+fi
+
+advanced_source=0
+while IFS= read -r changed_path; do
+  [ -n "${changed_path}" ] || continue
+  case "${changed_path}" in
+    src/* | package.json | package-lock.json | tsconfig.json)
+      advanced_source=1
+      break
+      ;;
+  esac
+done <<EOF
+${CHANGED}
+EOF
+
+[ "${advanced_source}" -eq 1 ] || exit 0
+
+# --- Both gates passed: our OWN single restart (rebakes dist/ on relaunch) -----
+launchctl kickstart -k "${SERVICE_TARGET}" >/dev/null 2>&1 || true
+exit 0
