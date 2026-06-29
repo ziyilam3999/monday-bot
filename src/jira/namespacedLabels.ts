@@ -99,6 +99,32 @@ export class LabelValidationError extends Error {
 }
 
 /**
+ * Idempotently, membership-AWARE, resolve a feature/flow value to its canonical
+ * catalog id. The value may arrive EITHER as a bare slug (`widget`) OR as an
+ * already kind-prefixed catalog id (`feature-widget`) — the matcher
+ * (`featureFlowMatcher.ts`) returns the latter, legacy callers/tests pass the
+ * former. Both MUST resolve to the SAME id, validated against the catalog set
+ * exactly once.
+ *
+ * Rule: slug the value to `s`. If `s` is ALREADY a member of the catalog set,
+ * that IS the canonical id (the value was a canonical id all along — e.g.
+ * `feature-feature-flags` whose label legitimately starts with the kind word).
+ * Otherwise treat it as bare and prefix it (`<kind>-<s>`). Return the chosen id
+ * only if it is in the set; otherwise `undefined` (caller fails loud). This does
+ * NOT weaken the guard: a value that is neither `s` nor `<kind>-<s>` in the set
+ * yields `undefined` and is still rejected.
+ */
+function resolveCatalogId(
+  value: string,
+  kind: "feature" | "flow",
+  ids: ReadonlySet<string>,
+): string | undefined {
+  const s = slug(value);
+  const id = ids.has(s) ? s : `${kind}-${s}`;
+  return ids.has(id) ? id : undefined;
+}
+
+/**
  * Canonicalise + VALIDATE an assignment, then construct the bot labels.
  *
  * Validation happens BEFORE any label is returned and BEFORE the writer is ever
@@ -114,8 +140,8 @@ export function buildDesiredLabels(
 ): ValidatedLabels {
   let featureLabel: string | undefined;
   if (assignment.feature !== undefined && assignment.feature !== "") {
-    const id = `feature-${slug(assignment.feature)}`;
-    if (!catalog.featureIds.has(id)) {
+    const id = resolveCatalogId(assignment.feature, "feature", catalog.featureIds);
+    if (id === undefined) {
       log("namespaced-label: REJECTED unknown feature (validation failed BEFORE write)");
       throw new LabelValidationError("feature", assignment.feature);
     }
@@ -124,8 +150,8 @@ export function buildDesiredLabels(
 
   const flowLabels: string[] = [];
   for (const flow of assignment.flows ?? []) {
-    const id = `flow-${slug(flow)}`;
-    if (!catalog.flowIds.has(id)) {
+    const id = resolveCatalogId(flow, "flow", catalog.flowIds);
+    if (id === undefined) {
       log("namespaced-label: REJECTED unknown flow (validation failed BEFORE write)");
       throw new LabelValidationError("flow", flow);
     }

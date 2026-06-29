@@ -138,6 +138,95 @@ describe("AC-5 (model) — catalog validation refuses unknown, fail-loud", () =>
   });
 });
 
+describe("#1381 — buildDesiredLabels accepts CANONICAL ids (matcher output), no double-prefix", () => {
+  // The matcher (featureFlowMatcher) returns canonical catalog ids
+  // (`feature-<slug>` / `flow-<slug>`), NOT bare names. The old code re-prefixed
+  // them to `feature-feature-<slug>` and rejected EVERY real pick. These cases
+  // feed the canonical INPUT shape the matcher really sends.
+  it("a canonical feature-<slug> id validates → mb-feature-<slug> (no double prefix)", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-widget"]),
+      flowIds: new Set(),
+    };
+    const v = buildDesiredLabels(
+      { feature: "feature-widget", flows: [], symptom: "crash-error" },
+      catalog,
+    );
+    expect(v.feature).toBe("mb-feature-widget");
+    expect(v.feature).not.toContain("feature-feature");
+  });
+
+  it("a canonical flow-<slug> id validates → mb-flow-<slug> (no double prefix)", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(),
+      flowIds: new Set(["flow-onboarding"]),
+    };
+    const v = buildDesiredLabels(
+      { flows: ["flow-onboarding"], symptom: "crash-error" },
+      catalog,
+    );
+    expect(v.flows).toEqual(["mb-flow-onboarding"]);
+    expect(v.flows.join("")).not.toContain("flow-flow");
+  });
+
+  it("a bare name STILL validates → mb-feature-<slug> (legacy contract preserved)", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-x"]),
+      flowIds: new Set(),
+    };
+    const v = buildDesiredLabels(
+      { feature: "x", flows: [], symptom: "crash-error" },
+      catalog,
+    );
+    expect(v.feature).toBe("mb-feature-x");
+  });
+
+  it("a catalog id whose label starts with the kind word resolves for BOTH bare + canonical input", () => {
+    // Catalog entry id is `feature-feature-flags` (its label legitimately begins
+    // with the kind word). Bare `feature-flags` → prefix once. Canonical
+    // `feature-feature-flags` → already a member, used as-is. Both balance.
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-feature-flags"]),
+      flowIds: new Set(),
+    };
+    const fromBare = buildDesiredLabels(
+      { feature: "feature-flags", flows: [], symptom: "crash-error" },
+      catalog,
+    );
+    const fromCanonical = buildDesiredLabels(
+      { feature: "feature-feature-flags", flows: [], symptom: "crash-error" },
+      catalog,
+    );
+    expect(fromBare.feature).toBe("mb-feature-feature-flags");
+    expect(fromCanonical.feature).toBe("mb-feature-feature-flags");
+  });
+
+  it("AC6 — an UNKNOWN id is STILL rejected on BOTH axes (guard not weakened)", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-widget"]),
+      flowIds: new Set(["flow-onboarding"]),
+    };
+    // Unknown on the feature axis — neither `nope` nor `feature-nope` is a member.
+    expect(() =>
+      buildDesiredLabels(
+        { feature: "feature-nope", flows: [], symptom: "crash-error" },
+        catalog,
+        undefined,
+        () => {},
+      ),
+    ).toThrow(LabelValidationError);
+    // Unknown on the flow axis — neither `nope` nor `flow-nope` is a member.
+    expect(() =>
+      buildDesiredLabels(
+        { flows: ["flow-nope"], symptom: "crash-error" },
+        catalog,
+        undefined,
+        () => {},
+      ),
+    ).toThrow(LabelValidationError);
+  });
+});
+
 describe("AC-6 — label-set PUT body shape (clean issue)", () => {
   it("issues exactly ONE PUT with the expected headers + label-add set", async () => {
     const fetchImpl = okFetchSpy();
