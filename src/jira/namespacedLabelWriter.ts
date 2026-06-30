@@ -1,5 +1,14 @@
 import { JiraClientConfig, basicAuthHeader } from "./sync";
-import { NS_FEATURE, NS_FLOW, NS_SYMPTOM, ValidatedLabels } from "./namespacedLabels";
+import {
+  NS_FEATURE,
+  NS_FLOW,
+  NS_SYMPTOM,
+  NS_BUCKET_FEATURE,
+  NS_BUCKET_FLOW,
+  NS_PROV_FEATURE,
+  LABEL_AUTOCREATED,
+  ValidatedLabels,
+} from "./namespacedLabels";
 
 /**
  * OUTWARD-write seam for the bot's namespaced labels (#1322).
@@ -44,13 +53,33 @@ export interface JiraNamespacedLabelWriter {
    * the issue carried no bot labels (empty diff → NO PUT → idempotent re-run /
    * already-clean issue makes zero network calls).
    */
-  unstampLabels(issueKey: string, currentLabels: string[]): Promise<boolean>;
+  unstampLabels(
+    issueKey: string,
+    currentLabels: string[],
+    prefixes?: readonly string[],
+  ): Promise<boolean>;
 }
 
 type LabelOp = { add: string } | { remove: string };
 
-/** The bot's three private namespaces. */
-const NS_PREFIXES = [NS_FEATURE, NS_FLOW, NS_SYMPTOM];
+/**
+ * Every bot-owned namespace the unstamp/peel must cover: the three children, the
+ * two parent buckets (#1387), the provisional-child namespace + the flat
+ * `mb-autocreated` marker (peeled by exact prefix). Human/other labels never
+ * match.
+ */
+const NS_PREFIXES = [
+  NS_FEATURE,
+  NS_FLOW,
+  NS_SYMPTOM,
+  NS_BUCKET_FEATURE,
+  NS_BUCKET_FLOW,
+  NS_PROV_FEATURE,
+  LABEL_AUTOCREATED,
+];
+
+/** ONLY the growth namespaces (#1387) — used by `--peel-provisional`. */
+export const GROWTH_PREFIXES = [NS_PROV_FEATURE, LABEL_AUTOCREATED];
 
 /**
  * Compute the diff-driven REMOVE op list for an UNSTAMP: a `{ remove }` op for
@@ -61,11 +90,14 @@ const NS_PREFIXES = [NS_FEATURE, NS_FLOW, NS_SYMPTOM];
  * op list. Empty result when the issue carries no bot labels (the idempotency
  * short-circuit consumed by the writer → no PUT).
  */
-export function computeUnstampOps(currentLabels: string[]): LabelOp[] {
+export function computeUnstampOps(
+  currentLabels: string[],
+  prefixes: readonly string[] = NS_PREFIXES,
+): LabelOp[] {
   const current = currentLabels ?? [];
   const ops: LabelOp[] = [];
   for (const label of current) {
-    if (NS_PREFIXES.some((prefix) => label.startsWith(prefix))) {
+    if (prefixes.some((prefix) => label.startsWith(prefix))) {
       ops.push({ remove: label });
     }
   }
@@ -78,10 +110,12 @@ export function computeLabelOps(currentLabels: string[], target: ValidatedLabels
   const present = new Set(current);
   const ops: LabelOp[] = [];
 
-  // SINGLE-value namespaces: remove ALL stale, then add target if absent.
+  // SINGLE-value namespaces: remove ALL stale, then add target if absent. The
+  // feature-bucket (#1387) is single-value like the feature child.
   const single: Array<[string, string | undefined]> = [
     [NS_FEATURE, target.feature],
     [NS_SYMPTOM, target.symptom],
+    [NS_BUCKET_FEATURE, target.featureBucket],
   ];
   for (const [prefix, targetLabel] of single) {
     if (!targetLabel) continue;
@@ -93,9 +127,16 @@ export function computeLabelOps(currentLabels: string[], target: ValidatedLabels
     if (!present.has(targetLabel)) ops.push({ add: targetLabel });
   }
 
-  // MULTI-value namespace: add only desired flows not already present.
-  for (const flow of target.flows) {
-    if (!present.has(flow)) ops.push({ add: flow });
+  // MULTI-value namespaces (additive): desired flows, flow-buckets (#1387), and
+  // the TYPED provisional adds (#1387, MED-1: a minted provisional child + its
+  // bucket + the `mb-autocreated` marker — without this loop they would be
+  // computed in `desired` but NEVER written to Jira).
+  const additive = [...target.flows, ...(target.flowBuckets ?? []), ...(target.provisionalAdds ?? [])];
+  for (const label of additive) {
+    if (!present.has(label)) {
+      ops.push({ add: label });
+      present.add(label); // guard against an intra-list duplicate double-add.
+    }
   }
 
   return ops;
@@ -144,11 +185,11 @@ export function buildJiraNamespacedLabelWriter(
       return putLabelOps(issueKey, computeLabelOps(currentLabels, target));
     },
 
-    async unstampLabels(issueKey, currentLabels): Promise<boolean> {
+    async unstampLabels(issueKey, currentLabels, prefixes): Promise<boolean> {
       if (typeof issueKey !== "string" || issueKey.length === 0) {
         throw new TypeError("unstampLabels: issueKey must be a non-empty string");
       }
-      return putLabelOps(issueKey, computeUnstampOps(currentLabels));
+      return putLabelOps(issueKey, computeUnstampOps(currentLabels, prefixes));
     },
   };
 }
