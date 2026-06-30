@@ -30,6 +30,11 @@ export interface AnswerNlQueryDeps {
    * / empty → behaviour unchanged.
    */
   defaultProjects?: string[];
+  /**
+   * #1392 cross-axis-union knob, forwarded to the pure builder. Default `true`
+   * (the recall-restoring union). `false` → legacy pure-AND across axes.
+   */
+  crossAxisUnion?: boolean;
 }
 
 export interface NlQueryResult {
@@ -58,7 +63,9 @@ export async function answerNlQuery(
   const scopedFilter = needsDefault
     ? { ...filter, projects: deps.defaultProjects! }
     : filter;
-  const { jql, warnings } = buildJqlFromFilter(scopedFilter, deps.vocab);
+  const { jql, warnings } = buildJqlFromFilter(scopedFilter, deps.vocab, {
+    crossAxisUnion: deps.crossAxisUnion ?? true,
+  });
   const result: NlQueryResult = { jql, warnings, filter: scopedFilter };
   if (deps.run && deps.search) {
     result.issues = await deps.search.search(jql);

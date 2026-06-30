@@ -22,7 +22,14 @@
  * rejected raw value (mirrors `LabelValidationError` log discipline — PUBLIC repo).
  */
 import { slug } from "../catalog/slug";
-import { labelsInClause, NS_FEATURE, NS_FLOW, NS_SYMPTOM } from "./namespacedLabels";
+import {
+  labelsInClause,
+  NS_BUCKET_FEATURE,
+  NS_BUCKET_FLOW,
+  NS_FEATURE,
+  NS_FLOW,
+  NS_SYMPTOM,
+} from "./namespacedLabels";
 
 /**
  * The structured query the LLM maps an English question to (`nlFilterMapper`),
@@ -115,6 +122,16 @@ export interface LabelVocab {
   featureIds: ReadonlySet<string>;
   /** Catalog flow entry ids (`flow-<slug>`); may be EMPTY today. */
   flowIds: ReadonlySet<string>;
+  /**
+   * OPTIONAL lean feature BUCKET ids (`feature-<slug>`, #1385) — the distinct
+   * family ids the full→lean map points to. When present, a feature-axis slug
+   * that misses the child set but hits a bucket id resolves to an
+   * `mb-bucket-feature-<slug>` family clause. ABSENT/empty → no buckets offered
+   * or accepted (behaviour identical to pre-#1385).
+   */
+  featureBucketIds?: ReadonlySet<string>;
+  /** OPTIONAL lean flow BUCKET ids (`flow-<slug>`, #1385). Same semantics. */
+  flowBucketIds?: ReadonlySet<string>;
 }
 
 /** The builder's deterministic output. */
@@ -127,13 +144,19 @@ export interface JqlBuildResult {
 const DEFAULT_STATUS = "statusCategory != Done";
 
 /**
- * Resolve a feature/flow axis against the catalog. Catalog-conditional:
- *   - EMPTY catalog set → every requested slug PASSES THROUGH as a label + one
- *     "not yet populated" warning (the clause is correct but inert until the
- *     deferred matcher runs).
- *   - NON-EMPTY catalog set → a slug whose `<idPrefix><slug>` id is not in the
- *     set is DROPPED + warned (kills hallucinations); known slugs become labels.
- * Labels emitted are `<labelPrefix><slug>` (e.g. `mb-feature-widget`).
+ * Resolve a feature/flow axis against the catalog (Rule B, #1385). Per slug,
+ * STRICT precedence — child → bucket → child-empty passthrough → drop:
+ *   1. `<idPrefix><slug>` ∈ CHILD set → child label `<labelPrefix><slug>`
+ *      (today's behaviour; precise area query).
+ *   2. else `<idPrefix><slug>` ∈ BUCKET set → family label
+ *      `<bucketLabelPrefix><slug>` (the broad family query #1385 accepts).
+ *   3. else CHILD set EMPTY → passthrough `<labelPrefix><slug>` + one "not yet
+ *      populated" warning (forward-compat — the gate keys off the CHILD set
+ *      ONLY, evaluated AFTER the bucket check, so a populated bucket set never
+ *      suppresses the warning).
+ *   4. else (child set non-empty, no match on either) → DROP + axis-named warn.
+ * Labels emitted are `<labelPrefix><slug>` (e.g. `mb-feature-widget`) or
+ * `<bucketLabelPrefix><slug>` (e.g. `mb-bucket-feature-platform`).
  */
 function resolveCatalogAxis(
   values: readonly string[],
@@ -142,24 +165,28 @@ function resolveCatalogAxis(
   labelPrefix: string,
   axisName: string,
   warnings: string[],
+  bucketIds: ReadonlySet<string> = new Set<string>(),
+  bucketLabelPrefix = "",
 ): string[] {
   const labels: string[] = [];
   let dropped = 0;
+  let passthrough = 0;
   const catalogEmpty = catalogIds.size === 0;
   for (const raw of values) {
     const s = slug(raw ?? "");
     if (s.length === 0) continue;
-    if (catalogEmpty) {
-      labels.push(`${labelPrefix}${s}`);
-      continue;
-    }
     if (catalogIds.has(`${idPrefix}${s}`)) {
-      labels.push(`${labelPrefix}${s}`);
+      labels.push(`${labelPrefix}${s}`); // 1. child (most precise)
+    } else if (bucketIds.has(`${idPrefix}${s}`)) {
+      labels.push(`${bucketLabelPrefix}${s}`); // 2. lean family bucket
+    } else if (catalogEmpty) {
+      labels.push(`${labelPrefix}${s}`); // 3. forward-compat passthrough (child set empty)
+      passthrough++;
     } else {
-      dropped++;
+      dropped++; // 4. unknown on a populated child set → drop
     }
   }
-  if (catalogEmpty && labels.length > 0) {
+  if (passthrough > 0) {
     warnings.push(
       `${axisName} labels not yet populated — this clause matches nothing until the deferred matcher runs.`,
     );
@@ -176,10 +203,25 @@ function resolveCatalogAxis(
  * Composition: `project in (...)` (when projects present) AND each non-empty
  * label axis (feature, then flow, then symptom — within-axis OR via
  * `labels in (...)`, across-axis AND) AND the status clause (last). Pure +
- * referentially transparent: same `(filter, vocab)` → identical `{jql, warnings}`.
+ * referentially transparent: same `(filter, vocab, opts)` → identical
+ * `{jql, warnings}`.
+ *
+ * Rule A — same-concept cross-axis union (#1392, gated by `opts.crossAxisUnion`,
+ * default ON): when ONE named area is double-mapped as a feature CHILD AND a flow
+ * CHILD sharing a byte-identical namespace-stripped stem, the two child labels
+ * merge into ONE `labels in ("mb-feature-<stem>","mb-flow-<stem>")` OR-clause
+ * (recall) instead of being ANDed (silent intersection). Union candidacy is
+ * pinned to the two CHILD namespaces (`mb-feature-`/`mb-flow-`) — bucket/family
+ * labels (`mb-bucket-*`) are NEVER union candidates and ride inside their per-axis
+ * clause. Distinct stems still AND; the symptom axis is never merged.
  */
-export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab): JqlBuildResult {
+export function buildJqlFromFilter(
+  filter: StructuredFilter,
+  vocab: LabelVocab,
+  opts?: { crossAxisUnion?: boolean },
+): JqlBuildResult {
   const warnings: string[] = [];
+  const crossAxisUnion = opts?.crossAxisUnion ?? true;
 
   // --- Symptom axis: HARD validation against the live taxonomy ---
   const symptomLabels: string[] = [];
@@ -197,7 +239,8 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
     warnings.push(`dropped ${droppedSymptoms} unknown symptom value(s) (not in taxonomy).`);
   }
 
-  // --- Feature / flow axes: catalog-conditional (forward-compatible) ---
+  // --- Feature / flow axes: catalog-conditional (forward-compatible) + lean
+  // bucket resolution (Rule B, #1385) ---
   const featureLabels = resolveCatalogAxis(
     filter.features ?? [],
     vocab.featureIds,
@@ -205,6 +248,8 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
     NS_FEATURE,
     "feature",
     warnings,
+    vocab.featureBucketIds ?? new Set<string>(),
+    NS_BUCKET_FEATURE,
   );
   const flowLabels = resolveCatalogAxis(
     filter.flows ?? [],
@@ -213,7 +258,44 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
     NS_FLOW,
     "flow",
     warnings,
+    vocab.flowBucketIds ?? new Set<string>(),
+    NS_BUCKET_FLOW,
   );
+
+  // --- Rule A — same-stem CHILD cross-axis union (#1392) ---
+  // Candidate iff the label begins with a CHILD namespace (`mb-feature-`/
+  // `mb-flow-`); this structurally EXCLUDES `mb-bucket-*` (which begins with
+  // `mb-bucket-`). The stem strips ONLY the matched child prefix. A stem that
+  // appears as a child candidate on BOTH axes merges into one OR-clause.
+  let featureClauseLabels = featureLabels;
+  let flowClauseLabels = flowLabels;
+  const unionClauses: string[] = [];
+  if (crossAxisUnion) {
+    const featureStems = new Map<string, string>(); // stem → child label
+    for (const l of featureLabels) {
+      if (l.startsWith(NS_FEATURE)) featureStems.set(l.slice(NS_FEATURE.length), l);
+    }
+    const flowStems = new Map<string, string>();
+    for (const l of flowLabels) {
+      if (l.startsWith(NS_FLOW)) flowStems.set(l.slice(NS_FLOW.length), l);
+    }
+    const collidingStems = [...featureStems.keys()].filter((s) => flowStems.has(s)).sort();
+    if (collidingStems.length > 0) {
+      const colliding = new Set(collidingStems);
+      // Pull the colliding CHILD labels out of their per-axis clauses; buckets +
+      // non-colliding children stay put.
+      featureClauseLabels = featureLabels.filter(
+        (l) => !(l.startsWith(NS_FEATURE) && colliding.has(l.slice(NS_FEATURE.length))),
+      );
+      flowClauseLabels = flowLabels.filter(
+        (l) => !(l.startsWith(NS_FLOW) && colliding.has(l.slice(NS_FLOW.length))),
+      );
+      // One merged OR-clause per colliding stem, emitted sorted-by-stem.
+      for (const stem of collidingStems) {
+        unionClauses.push(labelsInClause([featureStems.get(stem)!, flowStems.get(stem)!]));
+      }
+    }
+  }
 
   // --- Project clause (prepended) — keys sanitised for injection-safety ---
   const projectKeys = [
@@ -228,13 +310,17 @@ export function buildJqlFromFilter(filter: StructuredFilter, vocab: LabelVocab):
   const priorityFragment = resolveSingleAxis(filter.priority, PRIORITY_FRAGMENTS, "priority", warnings);
   const recencyFragment = resolveSingleAxis(filter.recency, RECENCY_FRAGMENTS, "recency", warnings);
 
-  // --- Assemble: project AND feature AND flow AND symptom AND priority AND recency AND status ---
+  // --- Assemble (deterministic order): project → feature clause (non-colliding
+  // children + all feature buckets) → flow clause (non-colliding children + all
+  // flow buckets) → per-stem child-union clauses (sorted by stem) → symptom →
+  // priority → recency → status ---
   const clauses: string[] = [];
   if (projectKeys.length > 0) {
     clauses.push(`project in (${projectKeys.join(",")})`);
   }
-  if (featureLabels.length > 0) clauses.push(labelsInClause(featureLabels));
-  if (flowLabels.length > 0) clauses.push(labelsInClause(flowLabels));
+  if (featureClauseLabels.length > 0) clauses.push(labelsInClause(featureClauseLabels));
+  if (flowClauseLabels.length > 0) clauses.push(labelsInClause(flowClauseLabels));
+  for (const c of unionClauses) clauses.push(c);
   if (symptomLabels.length > 0) clauses.push(labelsInClause(symptomLabels));
   if (priorityFragment !== null) clauses.push(priorityFragment);
   if (recencyFragment !== null) clauses.push(recencyFragment);

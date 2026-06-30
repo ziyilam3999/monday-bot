@@ -209,6 +209,13 @@ function buildSystemPrompt(vocab: LabelVocab): string {
   const symptoms = [...vocab.symptoms].sort();
   const features = [...vocab.featureIds].map((id) => id.replace(/^feature-/, "")).sort();
   const flows = [...vocab.flowIds].map((id) => id.replace(/^flow-/, "")).sort();
+  // #1385 — lean family/bucket slugs the LLM may ALSO echo (a family name returns
+  // the WHOLE family). Names come from the injected vocab at runtime (PUBLIC repo:
+  // no real bucket names are hardcoded here). Empty/absent → "(none)", a no-op.
+  const featureFamilies = [...(vocab.featureBucketIds ?? [])]
+    .map((id) => id.replace(/^feature-/, ""))
+    .sort();
+  const flowFamilies = [...(vocab.flowBucketIds ?? [])].map((id) => id.replace(/^flow-/, "")).sort();
   return [
     "You translate an English question about software defects into a JSON filter.",
     "Answer with a SINGLE JSON object and NOTHING else (no prose, no code fences).",
@@ -217,7 +224,10 @@ function buildSystemPrompt(vocab: LabelVocab): string {
     `Allowed symptoms: ${symptoms.length > 0 ? symptoms.join(", ") : "(none)"}`,
     "Map generic symptom words to the closest allowed symptom slug — e.g. crash/freeze/hang/error/bug/exception → crash-error; cannot/can't/unable/fails/blocked → cannot-complete; wrong/incorrect/mismatch/duplicate → data-incorrect; missing/blank/empty/not shown → missing-element; layout/button/font/colour/UI → display-ui; navigate/redirect/back button → navigation-flow; slow/lag/delay/timeout → performance.",
     `Allowed features: ${features.length > 0 ? features.join(", ") : "(none)"}`,
+    `Allowed feature families: ${featureFamilies.length > 0 ? featureFamilies.join(", ") : "(none)"}`,
     `Allowed flows: ${flows.length > 0 ? flows.join(", ") : "(none)"}`,
+    `Allowed flow families: ${flowFamilies.length > 0 ? flowFamilies.join(", ") : "(none)"}`,
+    "A family/bucket name on the feature or flow axis returns the WHOLE family — use a family name only when the question names a broad area rather than one specific feature/flow; otherwise prefer the specific name. Do NOT name the SAME concept on both the feature and flow axes — pick the one axis that fits.",
     "projects is a list of UPPERCASE Jira project keys mentioned in the question (e.g. DEMO); empty if none.",
     `priority is exactly ONE token from [${PRIORITY_TOKENS.join(", ")}] when the question implies priority (high priority/critical/urgent); empty string otherwise.`,
     `recency is exactly ONE token from [${RECENCY_TOKENS.join(", ")}] when the question implies a time window (this week/last release/latest); empty string otherwise.`,
