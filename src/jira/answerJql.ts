@@ -34,12 +34,14 @@ import { JqlReply } from "../slack/commands";
  *   seam). Production passes none → a real `buildJqlSearchFetcher` is built.
  * - `fetchImpl` — override the global fetch passed to the real fetcher (tests).
  * - `catalogPath` — override the gitignored catalog path (tests).
+ * - `mapPath` — override the gitignored full→lean map path (#1385, tests).
  */
 export interface BuildAnswerJqlDeps {
   env: NodeJS.ProcessEnv;
   search?: JqlSearchFetcher;
   fetchImpl?: typeof fetch;
   catalogPath?: string;
+  mapPath?: string;
 }
 
 /**
@@ -82,6 +84,45 @@ function loadCatalog(catalogPath?: string): CatalogIdSource {
 }
 
 /**
+ * Read the gitignored full→lean map (#1385) into a flat `parentOf` map
+ * (`fullChildId → leanBucketId`) merged across the `features` + `flows` sections.
+ * Resolved from `process.cwd()` like `loadCatalog`. NEVER throws: an absent or
+ * malformed map yields an EMPTY map, so the lean-vocab feature is a genuine no-op
+ * when the map has not landed (behaviour identical to pre-#1385). Exported for
+ * the zero-I/O unit test seam (the real map is gitignored + runtime-only).
+ */
+export function loadFullToLeanMap(mapPath?: string): Map<string, string> {
+  const resolved =
+    mapPath ?? path.resolve(process.cwd(), ".ai-workspace", "catalog", "full-to-lean-map.json");
+  const out = new Map<string, string>();
+  try {
+    const raw = JSON.parse(fs.readFileSync(resolved, "utf8"));
+    for (const axis of ["features", "flows"] as const) {
+      const section = raw?.[axis];
+      if (section && typeof section === "object") {
+        for (const [childId, leanId] of Object.entries(section)) {
+          if (typeof leanId === "string" && leanId.length > 0) out.set(childId, leanId);
+        }
+      }
+    }
+  } catch {
+    // absent / malformed → empty map (behaviour unchanged). NEVER throws.
+  }
+  return out;
+}
+
+/**
+ * Read an env flag that defaults ON (#1385/#1392 knobs). Any value except `"0"`
+ * / `"false"` (case-insensitive, trimmed) keeps the feature ON; an UNSET flag is
+ * ON. `=0`/`=false` is the explicit kill-switch.
+ */
+function envFlagOn(raw: string | undefined): boolean {
+  if (raw === undefined) return true;
+  const v = raw.trim().toLowerCase();
+  return v !== "0" && v !== "false";
+}
+
+/**
  * Build the production `answerJql(question)` method for the Slack `adminService`.
  *
  * Returns a function that maps an English defect question to JQL and runs ONE
@@ -102,8 +143,16 @@ export function buildAnswerJql(deps: BuildAnswerJqlDeps): (question: string) => 
     // Step 2 — load the gitignored catalog (empty fallback on any error).
     const catalog = loadCatalog(deps.catalogPath);
 
+    // #1385 — full↔lean vocab knob (default ON, genuinely data-gated: no/empty
+    // map ⇒ no buckets ⇒ behaviour identical to today). When OFF, pass NO
+    // parentOf so buckets are neither offered to the LLM nor accepted.
+    const acceptLeanVocab = envFlagOn(deps.env.JQL_ACCEPT_LEAN_VOCAB);
+    const parentOf = acceptLeanVocab ? loadFullToLeanMap(deps.mapPath) : undefined;
+    // #1392 — cross-axis union knob (default ON).
+    const crossAxisUnion = envFlagOn(deps.env.JQL_CROSS_AXIS_UNION);
+
     // Step 3 — compose the seams (engine unchanged).
-    const vocab = buildVocab(catalog);
+    const vocab = buildVocab(catalog, undefined, parentOf);
     const mapper = buildLlmFilterMapper();
     const search =
       deps.search ??
@@ -122,6 +171,7 @@ export function buildAnswerJql(deps: BuildAnswerJqlDeps): (question: string) => 
       search,
       run: true,
       defaultProjects,
+      crossAxisUnion,
     });
 
     // Step 5 — map to the Slack `JqlReply` (drops the debug-only `filter`).

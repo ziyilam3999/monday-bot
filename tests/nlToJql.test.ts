@@ -128,3 +128,39 @@ describe("answerNlQuery — default-project scoping (#1363)", () => {
     expect(original.projects).toEqual([]);
   });
 });
+
+describe("answerNlQuery — crossAxisUnion forwarded to the builder (#1392)", () => {
+  const UNION_VOCAB: LabelVocab = {
+    symptoms: new Set(DEFECT_CATEGORIES),
+    featureIds: new Set(["feature-onboarding"]),
+    flowIds: new Set(["flow-onboarding"]),
+  };
+  const SAME_STEM_FILTER: StructuredFilter = {
+    symptoms: [],
+    features: ["onboarding"],
+    flows: ["onboarding"],
+    projects: [],
+  };
+
+  it("default (crossAxisUnion absent) ⇒ ONE merged union clause in the result JQL", async () => {
+    const result = await answerNlQuery("onboarding issues", {
+      mapper: stubMapper(SAME_STEM_FILTER),
+      vocab: UNION_VOCAB,
+    });
+    expect(result.jql).toContain('labels in ("mb-feature-onboarding","mb-flow-onboarding")');
+    expect(result.jql).not.toContain(
+      'labels in ("mb-feature-onboarding") AND labels in ("mb-flow-onboarding")',
+    );
+  });
+
+  it("crossAxisUnion:false ⇒ the legacy two-AND clauses in the result JQL", async () => {
+    const result = await answerNlQuery("onboarding issues", {
+      mapper: stubMapper(SAME_STEM_FILTER),
+      vocab: UNION_VOCAB,
+      crossAxisUnion: false,
+    });
+    expect(result.jql).toContain(
+      'labels in ("mb-feature-onboarding") AND labels in ("mb-flow-onboarding")',
+    );
+  });
+});
