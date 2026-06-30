@@ -17,6 +17,8 @@ import {
   selectCitedCitations,
   stripStrayAbstainCitations,
   opensWithRefusal,
+  hasOnTopicCoverage,
+  isHowToHedge,
   compactRenumber,
   buildCitations,
   NO_CONTEXT_ANSWER,
@@ -243,6 +245,159 @@ describe("generateAnswer", () => {
         if (prev === undefined) delete process.env.MONDAY_REFUSAL_OPENERS;
         else process.env.MONDAY_REFUSAL_OPENERS = prev;
       }
+    });
+  });
+
+  // #1380 — how-to over-refusal backstop (SECOND refusal class, coverage-gated).
+  // Nested here so it inherits the ANTHROPIC_API_KEY beforeAll/afterAll (without
+  // a key generateAnswer falls to the offline path and never consults the stub).
+  describe("how-to over-refusal backstop", () => {
+    const AnthropicStub = require("@anthropic-ai/sdk");
+
+    afterEach(() => {
+      AnthropicStub.__reset();
+    });
+
+    // High-score on-topic chunks: best chunk >= the 0.35 measured floor, so
+    // hasOnTopicCoverage is TRUE (coverage present).
+    const onTopicChunks: Chunk[] = [
+      {
+        id: "c1",
+        text: "The matching flow selects the nearest available slot then confirms.",
+        source: "mb-flow-overview",
+        heading: "Flow Overview",
+        score: 0.57,
+      },
+      {
+        id: "c2",
+        text: "The selection rules describe how a candidate is chosen.",
+        source: "mb-flow-overview",
+        score: 0.41,
+      },
+    ];
+
+    // All scores BELOW the floor: hasOnTopicCoverage is FALSE (no coverage).
+    const offTopicChunks: Chunk[] = [
+      { id: "d1", text: "Unrelated note about billing exports.", source: "mb-misc", score: 0.2 },
+      { id: "d2", text: "Another off-topic stub.", source: "mb-misc-2", score: 0.18 },
+    ];
+
+    const HEDGE =
+      "Here is what the docs cover, but these describe internal specs, not user-facing steps.";
+
+    test("H1 (POSITIVE): coverage + uncited how-to hedge -> regenerate once, grounded steps", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([
+        HEDGE,
+        "Step 1: open the finder. Step 2: pick the nearest slot. Step 3: confirm [1].",
+      ]);
+      const result = await generateAnswer("How do I find an available slot?", onTopicChunks);
+      expect(result.answer).toContain("Step 1");
+      expect(result.answer).not.toContain("not user-facing steps");
+      expect(result.citations.length).toBeGreaterThanOrEqual(1);
+      expect(AnthropicStub.__getCallCount()).toBe(2);
+    });
+
+    test("H2 (NEGATIVE, coverage gate): low-score chunks + hedge -> still abstains, ZERO regenerate", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([HEDGE]);
+      const result = await generateAnswer("How do I find an available slot?", offTopicChunks);
+      // hasOnTopicCoverage is false -> howToClass never fires -> no 2nd call.
+      expect(AnthropicStub.__getCallCount()).toBe(1);
+      expect(result.citations).toEqual([]);
+      expect(result.answer).toContain("not user-facing steps");
+    });
+
+    test("H3 (NEGATIVE, second hedge -> no fabrication): both responses hedge", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([
+        HEDGE,
+        "Still just backend/internal specs here, no user-facing walkthrough.",
+      ]);
+      const result = await generateAnswer("How do I find an available slot?", onTopicChunks);
+      expect(AnthropicStub.__getCallCount()).toBe(2);
+      expect(result.answer).not.toMatch(/\[\d+\]/);
+      expect(result.citations).toEqual([]);
+    });
+
+    test("H4 (no false regenerate on a GROUNDED answer): cited hedge phrase is not a hedge", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([
+        "The documented process [1] is to pick the nearest slot, rather than a tap-by-tap walkthrough.",
+      ]);
+      const result = await generateAnswer("How do I find an available slot?", onTopicChunks);
+      expect(AnthropicStub.__getCallCount()).toBe(1);
+      expect(result.answer).toContain("[1]");
+      expect(result.citations.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("H5 (kill-switch): MONDAY_HOWTO_BACKSTOP=0 suppresses the how-to regenerate", async () => {
+      const prev = process.env.MONDAY_HOWTO_BACKSTOP;
+      process.env.MONDAY_HOWTO_BACKSTOP = "0";
+      try {
+        AnthropicStub.__reset();
+        AnthropicStub.__setResponses([HEDGE, "grounded steps [1]"]);
+        const result = await generateAnswer("How do I find an available slot?", onTopicChunks);
+        expect(AnthropicStub.__getCallCount()).toBe(1);
+        expect(result.answer).toContain("not user-facing steps");
+      } finally {
+        if (prev === undefined) delete process.env.MONDAY_HOWTO_BACKSTOP;
+        else process.env.MONDAY_HOWTO_BACKSTOP = prev;
+      }
+    });
+
+    test("H6 (detector units): hasOnTopicCoverage + isHowToHedge with overrides", () => {
+      // hasOnTopicCoverage — true when a score >= floor, false when all below.
+      expect(hasOnTopicCoverage(onTopicChunks)).toBe(true);
+      expect(hasOnTopicCoverage(offTopicChunks)).toBe(false);
+      // Back-compat: no numeric scores at all -> "unknown, not blocked" -> true.
+      expect(
+        hasOnTopicCoverage([{ id: "x", text: "t", source: "s" }]),
+      ).toBe(true);
+      // Honors the coverage-floor override.
+      const prevFloor = process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE;
+      try {
+        process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE = "0.9";
+        expect(hasOnTopicCoverage(onTopicChunks)).toBe(false); // 0.57 < 0.9
+        process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE = "0.1";
+        expect(hasOnTopicCoverage(offTopicChunks)).toBe(true); // 0.2 >= 0.1
+      } finally {
+        if (prevFloor === undefined) delete process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE;
+        else process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE = prevFloor;
+      }
+
+      // isHowToHedge — true on uncited hedge, false when same phrase is cited,
+      // false on a clean grounded answer.
+      expect(isHowToHedge("these are internal specs, not user-facing steps")).toBe(true);
+      expect(isHowToHedge("the documented flow [1] is not user-facing steps")).toBe(false);
+      expect(isHowToHedge("Step 1: open the finder. Step 2: confirm.")).toBe(false);
+      // Honors the hedge-phrase override (custom detected, a former default not).
+      const prevPhrases = process.env.MONDAY_HOWTO_HEDGE_PHRASES;
+      try {
+        process.env.MONDAY_HOWTO_HEDGE_PHRASES = "regrettably no walkthrough";
+        expect(isHowToHedge("Regrettably no walkthrough exists.")).toBe(true);
+        expect(isHowToHedge("these are not user-facing steps")).toBe(false);
+      } finally {
+        if (prevPhrases === undefined) delete process.env.MONDAY_HOWTO_HEDGE_PHRASES;
+        else process.env.MONDAY_HOWTO_HEDGE_PHRASES = prevPhrases;
+      }
+    });
+
+    test("H7 (CLASS PRECEDENCE): opener AND hedge co-occur -> #1374 directive wins", async () => {
+      AnthropicStub.__reset();
+      AnthropicStub.__setResponses([
+        "I couldn't find a step-by-step guide; the docs are backend/internal specs, not user-facing steps.",
+        "The documented flow [1] is to pick the nearest slot.",
+      ]);
+      const result = await generateAnswer("How do I find an available slot?", onTopicChunks);
+      expect(AnthropicStub.__getCallCount()).toBe(2);
+      // The 2nd (regenerate) call must carry the #1374 REGEN_DIRECTIVE, NOT the
+      // how-to directive — refusalClass takes precedence.
+      const req = AnthropicStub.__getLastRequest();
+      const sent: string = req.messages[0].content;
+      expect(sent).toContain("even though the product/feature NAME may be absent");
+      expect(sent).not.toContain("SYNTHESIZE the user-facing steps");
+      expect(result.answer).toContain("[1]");
     });
   });
 

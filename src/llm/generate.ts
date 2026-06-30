@@ -17,6 +17,7 @@ export const SYSTEM_PROMPT =
   "This process/spec clause applies ONLY when that passage is genuinely ON-TOPIC and relevant to the exact question asked; a process or spec passage that is about a DIFFERENT topic than the question is NOT grounding for that question — do not cite it, and abstain if nothing on-topic remains. " +
   "SINGLE-PRODUCT KNOWLEDGE BASE: every passage here is about ONE product, so the ABSENCE of the product's or a feature's NAME (a brand or proper-noun) from the passages is MEANINGLESS — a missing brand word does NOT mean the topic is uncovered, and you must NEVER open with \"I couldn't find\" merely because the exact product or feature name from the question is not present verbatim in the passages. Decide grounding ONLY on whether the passages genuinely DESCRIBE THE TOPIC OR FEATURE the question asks about: if any passage describes that topic's mechanism, flow, rules, locations, or plans — even partially, even as a roadmap or backend/spec note — you MUST lead with that documented answer and cite [N], not prepend a hedge, even though the passage never names the product. The ONLY exception is the no-yes-man clamp: a passage that merely mentions or is generally about the product but does NOT address the specific topic asked is NOT grounding — only in that case do you cleanly decline with no citations. This clause removes ONLY proper-noun ABSENCE as a disqualifier; the existing genuinely ON-TOPIC precondition above still governs — it does NOT relax the requirement that the passage be on-topic to the exact question asked. " +
   "TOPIC-COVERED vs TOPIC-ABSENT: decide whether to answer on the QUESTION'S TOPIC, never on whether a product or feature NAME string is present verbatim in the passages. GOOD (topic covered, name absent): the question names a product or feature whose NAME does NOT appear in the passages, but a passage describes that topic's mechanism, flow, rules, locations, or plans — you MUST lead with that documented answer and cite [N]; do NOT open with a refusal merely because the name is missing. BAD (topic covered, wrong opener): opening with \"I couldn't find ...\" just because the named thing is not written verbatim, while a passage describes the asked topic. ABSTAIN only when the TOPIC ITSELF is genuinely absent or off-topic — then decline cleanly with no citations. " +
+  "HOW-TO SYNTHESIS: when the question is phrased as how to / how do I / where do I do or find something, and a passage describes that topic's flow, mechanism, rules, or decision/matching logic — even when framed as a backend/internal/engineering spec rather than a polished tap-by-tap UI tutorial — you MUST translate that documented flow into plain user-facing steps and cite [N]. GOOD (how-to, spec-framed): leading with the synthesized steps drawn from the documented flow [N], noting only afterward that this is the documented process rather than a tap-by-tap walkthrough. BAD (how-to, spec-framed): declining with \"these describe backend/internal specs, not user-facing steps\" (or equivalent) while a passage DOES describe the asked flow. This clause removes ONLY \"framed as internal spec / not a step-by-step tutorial\" as a disqualifier; it does NOT relax the on-topic gate — abstain cleanly with no citations when the topic itself is genuinely absent or off-topic. " +
   "When you abstain, your reply MUST contain NO [N] citation markers at all — never cite a loosely-related passage while saying you couldn't find the answer. " +
   "PREFER DOCS OVER TICKET STUBS: when both narrative/document sources and bare issue-tracker ticket stubs cover the same topic, build your answer from and cite the document/narrative passages, not bare ticket titles. " +
   "PHASED / PLANNED ROLLOUTS: when the relevant doc describes a PLANNED or PHASED rollout or roadmap, answer with what is LIVE now and what is NAMED-planned and cite the doc [N]; do NOT dismiss a roadmap as \"no comprehensive list.\" " +
@@ -55,6 +56,50 @@ const DEFAULT_REFUSAL_OPENERS = [
  */
 const REGEN_DIRECTIVE =
   "Re-examine the passages above. IF any passage describes the TOPIC of the question — its mechanism, flow, rules, locations, or plans — even though the product/feature NAME may be absent, then lead with that documented answer and cite it [N], and note any gap only afterward. IF the passages genuinely do NOT address the asked topic, abstain plainly with no citations. Never state facts that are not in the passages.";
+
+/**
+ * #1380 — how-to over-refusal backstop (SECOND refusal class).
+ *
+ * The #1374 backstop catches the START-ANCHORED not-found opener. This class is
+ * the BODY-POSITION how-to hedge: the model leads with content, then declines in
+ * the body ("…these are backend/internal specs, not user-facing steps"). That is
+ * NOT start-anchored, so `opensWithRefusal` misses it.
+ *
+ * Default phrase set the model tends to hedge with (generic + name-free).
+ * Configurable via `MONDAY_HOWTO_HEDGE_PHRASES` (comma-separated; trimmed;
+ * empties dropped; a non-empty parse REPLACES the defaults — identical semantics
+ * to `refusalOpeners()`). Per the no-magic-string rule: data, not inline literals.
+ */
+const DEFAULT_HOWTO_HEDGE_PHRASES = [
+  "not user-facing steps",
+  "not user-facing instructions",
+  "backend/internal specs",
+  "internal spec",
+  "no step-by-step",
+  "not a step-by-step",
+  "don't include step-by-step",
+  "no user-facing",
+];
+
+/**
+ * #1380 — coverage-floor default. DERIVED from the Step-0 retrieval probe on the
+ * real corpus (NOT a guess): the on-topic symptom passage scored cosine 0.5679
+ * in final topK, while a genuinely off-topic control query's best chunk scored
+ * 0.1989. 0.35 sits comfortably between them (margin 0.15 above the off-topic
+ * control, 0.22 below the on-topic passage) — it separates "retrieved genuinely
+ * on-topic material" from "retrieved nothing relevant," it does NOT re-rank.
+ * Override via `MONDAY_HOWTO_COVERAGE_MIN_SCORE`.
+ */
+const DEFAULT_HOWTO_COVERAGE_MIN_SCORE = 0.35;
+
+/**
+ * Firmer, CONDITIONAL retry directive for the how-to hedge class. Like
+ * `REGEN_DIRECTIVE` it must NOT order the model to "answer anyway": if the
+ * passages genuinely do not address the topic it abstains plainly. It only
+ * corrects the "framed as an internal spec, so I can't give steps" brush-off.
+ */
+const HOWTO_REGEN_DIRECTIVE =
+  "Re-examine the passages. IF any passage describes how the asked thing works — its flow, mechanism, rules, or decision/matching logic — even if it reads as an internal/engineering spec rather than a tap-by-tap tutorial, then SYNTHESIZE the user-facing steps from that documented flow and cite [N]; do not refuse merely because it is framed as an internal spec. IF the passages genuinely do NOT address the asked topic, abstain plainly with no citations. Never state steps that are not supported by the passages.";
 
 /**
  * Normalize a string for refusal-opener comparison: fold every apostrophe
@@ -99,6 +144,84 @@ export function opensWithRefusal(answer: string): boolean {
 /** Kill-switch: `MONDAY_REFUSAL_BACKSTOP="0"` disables the regenerate step. */
 function backstopEnabled(): boolean {
   return process.env.MONDAY_REFUSAL_BACKSTOP !== "0";
+}
+
+/**
+ * #1380 granular kill-switch: `MONDAY_HOWTO_BACKSTOP="0"` disables ONLY the
+ * how-to hedge class, leaving the #1374 opener class intact. Default ON.
+ */
+function howToBackstopEnabled(): boolean {
+  return process.env.MONDAY_HOWTO_BACKSTOP !== "0";
+}
+
+/**
+ * #1380 — resolve the active how-to-hedge phrase set. `MONDAY_HOWTO_HEDGE_PHRASES`
+ * (when set and non-empty after parsing) fully REPLACES the defaults; otherwise
+ * the defaults apply. Side-effect-free so it can be re-read per call.
+ */
+function howToHedgePhrases(): string[] {
+  const raw = process.env.MONDAY_HOWTO_HEDGE_PHRASES;
+  if (!raw) return DEFAULT_HOWTO_HEDGE_PHRASES;
+  const parsed = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return parsed.length > 0 ? parsed : DEFAULT_HOWTO_HEDGE_PHRASES;
+}
+
+/**
+ * #1380 — resolve the coverage-floor score. Reads
+ * `MONDAY_HOWTO_COVERAGE_MIN_SCORE`; a finite-number override wins, anything
+ * non-finite (unset / NaN / empty) falls back to the measured baked default.
+ */
+function coverageMinScore(): number {
+  const raw = process.env.MONDAY_HOWTO_COVERAGE_MIN_SCORE;
+  if (raw === undefined) return DEFAULT_HOWTO_COVERAGE_MIN_SCORE;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : DEFAULT_HOWTO_COVERAGE_MIN_SCORE;
+}
+
+/**
+ * #1380 — retrieval-coverage SIGNAL. True iff the retrieval surfaced genuinely
+ * on-topic material, used to GATE the how-to regenerate so a TRUE off-topic
+ * abstain can never be silently loosened.
+ *
+ * - true iff at least one chunk carries a numeric `score >= coverageMinScore()`.
+ * - `score` is the cosine similarity threaded by `service.ts → toLlmChunk`
+ *   (stays cosine even with rerank/docPrior — those reorder, never overwrite it).
+ * - Score-absent fallback (back-compat): if NO chunk carries a numeric `score`
+ *   at all (e.g. score-less unit chunks or a future caller), return `true` —
+ *   coverage is "unknown, not blocked," so the conditional directive remains the
+ *   guard. Production always carries scores, so the gate is real where it matters.
+ */
+export function hasOnTopicCoverage(chunks: Chunk[]): boolean {
+  if (!Array.isArray(chunks) || chunks.length === 0) return false;
+  const floor = coverageMinScore();
+  let sawScore = false;
+  for (const c of chunks) {
+    if (typeof c?.score === "number" && Number.isFinite(c.score)) {
+      sawScore = true;
+      if (c.score >= floor) return true;
+    }
+  }
+  // No numeric score anywhere -> "unknown, not blocked".
+  return sawScore ? false : true;
+}
+
+/**
+ * #1380 — how-to NON-STEP refusal detector. True iff `text` (a) contains
+ * (case-insensitive, substring) any configured how-to-hedge phrase, AND (b)
+ * carries NO `[N]` citation marker. The "no `[N]`" condition is load-bearing: it
+ * distinguishes the BAD uncited brush-off ("…not user-facing steps", no citation)
+ * from the GOOD grounded answer the prompt ENCOURAGES ("the documented process
+ * [1] … rather than a tap-by-tap walkthrough", which IS cited) — so an
+ * already-grounded answer never trips an extra regenerate.
+ */
+export function isHowToHedge(text: string): boolean {
+  if (typeof text !== "string" || text.length === 0) return false;
+  if (/\[\d+\]/.test(text)) return false; // cited -> already grounded, not a hedge
+  const lower = text.toLowerCase();
+  return howToHedgePhrases().some((p) => lower.includes(p.toLowerCase()));
 }
 
 /**
@@ -347,18 +470,29 @@ export async function generateAnswer(
 
   let text = await callModel(client, userContent);
 
-  // #1374b backstop: chunks ARE present, but the model still OPENED with a
-  // configured refusal phrase — a likely proper-noun-absence over-refusal.
-  // Regenerate ONCE at temperature 0 with the firmer CONDITIONAL directive
-  // (gated on the kill-switch). We never fabricate: a still-refusing retry is
-  // accepted as-is, and its citations end empty without invented content.
+  // Two-class regenerate backstop. Class 1 (#1374b): chunks present, but the
+  // model OPENED with a configured refusal phrase — a likely proper-noun-absence
+  // over-refusal. Class 2 (#1380): chunks present AND retrieval has on-topic
+  // coverage (score gate) AND the model led with content but hedged in the body
+  // ("…internal specs, not user-facing steps") WITHOUT citing — the how-to
+  // non-step brush-off. `refusalClass` takes PRECEDENCE: an answer that BOTH
+  // opens with a refusal AND carries a how-to hedge routes through the #1374
+  // directive (the `howToClass` term is `!refusalClass && …`), keeping the #1374
+  // path byte-identical. The coverage gate is what makes loosening safe: a
+  // genuinely off-topic (low-score) retrieval has no coverage, so the how-to
+  // class never fires and the model's refusal stands. Regenerate ONCE at
+  // temperature 0 with the matching CONDITIONAL directive; never fabricate.
+  const refusalClass = opensWithRefusal(text);
+  const howToClass =
+    !refusalClass && hasOnTopicCoverage(chunks) && isHowToHedge(text);
   if (
     text.length > 0 &&
     chunks.length > 0 &&
     backstopEnabled() &&
-    opensWithRefusal(text)
+    (refusalClass || (howToClass && howToBackstopEnabled()))
   ) {
-    const harderContent = `${userContent}\n\n${REGEN_DIRECTIVE}`;
+    const directive = howToClass ? HOWTO_REGEN_DIRECTIVE : REGEN_DIRECTIVE;
+    const harderContent = `${userContent}\n\n${directive}`;
     const retry = await callModel(client, harderContent);
     if (retry.length > 0) text = retry;
   }
