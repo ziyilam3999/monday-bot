@@ -139,8 +139,10 @@ export function hasHowToActionIntent(question: string): boolean {
   if (typeof question !== "string") return false;
   const s = question.toLowerCase();
   // Exclude the greeting / state-of-being "how are/is/was…" (chit-chat control).
-  if (/\bhow\s+(are|is|was|were|'?s)\b/.test(s)) return false;
-  if (/\bhow\s+to\b/.test(s)) return true; //                "how to X"
-  if (/\bhow\s+(do|can|does|could|should)\b/.test(s)) return true; // "how do I X"
+  // Hyphen-tolerant separator, plus an optional "to" bridge so a hyphenated or
+  // spaced "how[- ]to are/is/was…" reads as small-talk, NOT how-to-action.
+  if (/\bhow[-\s]+(to[-\s]+)?(are|is|was|were|'?s)\b/.test(s)) return false;
+  if (/\bhow[-\s]*to\b/.test(s)) return true; //             "how to / how-to / howto X"
+  if (/\bhow[-\s]+(do|can|does|could|should)\b/.test(s)) return true; // "how[- ]do I X"
   return false;
 }
