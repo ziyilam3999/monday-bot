@@ -80,4 +80,14 @@ describe("SYSTEM_PROMPT integrity", () => {
     expect(SYSTEM_PROMPT).toMatch(/GOOD \(topic covered/);
     expect(SYSTEM_PROMPT).toMatch(/BAD \(topic covered/);
   });
+
+  // #1380 — how-to synthesis clause (SECONDARY reinforcement for the body-position
+  // how-to hedge class). Marker + GOOD cue + BAD cue must survive a reword.
+  it("adds the HOW-TO SYNTHESIS clause with GOOD/BAD cues (#1380)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/HOW-TO SYNTHESIS/);
+    expect(SYSTEM_PROMPT).toMatch(/GOOD \(how-to, spec-framed\)/);
+    expect(SYSTEM_PROMPT).toMatch(/BAD \(how-to, spec-framed\)/);
+    // It must NOT relax the on-topic gate.
+    expect(SYSTEM_PROMPT).toMatch(/does NOT relax the on-topic gate/);
+  });
 });

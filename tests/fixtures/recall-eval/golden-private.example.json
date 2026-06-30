@@ -48,6 +48,20 @@
       "groundTruthSource": null,
       "expect": "clean-non-doc-reply",
       "_note": "#1195 BORDERLINE abstain control: a plausible-sounding how-to question that retrieves a tangentially-related process/spec passage but is NOT actually answerable from the corpus. The bot must still cleanly decline (0 citations). This is the over-grounding case the process-doc grounding clause could regress, so it joins the clean-decline control gate."
+    },
+    {
+      "id": "Q8",
+      "question": "synthetic how-to placeholder question with a spec-framed answer doc",
+      "groundTruthSource": "confluence:example-flow-overview",
+      "expect": "grounded",
+      "_note": "#1380 HOW-TO POSITIVE: a how-to-phrased question whose pinned source is a flow/spec doc framed as an internal spec rather than a tap-by-tap tutorial. The bot must SYNTHESIZE user-facing steps from the documented flow and cite the doc (grounded, not abstain). This is the case the how-to backstop now answers."
+    },
+    {
+      "id": "Q9",
+      "question": "synthetic how-to placeholder question with nothing on-topic in the corpus",
+      "groundTruthSource": null,
+      "expect": "clean-non-doc-reply",
+      "_note": "#1380 HOW-TO NEGATIVE / true-abstain control: a how-to-phrased question that retrieves nothing on-topic (all chunks below the coverage floor). The coverage gate must keep the how-to backstop from firing, so the bot still cleanly declines (0 citations)."
     }
   ]
 }
