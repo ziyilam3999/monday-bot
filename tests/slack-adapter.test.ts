@@ -455,3 +455,177 @@ describe("slack/adapter — start/stop", () => {
     expect(fakeApp._stopped).toBe(true);
   });
 });
+
+describe("slack/adapter — label-aware /ask augment (#1386)", () => {
+  type Block = { type: string; text?: { text: string } };
+
+  /** Abstain knowledge service: citation-free NO_CONTEXT-style answer. */
+  function abstainKnowledge(): AnswerProvider & { calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      async query(question: string) {
+        calls.push(question);
+        return {
+          answer: "I could not find anything about that in the indexed docs.",
+          citations: [],
+        };
+      },
+    };
+  }
+
+  const DEFECTS = [
+    { key: "DEMO-1", summary: "synthetic crash" },
+    { key: "DEMO-2", summary: "another synthetic issue" },
+  ];
+  const augmentReturning = (issues = DEFECTS) => async () => ({ jql: "JQL-X", issues });
+
+  /** Capture the blocks an /ask reply produced for a given adapter + question. */
+  async function askBlocks(adapter: SlackAdapter, text: string): Promise<Block[]> {
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerCommand(name: string, cmd: unknown): Promise<void>;
+      _respondMessages: Array<{ blocks?: Block[]; text: string }>;
+    };
+    await fakeApp._triggerCommand("/ask", { text });
+    return fakeApp._respondMessages[fakeApp._respondMessages.length - 1].blocks ?? [];
+  }
+
+  it("citation-numbering-unperturbed: doc blocks are a byte-identical PREFIX, defects appended at END", async () => {
+    const question = "tell me about the widget";
+    // Reference: same adapter WITHOUT askAugment.
+    const refBlocks = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: fakeKnowledge(),
+      }),
+      question,
+    );
+
+    const withAug = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: fakeKnowledge(),
+        askAugment: augmentReturning(),
+      }),
+      question,
+    );
+
+    // The doc answer + citation list are an UNCHANGED prefix.
+    expect(withAug.slice(0, refBlocks.length)).toEqual(refBlocks);
+    // The defects ride at the END: divider + section.
+    const appended = withAug.slice(refBlocks.length);
+    expect(appended[0]).toEqual({ type: "divider" });
+    expect(appended[1].type).toBe("section");
+    expect(appended[1].text!.text).toContain("Related tracked defects");
+    expect(appended[1].text!.text).toContain("• DEMO-1 — synthetic crash");
+    // The citation marker [1] survives untouched in the prefix.
+    const joined = refBlocks.map((b) => b.text?.text ?? "").join("\n");
+    expect(joined).toMatch(/\[1\]/);
+  });
+
+  it("no askAugment ⇒ identical-to-today reply blocks", async () => {
+    const question = "tell me about the widget";
+    const a = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: fakeKnowledge(),
+      }),
+      question,
+    );
+    // No divider/section beyond the doc answer + citation context.
+    expect(a.filter((b) => b.text?.text?.includes("Related tracked defects"))).toHaveLength(0);
+  });
+
+  it("augment throws/returns null ⇒ reply unchanged (no crash, no extra blocks)", async () => {
+    const question = "tell me about the widget";
+    const refBlocks = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: fakeKnowledge(),
+      }),
+      question,
+    );
+    const thrown = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: fakeKnowledge(),
+        askAugment: async () => {
+          throw new Error("augment boom");
+        },
+      }),
+      question,
+    );
+    expect(thrown).toEqual(refBlocks);
+  });
+
+  it("abstain-still-clean (no area): abstain payload unchanged, no defects section", async () => {
+    const blocks = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: abstainKnowledge(),
+        askAugment: async () => null,
+      }),
+      "something totally unknown",
+    );
+    // Citation-free abstain: a single section, no divider, no defects.
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("section");
+    expect(blocks[0].text!.text).not.toContain("Related tracked defects");
+    expect(blocks.map((b) => b.text?.text ?? "").join("\n")).not.toMatch(/\[\d+\]/);
+  });
+
+  it("R3 — abstain-but-area-matched surfaces defects (abstain text UNCHANGED, marker-free)", async () => {
+    const ks = abstainKnowledge();
+    const refBlocks = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: abstainKnowledge(),
+      }),
+      "tell me about the widget",
+    );
+    const blocks = await askBlocks(
+      new SlackAdapter({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        knowledgeService: ks,
+        askAugment: augmentReturning(),
+      }),
+      "tell me about the widget",
+    );
+    // The abstain blocks are an UNCHANGED prefix (still citation-free).
+    expect(blocks.slice(0, refBlocks.length)).toEqual(refBlocks);
+    expect(refBlocks.map((b) => b.text?.text ?? "").join("\n")).not.toMatch(/\[\d+\]/);
+    // Defects ARE appended on the doc-abstain.
+    const appended = blocks.slice(refBlocks.length);
+    expect(appended[0]).toEqual({ type: "divider" });
+    expect(appended[1].text!.text).toContain("Related tracked defects");
+  });
+
+  it("app_mention DOC branch also appends the defects section", async () => {
+    const adapter = new SlackAdapter({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      knowledgeService: fakeKnowledge(),
+      askAugment: augmentReturning(),
+    });
+    const fakeApp = adapter._getApp() as unknown as {
+      _triggerEvent(name: string, ev: unknown): Promise<void>;
+      _postMessages: Array<{ blocks?: Block[] }>;
+    };
+    await fakeApp._triggerEvent("app_mention", {
+      text: "<@U12345> tell me about the widget",
+      channel: "C123",
+      ts: "1700000000.000900",
+    });
+    const blocks = fakeApp._postMessages[0].blocks ?? [];
+    const hasDefects = blocks.some((b) => b.text?.text?.includes("Related tracked defects"));
+    expect(hasDefects).toBe(true);
+  });
+});

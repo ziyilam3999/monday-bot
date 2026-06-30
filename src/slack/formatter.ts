@@ -211,3 +211,55 @@ export function formatAnswer(input: FormatAnswerInput): SlackMessagePayload {
     text: truncate(answer.length > 0 ? answer : "(no answer)", 1000),
   };
 }
+
+/** A single tracked defect surfaced under a label-aware `/ask` answer (#1386). */
+export interface AskDefectIssue {
+  key: string;
+  summary?: string;
+}
+
+/**
+ * PURE formatter for the label-aware `/ask` defects block (#1386). Renders the
+ * tagged-Jira defects an `/ask` question's named area resolved to, as blocks
+ * APPENDED after the cited doc answer — so it NEVER perturbs the citation
+ * numbering (`[1]…[N]`) or the abstain/refusal logic upstream.
+ *
+ * Layout (only when there are issues):
+ *   1. Divider (separates the defects from the doc answer + citation list).
+ *   2. Section block — `*Related tracked defects:*` followed by up to `max`
+ *      `• KEY — summary` bullet lines, plus a trailing `…and N more` line when the
+ *      matched issue count exceeds `max`.
+ *
+ * Emits NO `[N]` citation markers anywhere. Returns `[]` for empty/missing issues
+ * (so no empty "Related defects" block is ever appended).
+ */
+export function formatAskDefectsBlocks(
+  reply: { issues?: AskDefectIssue[] } | null | undefined,
+  max: number = 5,
+): SlackBlock[] {
+  const issues = reply && Array.isArray(reply.issues) ? reply.issues : [];
+  if (issues.length === 0) return [];
+
+  const cap = Number.isFinite(max) && max >= 1 ? Math.floor(max) : issues.length;
+  const shown = issues.slice(0, cap);
+  const lines = shown.map((it) => {
+    const key = sanitizeTitle(it.key ?? "");
+    const summary =
+      typeof it.summary === "string" && it.summary.length > 0
+        ? ` — ${sanitizeTitle(it.summary)}`
+        : "";
+    return `• ${key}${summary}`;
+  });
+
+  const overflow = issues.length - shown.length;
+  const bodyLines = ["*Related tracked defects:*", ...lines];
+  if (overflow > 0) bodyLines.push(`…and ${overflow} more`);
+
+  return [
+    { type: "divider" },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: truncate(bodyLines.join("\n"), MAX_SECTION_TEXT) },
+    },
+  ];
+}

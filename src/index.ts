@@ -15,6 +15,7 @@ import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
 import { AdminService } from "./slack/commands";
 import { buildAnswerJql } from "./jira/answerJql";
+import { buildAskJiraAugment } from "./jira/askAreaAugment";
 
 export interface RunMondayOptions {
   /** Override Bolt App factory (jest tests + AC-06 shell-spawn path). */
@@ -263,6 +264,11 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
       knowledgeService: knowledge,
       adminService,
       appFactory,
+      // #1386 — label-aware /ask. Built once at startup like buildAnswerJql, but
+      // caches NOTHING data-gated: the returned closure re-reads the catalog +
+      // rebuilds the vocab on EVERY /ask, so label-awareness activates with no
+      // restart the moment the catalog lands (in lockstep with /jql).
+      askAugment: buildAskJiraAugment({ env: process.env }),
     });
   } catch (err) {
     return handleStartupError(err);

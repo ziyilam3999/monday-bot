@@ -1,5 +1,7 @@
 import { App, LogLevel } from "@slack/bolt";
 import { handleQuery } from "./queryHandler";
+import { formatAskDefectsBlocks } from "./formatter";
+import { AskAugmentResult, parseAskDefectsMax } from "../jira/askAreaAugment";
 import {
   AdminService,
   statusCommand,
@@ -43,6 +45,15 @@ export interface SlackAdapterOptions {
   appFactory?: AppFactory;
   /** Optional log level. Defaults to LogLevel.INFO. */
   logLevel?: LogLevel;
+  /**
+   * Optional label-aware `/ask` augment (#1386). When present, an `/ask` (or
+   * app_mention DOC-branch) question that names a known feature/flow area ALSO
+   * surfaces that area's tagged Jira defects, appended AFTER the cited doc answer.
+   * ABSENCE = today's behaviour (no defects block ever). NEVER perturbs the doc
+   * answer's citations or abstain logic — the augment only appends blocks, and a
+   * thrown/`null` augment leaves the reply unchanged.
+   */
+  askAugment?: (question: string) => Promise<AskAugmentResult | null>;
 }
 
 export type AppFactory = (opts: ConstructorParameters<typeof App>[0]) => App;
@@ -68,6 +79,7 @@ export class SlackAdapter {
   private readonly appToken: string;
   private readonly knowledgeService: AnswerProvider;
   private readonly adminService: AdminService;
+  private readonly askAugment?: (question: string) => Promise<AskAugmentResult | null>;
   private readonly app: App;
 
   constructor(opts: SlackAdapterOptions) {
@@ -97,6 +109,9 @@ export class SlackAdapter {
     // KnowledgeService's getStatus()), use it for /status-monday. Otherwise the admin
     // surface is empty and individual handlers degrade to "not configured".
     this.adminService = opts.adminService ?? (opts.knowledgeService as unknown as AdminService);
+    // #1386 — optional label-aware augment. Absent ⇒ today's behaviour (the
+    // augment is never invoked, no defects block ever appended).
+    this.askAugment = opts.askAugment;
 
     const factory: AppFactory = opts.appFactory ?? ((appOpts) => new App(appOpts));
     this.app = factory({
@@ -153,12 +168,23 @@ export class SlackAdapter {
           });
         } else {
           // handleQuery centralises the success/error split — never throws.
-          const payload = await handleQuery(question, this.knowledgeService);
+          // #1386 — run the label-aware augment CONCURRENTLY (no added latency);
+          // a thrown/null augment degrades to today's doc-only reply.
+          const [payload, augment] = await Promise.all([
+            handleQuery(question, this.knowledgeService),
+            this.askAugment ? this.askAugment(question).catch(() => null) : Promise.resolve(null),
+          ]);
+          const blocks = augment
+            ? [
+                ...(payload.blocks ?? []),
+                ...formatAskDefectsBlocks(augment, parseAskDefectsMax(process.env.ASK_DEFECTS_MAX)),
+              ]
+            : payload.blocks;
           await client?.chat?.postMessage?.({
             channel,
             thread_ts: threadTs,
             text: payload.text,
-            blocks: payload.blocks,
+            blocks,
           });
         }
       } catch (err) {
@@ -197,11 +223,22 @@ export class SlackAdapter {
       }
       try {
         // handleQuery centralises the success/error split — never throws.
-        const payload = await handleQuery(question, this.knowledgeService);
+        // #1386 — run the label-aware augment CONCURRENTLY (no added latency);
+        // a thrown/null augment degrades to today's doc-only reply.
+        const [payload, augment] = await Promise.all([
+          handleQuery(question, this.knowledgeService),
+          this.askAugment ? this.askAugment(question).catch(() => null) : Promise.resolve(null),
+        ]);
+        const blocks = augment
+          ? [
+              ...(payload.blocks ?? []),
+              ...formatAskDefectsBlocks(augment, parseAskDefectsMax(process.env.ASK_DEFECTS_MAX)),
+            ]
+          : payload.blocks;
         await respond?.({
           response_type: "ephemeral",
           text: payload.text,
-          blocks: payload.blocks,
+          blocks,
         });
       } catch (err) {
         // Should only fire if the Slack respond() call itself fails.
