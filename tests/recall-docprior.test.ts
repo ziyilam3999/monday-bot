@@ -41,14 +41,23 @@ describe("hasHowToActionIntent — tightened classifier (correction #2)", () => 
     expect(hasHowToActionIntent("how does the matching feature work")).toBe(true);
   });
 
+  it("FIRES on the hyphenated / solid spelling of how-to", () => {
+    expect(hasHowToActionIntent("how-to reserve a slot")).toBe(true); // hyphen compound
+    expect(hasHowToActionIntent("howto find a spot")).toBe(true); //     solid compound
+    expect(hasHowToActionIntent("how-do I book a desk")).toBe(true); //  hyphenated verb clause
+  });
+
   it("does NOT fire on the greeting control", () => {
     expect(hasHowToActionIntent("how are you today")).toBe(false);
+    expect(hasHowToActionIntent("how-are you")).toBe(false); //  hyphenated greeting
+    expect(hasHowToActionIntent("how-to are you")).toBe(false); // to-bridge in the exclusion
   });
 
   it("does NOT fire on capacity / frequency / pricing 'how' questions (dropped loose clause)", () => {
     // These false-fired under the plan's anywhere-in-sentence clause 3, which was
     // DROPPED — their answers may live in a ticket, so the doc boost must NOT run.
     expect(hasHowToActionIntent("how many people can I add to a team")).toBe(false);
+    expect(hasHowToActionIntent("how-many people can I add")).toBe(false); // hyphenated quantity
     expect(hasHowToActionIntent("how often do I get billed")).toBe(false);
     expect(hasHowToActionIntent("how much does it cost to book")).toBe(false);
   });
