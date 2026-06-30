@@ -1,3 +1,10 @@
+## [0.15.0](https://github.com/ziyilam3999/monday-bot/compare/v0.14.0...v0.15.0) (2026-06-30)
+
+### Bug Fixes
+
+- fix: /jql cross-axis child-stem union + full/lean vocab — same-named area across feature+flow axes now ORs instead of over-constraining; accepts both full and lean vocabulary (#1392, #1385) (#260)
+- fix: /ask how-to intent classifier tolerates hyphen/glued spelling — "how-to"/"howto" now answer like "how to" (#1393) (#259)
+
 ## [0.14.0](https://github.com/ziyilam3999/monday-bot/compare/v0.13.0...v0.14.0) (2026-06-30)
 
 ### Features
