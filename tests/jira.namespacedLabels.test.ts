@@ -9,6 +9,169 @@ import {
 import { buildJiraNamespacedLabelWriter } from "../src/jira/namespacedLabelWriter";
 import { DEFECT_CATEGORIES } from "../src/triage/categorizeDefect";
 
+/** #1387 — DUAL labels (child + parent bucket) + PARTIAL validation. */
+describe("#1387 — DUAL child+parent bucket labels", () => {
+  const PARENT_OF = new Map<string, string>([
+    ["feature-widget", "feature-tools"],
+    ["flow-onboarding", "flow-account"],
+  ]);
+  const CATALOG: LabelCatalog = {
+    featureIds: new Set(["feature-widget"]),
+    flowIds: new Set(["flow-onboarding"]),
+    parentOf: PARENT_OF,
+  };
+
+  it("#1 happy path: child + parent bucket on BOTH axes + symptom", () => {
+    const v = buildDesiredLabels(
+      { feature: "feature-widget", flows: ["flow-onboarding"], symptom: "crash-error" },
+      CATALOG,
+      undefined,
+      () => {},
+    );
+    expect(v.desired).toEqual(
+      expect.arrayContaining([
+        "mb-feature-widget",
+        "mb-bucket-feature-tools",
+        "mb-flow-onboarding",
+        "mb-bucket-flow-account",
+        "mb-symptom-crash-error",
+      ]),
+    );
+    expect(v.featureBucket).toBe("mb-bucket-feature-tools");
+    expect(v.flowBuckets).toEqual(["mb-bucket-flow-account"]);
+  });
+
+  it("#2 child with no map entry → child present, NO bucket, no throw, axis-only log", () => {
+    const logs: string[] = [];
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-orphan"]),
+      flowIds: new Set(),
+      parentOf: new Map(), // feature-orphan absent from the map.
+    };
+    const v = buildDesiredLabels(
+      { feature: "feature-orphan", flows: [], symptom: "crash-error" },
+      catalog,
+      undefined,
+      (m) => logs.push(m),
+    );
+    expect(v.feature).toBe("mb-feature-orphan");
+    expect(v.featureBucket).toBeUndefined();
+    expect(v.desired.some((l) => l.startsWith("mb-bucket-"))).toBe(false);
+    expect(logs.some((l) => l.includes("no parent-bucket mapping"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("orphan");
+  });
+
+  it("#3 two flows → same bucket de-duped to exactly one", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(),
+      flowIds: new Set(["flow-a", "flow-b"]),
+      parentOf: new Map([
+        ["flow-a", "flow-shared"],
+        ["flow-b", "flow-shared"],
+      ]),
+    };
+    const v = buildDesiredLabels(
+      { flows: ["flow-a", "flow-b"], symptom: "crash-error" },
+      catalog,
+      undefined,
+      () => {},
+    );
+    const buckets = v.desired.filter((l) => l === "mb-bucket-flow-shared");
+    expect(buckets).toEqual(["mb-bucket-flow-shared"]);
+    expect(v.flowBuckets).toEqual(["mb-bucket-flow-shared"]);
+  });
+
+  it("#7 backward-compat: NO parentOf → child + symptom only (no bucket)", () => {
+    const catalog: LabelCatalog = {
+      featureIds: new Set(["feature-widget"]),
+      flowIds: new Set(["flow-onboarding"]),
+    };
+    const v = buildDesiredLabels(
+      { feature: "feature-widget", flows: ["flow-onboarding"], symptom: "crash-error" },
+      catalog,
+      undefined,
+      () => {},
+    );
+    expect(v.desired.some((l) => l.startsWith("mb-bucket-"))).toBe(false);
+    expect(v.featureBucket).toBeUndefined();
+    expect(v.flowBuckets).toEqual([]);
+  });
+});
+
+describe("#1387 — PARTIAL validation (keep valid, drop invalid; all-invalid still throws)", () => {
+  const CATALOG: LabelCatalog = {
+    featureIds: new Set(["feature-widget"]),
+    flowIds: new Set(["flow-onboarding"]),
+  };
+
+  it("#4 GOLDEN partial-keep: bad feature dropped, valid flow kept, no throw", () => {
+    const logs: string[] = [];
+    const v = buildDesiredLabels(
+      { feature: "feature-nope", flows: ["flow-onboarding"], symptom: "crash-error" },
+      CATALOG,
+      undefined,
+      (m) => logs.push(m),
+    );
+    expect(v.feature).toBeUndefined();
+    expect(v.flows).toEqual(["mb-flow-onboarding"]);
+    expect(v.droppedCount).toBe(1);
+    expect(v.desired).toContain("mb-symptom-crash-error");
+    // Log names only the axis, never the supplied value.
+    expect(logs.some((l) => l.includes("dropped invalid feature"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("nope");
+  });
+
+  it("#5 GOLDEN all-invalid: every supplied member invalid → throws (guard NOT weakened)", () => {
+    const logs: string[] = [];
+    expect(() =>
+      buildDesiredLabels(
+        { feature: "feature-nope", flows: ["flow-nope"], symptom: "crash-error" },
+        CATALOG,
+        undefined,
+        (m) => logs.push(m),
+      ),
+    ).toThrow(LabelValidationError);
+    expect(logs.join("\n")).not.toContain("nope");
+  });
+
+  it("#6 symptom-only (no feature, empty flows): no throw, symptom-only desired", () => {
+    const v = buildDesiredLabels(
+      { flows: [], symptom: "crash-error" },
+      CATALOG,
+      undefined,
+      () => {},
+    );
+    expect(v.feature).toBeUndefined();
+    expect(v.flows).toEqual([]);
+    expect(v.droppedCount).toBe(0);
+    expect(v.desired).toEqual(["mb-symptom-crash-error"]);
+  });
+
+  it("partial-keep on the FLOW axis: one bad flow dropped, valid flow kept", () => {
+    const v = buildDesiredLabels(
+      { flows: ["flow-onboarding", "flow-nope"], symptom: "crash-error" },
+      CATALOG,
+      undefined,
+      () => {},
+    );
+    expect(v.flows).toEqual(["mb-flow-onboarding"]);
+    expect(v.droppedCount).toBe(1);
+  });
+});
+
+describe("#1387 — buildBotLabelJql enumerates parent buckets too", () => {
+  it("#8 includes mb-bucket-* for each supplied lean id, sorted, quoted, no wildcard", () => {
+    const catalog = {
+      features: [{ id: "feature-widget" }],
+      flows: [{ id: "flow-onboarding" }],
+    };
+    const jql = buildBotLabelJql(catalog, undefined, ["feature-tools", "flow-account"]);
+    expect(jql).not.toContain("*");
+    expect(jql).toContain('"mb-bucket-feature-tools"');
+    expect(jql).toContain('"mb-bucket-flow-account"');
+  });
+});
+
 /**
  * #1322 — bot-namespaced Jira labels (mb-feature / mb-flow / mb-symptom).
  *

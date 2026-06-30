@@ -1,7 +1,8 @@
-import { run } from "../src/triage/backfill";
+import { run, type GrowthDeps } from "../src/triage/backfill";
 import { buildJiraNamespacedLabelWriter } from "../src/jira/namespacedLabelWriter";
 import { buildDesiredLabels, membershipFromCatalog } from "../src/jira/namespacedLabels";
 import type { IssueFeatureFlowClassifier } from "../src/triage/classifier";
+import type { GrowthProposal, GrowthDecision } from "../src/catalog/catalogGrowth";
 import type { JiraIssue } from "../src/jira/sync";
 
 /**
@@ -221,5 +222,178 @@ describe("AC-7 (#1343) — feature/flow pass is ADDITIVE: mb-symptom-* untouched
     expect(desired.desired).toContain("mb-feature-checkout");
     expect(desired.desired).toContain("mb-symptom-crash-error");
     expect(desired.symptom).toBe("mb-symptom-crash-error");
+  });
+});
+
+describe("#1387 — partial validation + dual labels in the backfill", () => {
+  it("#13 partial run: one bad flow dropped, issue still validates + writes", async () => {
+    const fetchImpl = okFetchSpy();
+    const writer = buildJiraNamespacedLabelWriter(CONFIG, fetchImpl as unknown as typeof fetch);
+    const mixedClassifier: IssueFeatureFlowClassifier = {
+      async classify() {
+        return { feature: "checkout", flows: ["signin", "not-a-flow"] };
+      },
+    };
+    const result = await run({
+      fetchOpenDefects: async () => [
+        { key: "X-1", summary: "the app crashed", descriptionText: "", commentTexts: [] },
+      ],
+      classifier: mixedClassifier,
+      catalog: MEMBERSHIP,
+      writer,
+      apply: true,
+      log: () => undefined,
+    });
+    expect(result.validated).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(result.partial).toBe(1);
+    expect(result.dropped).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("#14 all-invalid still rejected: ZERO fetch (existing guard preserved)", async () => {
+    const fetchImpl = okFetchSpy();
+    const writer = buildJiraNamespacedLabelWriter(CONFIG, fetchImpl as unknown as typeof fetch);
+    const allBad: IssueFeatureFlowClassifier = {
+      async classify() {
+        return { feature: "nope", flows: ["also-nope"] };
+      },
+    };
+    const result = await run({
+      fetchOpenDefects: async () => [
+        { key: "X-9", summary: "the app crashed", descriptionText: "", commentTexts: [] },
+      ],
+      classifier: allBad,
+      catalog: MEMBERSHIP,
+      writer,
+      apply: true,
+      log: () => undefined,
+    });
+    expect(result.rejected).toBe(1);
+    expect(result.validated).toBe(0);
+    expect(result.partial).toBe(0);
+    expect(fetchImpl).toHaveBeenCalledTimes(0);
+  });
+
+  it("#15 dual labels: child + parent bucket adds land together in ONE PUT", async () => {
+    const calls: Array<{ ops: unknown[] }> = [];
+    const fetchImpl = jest.fn(async (_url: string, init: { body: string }) => {
+      calls.push({ ops: JSON.parse(init.body).update.labels });
+      return { ok: true, status: 204, statusText: "No Content", async json() {return {};} };
+    });
+    const writer = buildJiraNamespacedLabelWriter(CONFIG, fetchImpl as unknown as typeof fetch);
+    const dualCatalog = membershipFromCatalog(
+      { features: [{ id: "feature-checkout" }], flows: [{ id: "flow-signin" }] },
+      new Map([
+        ["feature-checkout", "feature-tools"],
+        ["flow-signin", "flow-account"],
+      ]),
+    );
+    const canonical: IssueFeatureFlowClassifier = {
+      async classify() {
+        return { feature: "feature-checkout", flows: ["flow-signin"] };
+      },
+    };
+    const result = await run({
+      fetchOpenDefects: async () => [
+        { key: "X-1", summary: "the app crashed", descriptionText: "", commentTexts: [] },
+      ],
+      classifier: canonical,
+      catalog: dualCatalog,
+      writer,
+      apply: true,
+      log: () => undefined,
+    });
+    expect(result.applied).toBe(1);
+    expect(calls).toHaveLength(1);
+    const ops = calls[0].ops as Array<{ add?: string }>;
+    const adds = new Set(ops.filter((o) => o.add).map((o) => o.add));
+    expect(adds).toEqual(
+      new Set([
+        "mb-feature-checkout",
+        "mb-bucket-feature-tools",
+        "mb-flow-signin",
+        "mb-bucket-flow-account",
+        "mb-symptom-crash-error",
+      ]),
+    );
+  });
+});
+
+describe("#1387 — HYBRID growth integration", () => {
+  const ABSTAIN: IssueFeatureFlowClassifier = {
+    async classify() {
+      return { feature: undefined, flows: [] };
+    },
+  };
+  const ISSUE: JiraIssue = {
+    key: "X-1",
+    summary: "the app crashed",
+    descriptionText: "",
+    commentTexts: [],
+  };
+
+  it("#24 growth GATED: no growth dep → abstain issue gets symptom-only, NO proposer call", async () => {
+    let proposeCalls = 0;
+    const result = await run({
+      fetchOpenDefects: async () => [ISSUE],
+      classifier: ABSTAIN,
+      catalog: MEMBERSHIP,
+      apply: false,
+      log: () => undefined,
+      growth: {
+        grow: false, // default OFF
+        existingChildSlugs: new Set(),
+        bucketIds: new Set(["feature-tools"]),
+        async propose() {
+          proposeCalls++;
+          return { parentLeanId: "feature-tools", candidateLabel: "x", confidence: "high" };
+        },
+        record: () => undefined,
+      } as GrowthDeps,
+    });
+    expect(proposeCalls).toBe(0);
+    expect(result.minted).toBe(0);
+    expect(result.proposed).toBe(0);
+  });
+
+  it("#25 GOLDEN growth mint idempotent: mints once, snaps on run #2", async () => {
+    const existingChildSlugs = new Set<string>();
+    const recorded: Array<{ decision: GrowthDecision; proposal: GrowthProposal }> = [];
+    const growth = (): GrowthDeps => ({
+      grow: true,
+      existingChildSlugs,
+      bucketIds: new Set(["feature-tools"]),
+      async propose() {
+        return { parentLeanId: "feature-tools", candidateLabel: "Dark Mode", confidence: "high" };
+      },
+      record: (decision, proposal) => {
+        recorded.push({ decision, proposal });
+        if (decision.kind === "mint") existingChildSlugs.add(decision.slug);
+      },
+    });
+
+    const run1 = await run({
+      fetchOpenDefects: async () => [ISSUE],
+      classifier: ABSTAIN,
+      catalog: MEMBERSHIP,
+      apply: false,
+      log: () => undefined,
+      growth: growth(),
+    });
+    expect(run1.minted).toBe(1);
+    expect(run1.snapped).toBe(0);
+    expect(existingChildSlugs.has("dark-mode")).toBe(true);
+
+    const run2 = await run({
+      fetchOpenDefects: async () => [ISSUE],
+      classifier: ABSTAIN,
+      catalog: MEMBERSHIP,
+      apply: false,
+      log: () => undefined,
+      growth: growth(),
+    });
+    expect(run2.minted).toBe(0);
+    expect(run2.snapped).toBe(1);
   });
 });

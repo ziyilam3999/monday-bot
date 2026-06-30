@@ -10,7 +10,13 @@ import {
   LabelCatalog,
   LabelValidationError,
   buildDesiredLabels,
+  withProvisionalChild,
 } from "../jira/namespacedLabels";
+import {
+  decideGrowth,
+  type GrowthProposal,
+  type GrowthDecision,
+} from "../catalog/catalogGrowth";
 
 /**
  * Injectable backfill core (#1322) — mirrors `src/triage/cli.ts`.
@@ -44,6 +50,30 @@ export interface BackfillRunDeps {
    * gitignored local file). When absent, classification is identical to today.
    */
   extensions?: CategoryExtensions;
+  /**
+   * Optional HYBRID growth dep (#1387). Fires ONLY when an issue ABSTAINS on the
+   * feature axis (`feature === undefined`) AND `grow` is true. Absent / `grow`
+   * false → the non-grow path is byte-identical to today (no proposer call, no
+   * `proposed-additions` write). The proposer + file I/O live in the shell.
+   */
+  growth?: GrowthDeps;
+}
+
+/**
+ * Injected growth dep (#1387). `propose` is the paid model seam (a fake in
+ * tests); `existingChildSlugs` is the dedup set (canonical ∪ recorded
+ * provisional, MUTATED by `record` so re-runs snap); `bucketIds` is the distinct
+ * lean-id set the parent-membership gate validates against; `record` persists a
+ * decision to the holding queue. All COUNTS/AXIS-only — never log the candidate.
+ */
+export interface GrowthDeps {
+  propose: (issue: JiraIssue) => Promise<GrowthProposal>;
+  existingChildSlugs: Set<string>;
+  bucketIds: ReadonlySet<string>;
+  threshold?: number;
+  minFuzzyLen?: number;
+  record: (decision: GrowthDecision, proposal: GrowthProposal) => void;
+  grow: boolean;
 }
 
 export interface BackfillRunResult {
@@ -51,10 +81,20 @@ export interface BackfillRunResult {
   total: number;
   /** Issues whose assignment passed validation. */
   validated: number;
-  /** Issues rejected by validation (unknown feature/flow/symptom). */
+  /** Issues rejected by validation (all-invalid feature/flow, or bad symptom). */
   rejected: number;
   /** Issues that actually received a mutating PUT (0 in dry-run / on re-run). */
   applied: number;
+  /** Issues that validated but had ≥1 member DROPPED (partial validation, #1387). */
+  partial: number;
+  /** Total feature/flow members dropped as invalid across all issues (#1387). */
+  dropped: number;
+  /** Provisional children MINTED on the abstain+grow path (#1387). */
+  minted: number;
+  /** Abstain+grow proposals that SNAPPED to an existing child (#1387). */
+  snapped: number;
+  /** Abstain+grow proposals routed to the human-approval queue (#1387). */
+  proposed: number;
 }
 
 export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
@@ -65,6 +105,11 @@ export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
   let validated = 0;
   let rejected = 0;
   let applied = 0;
+  let partial = 0;
+  let dropped = 0;
+  let minted = 0;
+  let snapped = 0;
+  let proposed = 0;
 
   for (const issue of issues) {
     const { category } = categorizeDefect(
@@ -96,6 +141,47 @@ export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
       throw err;
     }
     validated++;
+    if (target.droppedCount > 0) {
+      partial++;
+      dropped += target.droppedCount;
+    }
+
+    // HYBRID growth (#1387): ONLY on a feature-axis abstain AND opt-in `grow`.
+    // Fires in dry-run too (previews + records to the holding queue; no Jira
+    // write unless `apply`). Default path (no growth dep / grow false) is inert.
+    if (deps.growth?.grow && ff.feature === undefined) {
+      const proposal = await deps.growth.propose(issue);
+      const decision = decideGrowth(proposal, {
+        existingChildSlugs: deps.growth.existingChildSlugs,
+        bucketIds: deps.growth.bucketIds,
+        threshold: deps.growth.threshold,
+        minFuzzyLen: deps.growth.minFuzzyLen,
+      });
+      switch (decision.kind) {
+        case "mint":
+          // MED-1: ride the typed `provisionalAdds` so the writer emits them.
+          target = withProvisionalChild(target, decision.slug, decision.parentLeanId);
+          minted++;
+          log("growth: minted 1 provisional child");
+          deps.growth.record(decision, proposal);
+          break;
+        case "snap":
+          // Reuse the existing child; mint NOTHING, write NOTHING new.
+          snapped++;
+          log("growth: snapped 1 candidate to an existing child");
+          break;
+        case "queue-parent":
+          proposed++;
+          log("growth: 1 hallucinated/no-fit parent proposal queued for human review");
+          deps.growth.record(decision, proposal);
+          break;
+        case "queue-child":
+          proposed++;
+          log("growth: 1 low-confidence child proposal queued for human review");
+          deps.growth.record(decision, proposal);
+          break;
+      }
+    }
 
     if (apply && deps.writer && issue.key) {
       const didPut = await deps.writer.applyLabels(issue.key, issue.labels ?? [], target);
@@ -105,10 +191,22 @@ export async function run(deps: BackfillRunDeps): Promise<BackfillRunResult> {
 
   log(
     `backfill: total=${issues.length} validated=${validated} rejected=${rejected} ` +
-      `applied=${applied} (${apply ? "APPLY" : "dry-run"})`,
+      `applied=${applied} partial=${partial} dropped=${dropped} ` +
+      `minted=${minted} snapped=${snapped} proposed=${proposed} ` +
+      `(${apply ? "APPLY" : "dry-run"})`,
   );
 
-  return { total: issues.length, validated, rejected, applied };
+  return {
+    total: issues.length,
+    validated,
+    rejected,
+    applied,
+    partial,
+    dropped,
+    minted,
+    snapped,
+    proposed,
+  };
 }
 
 /**
@@ -142,6 +240,12 @@ export interface UnstampRunDeps {
    * `UnmatchedUnstampKeysError` (S1 fail-loud). Empty / undefined → full sweep.
    */
   keys?: string[];
+  /**
+   * Optional restricted peel set (#1387, `--peel-provisional`): peel ONLY these
+   * namespace prefixes instead of every bot namespace. Absent → full bot-label
+   * peel (default `NS_PREFIXES`).
+   */
+  peelPrefixes?: readonly string[];
   /** Logger sink; defaults to `console.log`. */
   log?: (msg: string) => void;
 }
@@ -192,11 +296,15 @@ export async function runUnstamp(deps: UnstampRunDeps): Promise<UnstampRunResult
   let removable = 0;
   let removed = 0;
   for (const issue of scoped) {
-    const ops = computeUnstampOps(issue.labels ?? []);
-    if (ops.length === 0) continue; // no bot labels — nothing to peel.
+    const ops = computeUnstampOps(issue.labels ?? [], deps.peelPrefixes);
+    if (ops.length === 0) continue; // no matching bot labels — nothing to peel.
     removable++;
     if (apply && deps.writer && issue.key) {
-      const didPut = await deps.writer.unstampLabels(issue.key, issue.labels ?? []);
+      const didPut = await deps.writer.unstampLabels(
+        issue.key,
+        issue.labels ?? [],
+        deps.peelPrefixes,
+      );
       if (didPut) removed++;
     }
   }

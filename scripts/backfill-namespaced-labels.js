@@ -69,7 +69,10 @@ const {
 } = require(path.join(DIST, "jira", "namespacedLabels"));
 const {
   buildJiraNamespacedLabelWriter,
+  GROWTH_PREFIXES,
 } = require(path.join(DIST, "jira", "namespacedLabelWriter"));
+const { resolveSnapThreshold } = require(path.join(DIST, "catalog", "catalogGrowth"));
+const { proposeChild } = require(path.join(DIST, "triage", "growthProposer"));
 
 /** Gitignored catalog path (mirrors src/catalog/cli.ts CATALOG_OUTPUT_PATH). */
 const CATALOG_OUTPUT_PATH = path.resolve(
@@ -78,6 +81,24 @@ const CATALOG_OUTPUT_PATH = path.resolve(
   ".ai-workspace",
   "catalog",
   "feature-catalog.json",
+);
+
+/** Gitignored full→lean parent map (#1387) — wires the DUAL bucket labels. */
+const FULL_TO_LEAN_MAP_PATH = path.resolve(
+  __dirname,
+  "..",
+  ".ai-workspace",
+  "catalog",
+  "full-to-lean-map.json",
+);
+
+/** Gitignored human-approval holding queue (#1387) for proposed growth. */
+const PROPOSED_ADDITIONS_PATH = path.resolve(
+  __dirname,
+  "..",
+  ".ai-workspace",
+  "catalog",
+  "proposed-additions.json",
 );
 
 /** Strip a trailing /wiki (and trailing slash) so the site root feeds Jira REST. */
@@ -110,6 +131,46 @@ function loadCatalog() {
   } catch {
     return { reviewed: false, features: [], flows: [] };
   }
+}
+
+/**
+ * Read the gitignored full→lean parent map (#1387) or an empty map if absent.
+ * Returns the `parentOf` Map (full child id → lean bucket id) plus distinct lean
+ * id lists: `featureLeanIds` (the feature-axis bucket menu / membership set) and
+ * `distinctLeanIds` (all buckets — for the JQL enumeration). The map is derived
+ * from catalog slugs (structure only), but it is gitignored and never printed.
+ */
+function loadParentMap() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(FULL_TO_LEAN_MAP_PATH, "utf8"));
+    const features = raw.features && typeof raw.features === "object" ? raw.features : {};
+    const flows = raw.flows && typeof raw.flows === "object" ? raw.flows : {};
+    const parentOf = new Map([...Object.entries(features), ...Object.entries(flows)]);
+    const featureLeanIds = [...new Set(Object.values(features))];
+    const distinctLeanIds = [...new Set([...Object.values(features), ...Object.values(flows)])];
+    return { parentOf, featureLeanIds, distinctLeanIds };
+  } catch {
+    return { parentOf: new Map(), featureLeanIds: [], distinctLeanIds: [] };
+  }
+}
+
+/** Read the gitignored proposed-additions holding queue (or a fresh empty one). */
+function loadProposedAdditions() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(PROPOSED_ADDITIONS_PATH, "utf8"));
+    return {
+      children: Array.isArray(raw.children) ? raw.children : [],
+      proposedParents: Array.isArray(raw.proposedParents) ? raw.proposedParents : [],
+    };
+  } catch {
+    return { children: [], proposedParents: [] };
+  }
+}
+
+/** Read-modify-write the holding queue (append-only, deduped by slug). */
+function persistProposedAdditions(state) {
+  fs.mkdirSync(path.dirname(PROPOSED_ADDITIONS_PATH), { recursive: true });
+  fs.writeFileSync(PROPOSED_ADDITIONS_PATH, JSON.stringify(state, null, 2) + "\n");
 }
 
 /**
@@ -149,15 +210,24 @@ async function main() {
   // Escape hatch: force the SYMPTOM-ONLY null classifier (the documented free
   // mode) even under --real/--apply, so debugging the deterministic axis is free.
   const symptomOnly = process.argv.includes("--symptom-only");
+  // HYBRID growth (#1387): OFF by default. Paid (extra model call) → gated like
+  // --real/--apply (assertCatalogReviewed before the proposer is constructed).
+  const grow = process.argv.includes("--grow");
+  // Graduation cleanup (#1387): peel ONLY the provisional/marker namespaces.
+  const peelProvisional = process.argv.includes("--peel-provisional");
+  // Runtime override of the PROVISIONAL dedup threshold (flag > env > default).
+  const snapThresholdFlag = argValue("--snap-threshold");
   const keys = splitList(argValue("--keys"));
   const env = process.env;
 
   const catalog = loadCatalog();
+  const parentMap = loadParentMap();
 
   if (printJql) {
     // Enumerated, sorted, quoted `labels in (...)` — NO wildcard. Safe to print:
     // the label STRINGS are derived from catalog ids (slugs), structure only.
-    console.log(buildBotLabelJql(catalog));
+    // #1387: also enumerate the PARENT bucket labels (one per distinct lean id).
+    console.log(buildBotLabelJql(catalog, undefined, parentMap.distinctLeanIds));
     return;
   }
 
@@ -185,11 +255,14 @@ async function main() {
 
   // UNSTAMP route (#1342): remove ALL the bot's labels. DRY-RUN by default; the
   // writer is constructed ONLY on --apply (mirrors the add path). Counts only.
-  if (unstamp) {
+  // #1387 --peel-provisional: peel ONLY the growth namespaces (graduation
+  // cleanup) — leaves canonical child/parent/symptom labels intact.
+  if (unstamp || peelProvisional) {
     const unstampDeps = {
       fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
       keys,
       apply,
+      ...(peelProvisional ? { peelPrefixes: GROWTH_PREFIXES } : {}),
     };
     if (apply) {
       unstampDeps.writer = buildJiraNamespacedLabelWriter(config, globalThis.fetch);
@@ -223,12 +296,75 @@ async function main() {
   const deps = {
     fetchOpenDefects: () => fetcher.fetchOpenDefects(projectKey),
     classifier,
-    catalog: membershipFromCatalog(catalog),
+    // #1387: wire the full→lean parent map so DUAL child+parent labels are built.
+    catalog: membershipFromCatalog(catalog, parentMap.parentOf),
     // Optional keyword extensions read from a gitignored local file (path via
     // MONDAY_KEYWORD_EXTENSIONS_FILE). Absent/malformed → {} → classify as today.
     extensions: loadKeywordExtensions(undefined, (msg) => console.error(msg)),
     apply,
   };
+
+  // HYBRID growth wiring (#1387) — OFF unless --grow. PAID (extra model call) →
+  // gated behind assertCatalogReviewed BEFORE the proposer is ever constructed,
+  // same discipline as the --real/--apply classifier. Dry-run --grow previews
+  // proposals + writes to the holding queue ONLY (no Jira write).
+  if (grow) {
+    assertCatalogReviewed(catalog, "backfill-namespaced-labels --grow");
+    const proposed = loadProposedAdditions();
+    // Dedup set: BARE canonical feature child slugs ∪ already-recorded
+    // provisional slugs (so re-runs SNAP instead of re-minting).
+    const existingChildSlugs = new Set([
+      ...catalog.features.map((e) => String(e.id).replace(/^feature-/, "")),
+      ...proposed.children.map((c) => c.slug),
+    ]);
+    const bucketIds = new Set(parentMap.featureLeanIds);
+    // Humanize a lean id into a menu label (structure only; never logged).
+    const bucketMenu = parentMap.featureLeanIds.map((id) => ({
+      id,
+      label: String(id).replace(/^feature-/, "").replace(/-/g, " "),
+    }));
+    const complete = buildProductionComplete();
+    deps.growth = {
+      grow: true,
+      existingChildSlugs,
+      bucketIds,
+      threshold: resolveSnapThreshold({
+        flag: snapThresholdFlag !== undefined ? Number(snapThresholdFlag) : undefined,
+      }),
+      propose: (issue) =>
+        proposeChild(complete, bucketMenu, {
+          summary: issue.summary,
+          descriptionText: issue.descriptionText,
+        }),
+      record: (decision) => {
+        const iso = new Date().toISOString();
+        if (decision.kind === "queue-parent") {
+          if (!proposed.proposedParents.some((p) => p.slug === decision.slug)) {
+            proposed.proposedParents.push({
+              slug: decision.slug,
+              firstSeen: iso,
+              reason: decision.reason,
+            });
+          }
+        } else {
+          // mint → provisional; queue-child → low-confidence.
+          const status = decision.kind === "mint" ? "provisional" : "low-confidence";
+          if (!proposed.children.some((c) => c.slug === decision.slug)) {
+            proposed.children.push({
+              slug: decision.slug,
+              parentLeanId: decision.parentLeanId,
+              firstSeen: iso,
+              status,
+            });
+          }
+          // Fold a minted slug into the live dedup set so this run is idempotent.
+          if (decision.kind === "mint") existingChildSlugs.add(decision.slug);
+        }
+        persistProposedAdditions(proposed);
+      },
+    };
+  }
+
   // The writer is constructed ONLY on --apply (dry-run never builds it). SAFETY
   // GATE (nit 3): a live write REFUSES to run against an unreviewed catalog.
   if (apply) {
