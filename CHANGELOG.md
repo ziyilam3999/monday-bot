@@ -1,3 +1,37 @@
+## [0.14.0](https://github.com/ziyilam3999/monday-bot/compare/v0.13.0...v0.14.0) (2026-06-30)
+
+### Features
+
+- feat: dual parent+child labels, partial-validation, opt-in catalog growth (#1387) (#257)
+- feat: mechanical redeploy-on-merge hook + loud startup warn when defect-scope env unset (#251)
+- feat(triage): production feature/flow matcher + additive 2nd backfill pass (#1343) (#247)
+- feat(deploy): mechanical stale-dist prevention — redeploy + build-stamp + build-on-start wrapper (#1348) (#246)
+- feat(slack): route @-mention defect questions to answerJql (alongside /jql) (#1344) (#245)
+- feat(jql): wire answerJql into production adminService so /jql actually searches (#1346) (#244)
+- feat: Stage C viewing layer — NL→JQL skill + Jira dashboard guide (#1332) (#243)
+- feat: reversible unstamp — remove the bot's namespaced labels (#1342) (#242)
+- feat: enrich symptom classifier keywords + gitignored extension loader (#1341) (#241)
+- feat: Confluence feature/flow catalog tooling (#1314 S2) (#237)
+- feat(triage): categorize open Jira defects with write-back, dry-run default (#1284) (#234)
+
+### Bug Fixes
+
+- fix: clamp /ask abstain so on-topic how-to questions get answered (#1380) (#255)
+- fix(jira): canonicalize feature/flow ids in buildDesiredLabels (#1381) (#254)
+- fix(catalog): batch corpus for distillation to scale past model context (#253)
+- fix(rag): backstop false not-found (#1374) + dedup/compact citations (#1375) (#252)
+- fix(jql): close NL->JQL vocabulary gap (priority + recency axes) (#250)
+- fix(jql): scope NL→JQL defect search to a configured default project (#249)
+- fix(backfill): default dry-run costs ZERO real LLM spend; --real opt-in (#1355) (#248)
+- fix(triage): #1333 classifier precedence — match summary only + drop bare 'flow' token (#240)
+- fix(confluence): follow _links.next cursor to end 100-page truncation (#1189) (#235)
+
+### Miscellaneous
+
+- Harden 3 caller-input / error-path surfaces with non-vacuous tests (#1328) (#239)
+- Write bot-namespaced Jira labels (mb-feature-*/mb-flow-*/mb-symptom-*) + idempotent backfill (#238)
+- refactor(triage): reframe defect taxonomy to a symptom axis (S1, #1284) (#236)
+
 ## [0.13.0](https://github.com/ziyilam3999/monday-bot/compare/v0.12.22...v0.13.0) (2026-06-26)
 
 ### Removed
