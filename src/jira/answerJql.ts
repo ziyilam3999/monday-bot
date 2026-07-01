@@ -115,8 +115,12 @@ export function loadFullToLeanMap(mapPath?: string): Map<string, string> {
  * Read an env flag that defaults ON (#1385/#1392 knobs). Any value except `"0"`
  * / `"false"` (case-insensitive, trimmed) keeps the feature ON; an UNSET flag is
  * ON. `=0`/`=false` is the explicit kill-switch.
+ *
+ * EXPORTED (#1386) — the single source of truth for the ON-by-default flag
+ * semantics shared by the `JQL_*` knobs and the new `ASK_LABEL_AWARE` kill-switch
+ * (`src/jira/askAreaAugment.ts`). One definition avoids a forked truth-table.
  */
-function envFlagOn(raw: string | undefined): boolean {
+export function envFlagOn(raw: string | undefined): boolean {
   if (raw === undefined) return true;
   const v = raw.trim().toLowerCase();
   return v !== "0" && v !== "false";
