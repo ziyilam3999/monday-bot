@@ -1,3 +1,9 @@
+## [0.16.0](https://github.com/ziyilam3999/monday-bot/compare/v0.15.0...v0.16.0) (2026-07-02)
+
+### Features
+
+- feat: label-aware /ask — a question naming a known feature/flow area also surfaces that area's tagged Jira defects, appended after the cited doc answer; citation numbering, abstain logic, and no-area behavior unchanged; new knobs ASK_LABEL_AWARE (default on, data-gated) + ASK_DEFECTS_MAX (default 5) (#1386) (#262)
+
 ## [0.15.0](https://github.com/ziyilam3999/monday-bot/compare/v0.14.0...v0.15.0) (2026-06-30)
 
 ### Bug Fixes
