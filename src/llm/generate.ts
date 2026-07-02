@@ -205,6 +205,7 @@ export function hasOnTopicCoverage(chunks: Chunk[]): boolean {
     }
   }
   // No numeric score anywhere -> "unknown, not blocked".
+  if (!sawScore) console.debug("[hasOnTopicCoverage] fail-open: no numeric score found in %d chunks", chunks.length);
   return sawScore ? false : true;
 }
 
