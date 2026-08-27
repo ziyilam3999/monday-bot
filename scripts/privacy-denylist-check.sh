@@ -103,7 +103,7 @@ else
 fi
 
 # --- Home-path guard (always on, no secret) ---
-HOME_PATH='(/Users/|/home/)[A-Za-z0-9._-]+/'
+HOME_PATH='(/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+'
 HOME_HITS="$(printf '%s\n' "${ADDED}" | grep -E "${HOME_PATH}" || true)"
 if [ -n "${HOME_HITS}" ]; then
   HOME_HIT_COUNT="$(printf '%s\n' "${HOME_HITS}" | grep -c '' || true)"
