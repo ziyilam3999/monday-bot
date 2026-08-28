@@ -176,7 +176,7 @@ docs/
 .ai-workspace/
   plans/             # per-story implementation plans
 .github/workflows/
-  ci.yml             # build + test on ubuntu + windows
+  ci.yml             # build + test on ubuntu
 ```
 
 ## License
