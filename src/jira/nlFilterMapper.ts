@@ -7,8 +7,9 @@
  * vocabulary, as JSON matching `StructuredFilter`. The PURE `buildJqlFromFilter`
  * then turns that filter into the JQL string — no LLM in the builder.
  *
- * Classification-shape → Haiku tier (the `ANTHROPIC_MODEL` default), temperature 0
- * for a stable mapping (mirrors `src/llm/generate.ts`).
+ * Classification-shape → Haiku tier (resolved via `src/llm/modelConfig.ts`),
+ * low reasoning effort and NO sampling parameter for a stable mapping
+ * (mirrors `src/llm/generate.ts`).
  *
  * Degrades gracefully + never throws into the pipeline:
  *   - `MONDAY_TEST_MODE=1` → a DETERMINISTIC stub filter (the question routed
@@ -22,17 +23,18 @@
  * status clause (the SHOULD-fix folded into the plan).
  */
 import { getClient } from "../llm/anthropicClient";
+import { resolveModel } from "../llm/modelConfig";
 import { categorizeDefect } from "../triage/categorizeDefect";
 import { LabelVocab, StructuredFilter } from "./jqlFromFilter";
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+const MODEL = resolveModel();
 const MAX_TOKENS = 512;
 
 /** The injectable message-creating call (production wraps `getClient()`). */
 export type MessagesCreate = (req: {
   model: string;
   max_tokens: number;
-  temperature: number;
+  output_config?: { effort: "low" | "medium" | "high" };
   system: string;
   messages: Array<{ role: string; content: string }>;
 }) => Promise<{ content: Array<{ type: string; text?: string }> }>;
@@ -260,7 +262,7 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
         const response = await create({
           model,
           max_tokens: MAX_TOKENS,
-          temperature: 0,
+          output_config: { effort: "low" },
           system: buildSystemPrompt(vocab),
           messages: [{ role: "user", content: question }],
         });

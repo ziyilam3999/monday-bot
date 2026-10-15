@@ -14,10 +14,12 @@
  *     accuracy + confident/none counts. Counts/structure ONLY.
  *
  *   Mode 2 — REAL accuracy + cost projection (GATED — Gate A, NOT run at build):
- *     node --env-file=.env scripts/feature-flow-eval.js --real
+ *     node --env-file=.env scripts/feature-flow-eval.js --real [--limit N]
  *     Constructs the REAL getClient() + production model (only inside this
  *     branch) and runs the matcher against real open-defect text, printing a
  *     total token + USD cost projection. COST-INCURRING — operator go only.
+ *     `--limit N` (#3136) runs only the FIRST N defects in the fetcher's
+ *     stable order (fixed sample for A/B arms); default is all open defects.
  *
  * SAFETY (nit 3): the --real mode REFUSES to run unless the loaded catalog's
  * `reviewed` flag is set — an unreviewed (auto-distilled, unverified) menu must
@@ -36,6 +38,7 @@ const DIST = path.resolve(__dirname, "..", "dist");
 const { matchFeatureFlow } = require(path.join(DIST, "triage", "featureFlowMatcher"));
 const { scoreEval, estimateCost } = require(path.join(DIST, "triage", "featureFlowEval"));
 const { assertCatalogReviewed } = require(path.join(DIST, "catalog", "reviewedGate"));
+const { resolveModel, pricingForModel } = require(path.join(DIST, "llm", "modelConfig"));
 
 /** Gitignored catalog path (mirrors backfill-namespaced-labels.js). */
 const CATALOG_OUTPUT_PATH = path.resolve(
@@ -46,11 +49,18 @@ const CATALOG_OUTPUT_PATH = path.resolve(
   "feature-catalog.json",
 );
 
-/** Claude Haiku 4.5 per-MTok pricing (input / output), no-cache upper bound. */
-const PRICING = { inputPerMTok: 1.0, outputPerMTok: 5.0 };
-/** Per-defect token budget (upper-typical) for the cost projection. */
+/** Rate card comes from dist/llm/modelConfig (one source of truth, #3136) and
+ * is selected per REQUESTED model id, so override / A-B arms price their own
+ * runs (5.5 card 0.10/0.50; legacy 4.x override arms 1.0/5.0). */
+/** Per-defect token budget (upper-typical) for the cost projection. This is a
+ * 4.5-era PROJECTION number: the Haiku 5.5 tokenizer counts ~30% more tokens
+ * for the same text, so it under-counts — the measured usage totals printed
+ * alongside supersede it (#3136). */
 const PER_DEFECT_INPUT_TOKENS = 2050;
 const PER_DEFECT_OUTPUT_TOKENS = 50;
+
+/** Gitignored per-defect capture dir for A/B comparison (never printed). */
+const CAPTURE_DIR = path.resolve(__dirname, "..", ".ai-workspace", "eval-captures");
 
 function splitList(raw) {
   return (raw || "")
@@ -79,17 +89,21 @@ function loadCatalog() {
  * existing `getClient()` (`src/llm/anthropicClient.ts`), mirroring
  * build-catalog.js's `buildLlmDistiller`. Constructed ONLY in the --real branch.
  */
-function buildProductionComplete() {
+function buildProductionComplete(usage) {
   const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
-  const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  const model = resolveModel();
   return async function complete(prompt) {
     const client = getClient();
     const res = await client.messages.create({
       model,
       max_tokens: 256,
-      temperature: 0,
+      output_config: { effort: "low" },
       messages: [{ role: "user", content: prompt }],
     });
+    if (usage && res.usage) {
+      usage.inputTokens += res.usage.input_tokens || 0;
+      usage.outputTokens += res.usage.output_tokens || 0;
+    }
     return Array.isArray(res.content)
       ? res.content
           .filter((b) => b && b.type === "text" && typeof b.text === "string")
@@ -97,6 +111,18 @@ function buildProductionComplete() {
           .join("")
       : "";
   };
+}
+
+/** Parse `--limit N` (positive integer) from argv; undefined = unlimited. */
+function parseLimit(argv) {
+  const i = argv.indexOf("--limit");
+  if (i === -1) return undefined;
+  const n = Number(argv[i + 1]);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error(`feature-flow-eval --real: --limit must be a positive integer (got ${argv[i + 1]})`);
+    process.exit(1);
+  }
+  return n;
 }
 
 // ── Mode 1: baked SYNTHETIC sample (invented ids; ZERO cost) ─────────────────
@@ -186,14 +212,21 @@ async function runRealMode() {
     issueTypeJql: env.JIRA_DEFECT_ISSUETYPE_JQL,
   };
   const fetcher = buildOpenDefectsFetcher(config, scope, globalThis.fetch);
-  const issues = await fetcher.fetchOpenDefects(projects[0]);
+  let issues = await fetcher.fetchOpenDefects(projects[0]);
+  // #3136 sample control: --limit N runs the FIRST N defects in the fetcher's
+  // stable order (fixed sample for A/B arms); default stays unlimited.
+  const limit = parseLimit(process.argv);
+  if (limit !== undefined) issues = issues.slice(0, limit);
 
   // The real model boundary is constructed ONLY here, inside the --real branch.
-  const complete = buildProductionComplete();
+  const usage = { inputTokens: 0, outputTokens: 0 };
+  const complete = buildProductionComplete(usage);
   const menuCatalog = { features: catalog.features, flows: catalog.flows };
+  const model = resolveModel();
 
   let confident = 0;
   let none = 0;
+  const perDefect = [];
   for (const issue of issues) {
     const predicted = await matchFeatureFlow(menuCatalog, complete, {
       summary: issue.summary,
@@ -201,19 +234,40 @@ async function runRealMode() {
     });
     if (predicted.feature !== undefined) confident++;
     else none++;
+    perDefect.push({
+      key: issue.key,
+      confident: predicted.feature !== undefined,
+      feature: predicted.feature ?? null,
+      flows: predicted.flows,
+    });
   }
+
+  // Per-defect capture (issue key -> confident/none + chosen ids) for the A/B
+  // paired split (#3136): gitignored path, NEVER printed — only the path is logged.
+  fs.mkdirSync(CAPTURE_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const capturePath = path.join(
+    CAPTURE_DIR,
+    `${model.replace(/[^a-z0-9.-]/gi, "_")}-${stamp}.json`,
+  );
+  fs.writeFileSync(capturePath, JSON.stringify(perDefect, null, 2));
 
   const cost = estimateCost(
     PER_DEFECT_INPUT_TOKENS,
     PER_DEFECT_OUTPUT_TOKENS,
     issues.length,
-    PRICING,
+    pricingForModel(model),
   );
   // Counts / projection ONLY — never defect text, labels, or catalog vocabulary.
   console.log(
-    `feature-flow-eval (real): total=${issues.length} confident=${confident} none=${none} ` +
+    `feature-flow-eval (real): model=${model} total=${issues.length} confident=${confident} none=${none} ` +
       `est-input-tokens=${cost.totalInputTokens} est-output-tokens=${cost.totalOutputTokens} ` +
       `est-usd=${cost.estimatedUsd.toFixed(2)}`,
+  );
+  // Measured usage totals (#3136) + the gitignored capture path (path only).
+  console.log(
+    `usage: model=${model} measured-input-tokens=${usage.inputTokens} ` +
+      `measured-output-tokens=${usage.outputTokens} capture=${capturePath}`,
   );
 }
 

@@ -1,6 +1,7 @@
 import { getClient } from "./anthropicClient";
+import { resolveModel } from "./modelConfig";
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+const MODEL = resolveModel();
 const MAX_TOKENS = 1024;
 
 export const SYSTEM_PROMPT =
@@ -481,8 +482,8 @@ export async function generateAnswer(
   // directive (the `howToClass` term is `!refusalClass && …`), keeping the #1374
   // path byte-identical. The coverage gate is what makes loosening safe: a
   // genuinely off-topic (low-score) retrieval has no coverage, so the how-to
-  // class never fires and the model's refusal stands. Regenerate ONCE at
-  // temperature 0 with the matching CONDITIONAL directive; never fabricate.
+  // class never fires and the model's refusal stands. Regenerate ONCE with
+  // the matching CONDITIONAL directive; never fabricate.
   const refusalClass = opensWithRefusal(text);
   const howToClass =
     !refusalClass && hasOnTopicCoverage(chunks) && isHowToHedge(text);
@@ -513,8 +514,9 @@ export async function generateAnswer(
 
 /**
  * Private helper: one model call returning the trimmed concatenated text of all
- * text blocks. Temperature stays 0 — determinism doctrine (#1195). The backstop
- * differentiates its retry by the CHANGED directive, not by raised temperature.
+ * text blocks. NO sampling parameter is sent — Haiku 5.5 rejects non-default
+ * sampling (#3136), and the determinism doctrine (#1195) now rests on prompt
+ * wording. The backstop differentiates its retry by the CHANGED directive.
  */
 async function callModel(
   client: ReturnType<typeof getClient>,
@@ -523,7 +525,6 @@ async function callModel(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    temperature: 0,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent }],
   });

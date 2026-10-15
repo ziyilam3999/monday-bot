@@ -2,8 +2,9 @@
 // Wired in via jest.config.js moduleNameMapper. Real SDK calls happen in the
 // US-04 inline AC commands (AC-01..AC-04), not in jest specs.
 
-// #1195: record the most recent messages.create request so a determinism-wiring
-// test can assert the caller passes `temperature: 0` (the request never escapes
+// #1195/#3136: record the most recent messages.create request so a
+// determinism-wiring test can assert the caller sends NO sampling parameter
+// and the resolved default model id (the request never escapes
 // generateAnswer's return value, so we surface it on the module instead).
 let __lastRequest = null;
 

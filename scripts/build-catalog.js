@@ -38,6 +38,7 @@ const { run, CATALOG_OUTPUT_PATH, CATALOG_REGENERATED_PATH, chooseWritePath } = 
 );
 const { buildConfluenceFetcher } = require(path.join(DIST, "confluence", "sync"));
 const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
+const { resolveModel } = require(path.join(DIST, "llm", "modelConfig"));
 
 /** Strip a trailing /wiki (and trailing slash) so buildConfluenceFetcher gets the site root. */
 function toSiteRoot(url) {
@@ -64,7 +65,7 @@ function parsePositiveNumberEnv(raw) {
  * reach this (they inject a fake), so the unit suite makes zero model calls.
  */
 function buildLlmDistiller() {
-  const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  const model = resolveModel();
   return {
     async distill(pages) {
       const client = getClient();
@@ -80,7 +81,6 @@ function buildLlmDistiller() {
       const res = await client.messages.create({
         model,
         max_tokens: 4096,
-        temperature: 0,
         messages: [{ role: "user", content: `${instructions}\n\n${corpus}` }],
       });
       const text = Array.isArray(res.content)

@@ -183,13 +183,14 @@ function persistProposedAdditions(state) {
  */
 function buildProductionComplete() {
   const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
-  const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  const { resolveModel } = require(path.join(DIST, "llm", "modelConfig"));
+  const model = resolveModel();
   return async function complete(prompt) {
     const client = getClient();
     const res = await client.messages.create({
       model,
       max_tokens: 256,
-      temperature: 0,
+      output_config: { effort: "low" },
       messages: [{ role: "user", content: prompt }],
     });
     return Array.isArray(res.content)

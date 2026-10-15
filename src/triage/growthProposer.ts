@@ -2,8 +2,9 @@
  * Catalog-growth PROPOSER seam + adapter (#1387).
  *
  * Mirrors `featureFlowMatcher`: a thin INJECTED `complete(prompt) → text`
- * boundary, `temperature: 0` upstream, strict-JSON-from-text parse, counts-only
- * logging. Given an abstaining issue + the EXISTING bucket menu, the model
+ * boundary, no sampling parameter upstream (Haiku 5.5, #3136),
+ * strict-JSON-from-text parse, counts-only logging. Given an abstaining issue +
+ * the EXISTING bucket menu, the model
  * (a) picks the best-fitting EXISTING parent bucket (or null) and (b) proposes a
  * human-readable child label. The pick is UNTRUSTED — `decideGrowth`
  * (`catalogGrowth.ts`) validates the parent against the real bucket set before

@@ -74,10 +74,12 @@ describe("generateAnswer", () => {
     });
   });
 
-  test("passes temperature: 0 to messages.create (determinism wiring, #1195)", async () => {
+  test("sends no sampling parameter and the resolved default model (determinism wiring, #1195/#3136)", async () => {
     // The request object never escapes generateAnswer's return value, so the
-    // stub records it for introspection. temperature:0 is the direct lever for
-    // the ground-vs-abstain coin-flip.
+    // stub records it for introspection. Haiku 5.5 rejects non-default
+    // sampling, so determinism now rests on prompt wording: NO sampling
+    // parameter of any kind may be sent, and the model id must be the
+    // modelConfig default.
     const AnthropicStub = require("@anthropic-ai/sdk");
     AnthropicStub.__resetLastRequest();
     const chunks: Chunk[] = [
@@ -86,7 +88,10 @@ describe("generateAnswer", () => {
     await generateAnswer("How many days of leave?", chunks);
     const req = AnthropicStub.__getLastRequest();
     expect(req).not.toBeNull();
-    expect(req.temperature).toBe(0);
+    expect(req.temperature).toBeUndefined();
+    expect(req.top_p).toBeUndefined();
+    expect(req.top_k).toBeUndefined();
+    expect(req.model).toBe("claude-haiku-5-5");
   });
 
   test("stub-provided answer carries a [1] citation marker", async () => {
