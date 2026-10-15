@@ -180,3 +180,41 @@ describe("AC4 — empty/error floor fires ONLY on a genuine signal", () => {
     expect(await thrown.map("anything", VOCAB)).toEqual(emptyFilter());
   });
 });
+
+describe("#3136 fix-cycle - max_tokens stop visibility (classifier)", () => {
+  let warnSpy: jest.SpyInstance;
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it("MUST-FIRE: stop_reason max_tokens with no text block -> warning + empty-filter degrade", async () => {
+    const mapper = buildLlmFilterMapper({
+      createMessage: async () => ({
+        content: [{ type: "thinking" }],
+        stop_reason: "max_tokens",
+      }),
+    });
+    const f = await mapper.map("anything", VOCAB);
+    expect(f).toEqual(emptyFilter());
+    const line = warnSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes("max_tokens"));
+    expect(line).toBeDefined();
+    expect(line).toContain("nlFilterMapper.buildLlmFilterMapper");
+  });
+
+  it("MUST-NOT-FIRE: end_turn with a complete JSON text block -> no max_tokens warning", async () => {
+    const mapper = buildLlmFilterMapper({
+      createMessage: async () => ({
+        content: [
+          { type: "text", text: '{"symptoms":["crash-error"],"features":[],"flows":[],"projects":[]}' },
+        ],
+        stop_reason: "end_turn",
+      }),
+    });
+    const f = await mapper.map("show me checkout crashes", VOCAB);
+    expect(f.symptoms).toEqual(["crash-error"]);
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("max_tokens");
+  });
+});

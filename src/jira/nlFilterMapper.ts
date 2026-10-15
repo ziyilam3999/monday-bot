@@ -7,8 +7,9 @@
  * vocabulary, as JSON matching `StructuredFilter`. The PURE `buildJqlFromFilter`
  * then turns that filter into the JQL string — no LLM in the builder.
  *
- * Classification-shape → Haiku tier (the `ANTHROPIC_MODEL` default), temperature 0
- * for a stable mapping (mirrors `src/llm/generate.ts`).
+ * Classification-shape → Haiku tier (resolved via `src/llm/modelConfig.ts`),
+ * classifier reasoning effort (CLASSIFIER_EFFORT) and NO sampling parameter
+ * (mirrors `src/llm/generate.ts`).
  *
  * Degrades gracefully + never throws into the pipeline:
  *   - `MONDAY_TEST_MODE=1` → a DETERMINISTIC stub filter (the question routed
@@ -21,21 +22,23 @@
  * `extraStatus` field in the model's JSON — the LLM must never inject a raw
  * status clause (the SHOULD-fix folded into the plan).
  */
-import { getClient } from "../llm/anthropicClient";
+import { getClient, warnMaxTokensStop } from "../llm/anthropicClient";
+import { CLASSIFIER_EFFORT, resolveModel } from "../llm/modelConfig";
 import { categorizeDefect } from "../triage/categorizeDefect";
 import { LabelVocab, StructuredFilter } from "./jqlFromFilter";
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
-const MAX_TOKENS = 512;
+const MODEL = resolveModel();
+// 2048: medium effort thinks ~500+ tokens BEFORE the text block; 512 truncated (plan risk 5 remedy)
+const MAX_TOKENS = 2048;
 
 /** The injectable message-creating call (production wraps `getClient()`). */
 export type MessagesCreate = (req: {
   model: string;
   max_tokens: number;
-  temperature: number;
+  output_config?: { effort: "low" | "medium" | "high" };
   system: string;
   messages: Array<{ role: string; content: string }>;
-}) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+}) => Promise<{ content: Array<{ type: string; text?: string }>; stop_reason?: string | null }>;
 
 export interface NlFilterMapper {
   map(question: string, vocab: LabelVocab): Promise<StructuredFilter>;
@@ -260,10 +263,13 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
         const response = await create({
           model,
           max_tokens: MAX_TOKENS,
-          temperature: 0,
+          output_config: { effort: CLASSIFIER_EFFORT },
           system: buildSystemPrompt(vocab),
           messages: [{ role: "user", content: question }],
         });
+        // #3136 fix-cycle RULE: a max_tokens stop is surfaced even though the
+        // route then degrades to the empty filter - the truncation is never silent.
+        warnMaxTokensStop(response, "nlFilterMapper.buildLlmFilterMapper");
         filter = parseFilterJson(extractText(response));
       } catch {
         // No creds / network error / malformed response → degrade to empty.

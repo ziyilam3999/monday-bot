@@ -69,6 +69,24 @@ function readOAuthToken(): { accessToken: string; expiresAt: number } | null {
   return { accessToken: oauth.accessToken, expiresAt: oauth.expiresAt };
 }
 
+/**
+ * #3136 fix-cycle RULE - no model call may present a reply cut at its output
+ * cap as complete. Every call site that sets `max_tokens` calls this with its
+ * OWN name after the reply lands; a `max_tokens` stop logs one warning line
+ * naming that site. Reads only `stop_reason` and the site name (never the
+ * reply text, never credentials), O(1).
+ */
+export function warnMaxTokensStop(
+  response: { stop_reason?: string | null },
+  callSite: string,
+): void {
+  if (response?.stop_reason === "max_tokens") {
+    console.warn(
+      `[${callSite}] model reply stopped at max_tokens - the text may be TRUNCATED; do not treat it as a complete answer`,
+    );
+  }
+}
+
 export function resetClient(): void {
   client = null;
   clientExpiresAt = null;

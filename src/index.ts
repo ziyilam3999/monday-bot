@@ -13,6 +13,7 @@ import {
 import { ConfluenceFetcher } from "./confluence/sync";
 import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
+import { resolveModel } from "./llm/modelConfig";
 import { AdminService } from "./slack/commands";
 import { buildAnswerJql } from "./jira/answerJql";
 import { buildAskJiraAugment } from "./jira/askAreaAugment";
@@ -348,6 +349,12 @@ if (require.main === module) {
   } catch {
     /* no .env file — rely on shell-exported env vars */
   }
+  // #3136: announce the RESOLVED REQUESTED model id (env override or the
+  // modelConfig default) once at boot, next to the build-stamp line. NEVER an
+  // API-returned res.model — that may carry a date suffix, and the anchored
+  // log grep must match the id we asked for. Printed after loadEnvFile so an
+  // .env override is reflected.
+  console.log(`llm-model: ${resolveModel()}`);
   // Layer B (#1372): WARN loudly (never throw) if the optional defect-search
   // scope env is blank, so the silent whole-site fallback can't go unnoticed.
   warnIfDefectScopeUnset();

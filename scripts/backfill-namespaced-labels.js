@@ -183,15 +183,19 @@ function persistProposedAdditions(state) {
  */
 function buildProductionComplete() {
   const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
-  const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  const { resolveModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
+  const { warnMaxTokensStop } = require(path.join(DIST, "llm", "anthropicClient"));
+  const model = resolveModel();
   return async function complete(prompt) {
     const client = getClient();
     const res = await client.messages.create({
       model,
-      max_tokens: 256,
-      temperature: 0,
+      // 2048: medium effort thinks ~500+ tokens BEFORE the text block; 256 truncated (plan risk 5 remedy)
+      max_tokens: 2048,
+      output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
+    warnMaxTokensStop(res, "backfill.featureFlowMatcher");
     return Array.isArray(res.content)
       ? res.content
           .filter((b) => b && b.type === "text" && typeof b.text === "string")
