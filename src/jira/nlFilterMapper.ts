@@ -28,7 +28,8 @@ import { categorizeDefect } from "../triage/categorizeDefect";
 import { LabelVocab, StructuredFilter } from "./jqlFromFilter";
 
 const MODEL = resolveModel();
-const MAX_TOKENS = 512;
+// 2048: medium effort thinks ~500+ tokens BEFORE the text block; 512 truncated (plan risk 5 remedy)
+const MAX_TOKENS = 2048;
 
 /** The injectable message-creating call (production wraps `getClient()`). */
 export type MessagesCreate = (req: {

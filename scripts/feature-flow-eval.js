@@ -96,7 +96,8 @@ function buildProductionComplete(usage) {
     const client = getClient();
     const res = await client.messages.create({
       model,
-      max_tokens: 256,
+      // 2048: medium effort thinks ~500+ tokens BEFORE the text block; 256 truncated (plan risk 5 remedy)
+      max_tokens: 2048,
       output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
