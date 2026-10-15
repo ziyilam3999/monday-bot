@@ -51,3 +51,60 @@ Per-defect captures (issue key → confident/none + feature/flow ids): `.ai-work
 
 - `npm run typecheck` rc=0; `npx jest tests/generate.test.ts` rc=0 (36 passed); `npx jest tests/nlFilterMapper.test.ts` rc=0 (13 passed); `npm run build` rc=0. Logs under `tmp/suite-logs/`.
 - `tests/generate.prompt-integrity`, `tests/triage.featureFlowEval`, `tests/triage.featureFlowMatcher`, full `npm test`: execution-review's.
+
+## Leg 2: effort medium (2026-10-15, operator retry decision)
+
+DISPATCH-NONCE:OR-NONCE-aab1a9898da84175
+
+Executor-close: PR #267 leg 2 — classifier effort low→medium via one
+CLASSIFIER_EFFORT constant in src/llm/modelConfig.ts (all three call sites read it,
+ANTHROPIC_MODEL override untouched), classifier output caps raised 256/512→2048 under
+the plan's risk-5 truncation remedy, Haiku 5.5 arm re-run twice on the same fixed
+first-25 sample; measured only, no ship decision (that is the orchestrator's).
+
+### Blocker hit and remedy (measured)
+
+Medium effort reasons BEFORE the text block and the tokens count toward `max_tokens`:
+a probe at `max_tokens: 256` returned `stop=max_tokens` with a single thinking block and
+ZERO text, so the matcher threw "no JSON" on the first defect (run aborted rc=1, no
+partial capture). Plan risk 5 names the remedy ("if a route still truncates, raise its
+cap — a one-line change inside the same PR"): probe at 2048 returned `stop=end_turn`,
+out=529 tokens (~500 thinking + 64-char JSON). Caps raised: both script wrappers
+256→2048, nlFilterMapper 512→2048. Post-raise both eval runs completed with zero
+thrown errors.
+
+### AC table — leg 2 (measured command + exit code)
+
+| Check | Command (measured) | rc | Result |
+|---|---|---|---|
+| effort via one constant | `command grep -rn 'effort: "' src scripts` | 0 | PASS — only remaining literal is the `"low" \| "medium" \| "high"` TYPE union in nlFilterMapper.ts:38; `CLASSIFIER_EFFORT` defined once in `src/llm/modelConfig.ts` (=1) and referenced at all 3 call sites (3/2/2) |
+| override kept | `command grep -rn 'ANTHROPIC_MODEL' src/llm/modelConfig.ts` | 0 | PASS — 4 matches (resolveModel + doc), override contract unchanged |
+| truncation remedy | `npm run build` then probe `max_tokens: 2048, effort medium` | 0 | PASS — `stop=end_turn` text block present; both eval runs rc=0, zero thrown errors |
+| suites | `npm run typecheck`; `env -u ANTHROPIC_MODEL npx jest tests/generate.test.ts`; `env -u ANTHROPIC_MODEL npx jest tests/nlFilterMapper.test.ts` | 0/0/0 | PASS — 36/36 and 13/13 (logs in tmp/suite-logs/*-leg2.log) |
+| eval run A | `env -u ANTHROPIC_MODEL -u ANTHROPIC_API_KEY node --env-file=.env scripts/feature-flow-eval.js --real --limit 25` (after `npm run build`) | 0 | total=25 confident=16 none=9, zero thrown errors |
+| eval run B | same command, repeat | 0 | total=25 confident=13 none=12, zero thrown errors |
+| same sample | keys of all three captures compared in node | 0 | PASS — A == B == the leg-1 4.5 capture on all 25 issue keys |
+| privacy | `bash ../../../../ai-brain/scripts/privacy-scan.sh --working` over all 5 changed files + this file | 0 | PASS — CLEAN, home-folder basename count 0 |
+
+### A/B eval — leg 2 (fixed first-25 sample, same 25 keys as leg 1; 4.5 arm reused, not re-run)
+
+| Arm | total | confident | none | measured usage (in/out tokens) | Cost (5.5 card 0.10/0.50; 4.5 card 1.0/5.0) | avg out tokens/call |
+|---|---|---|---|---|---|---|
+| Haiku 4.5 (leg-1 capture, reused) | 25 | 9 | 16 | 48,897 / 859 | $0.053 | 34.4 |
+| Haiku 5.5 effort MEDIUM run A | 25 | 16 | 9 | 45,057 / 2,927 | ~$0.0060 uncached (est-usd=0.01) | 117.1 |
+| Haiku 5.5 effort MEDIUM run B | 25 | 13 | 12 | 10,369 / 2,948 | ~$0.0025 uncached (est-usd=0.01) | 117.9 |
+| (leg 1, effort LOW run A/B for contrast) | 25 | 6 / 7 | 19 / 18 | 6,593/1,049; 8,705/925 | ~$0.0012; ~$0.0013 | ~42 |
+
+- Paired split vs Haiku 4.5, run A: **gains 8, losses 1** (gains > losses), both-confident 8 (feature-id agreement 8/8), both-none 8.
+- Paired split vs Haiku 4.5, run B: **gains 6, losses 2** (gains > losses), both-confident 7 (feature-id agreement 7/7), both-none 10.
+- Self-agreement A vs B (noise floor at medium): confident/none verdict equal on **16/25** (9 flips — far noisier than leg 1 low's 24/25); where verdicts agree, chosen feature id equal on **16/16**.
+- Both medium runs clear the leg-1 RED bar (confident 16 and 13 vs 4.5's 9; paired gains > losses in both), but the 9-verdict run-to-run flip rate means per-defect stability is materially worse than at effort low — flag for the ship decision, not decided here.
+- Cost caveat unchanged from leg 1: `usage.input_tokens` excludes cache reads (A's larger input count is the cache-warming run); both runs' est-usd=0.01, whole leg-2 verification stays far under the $0.10 budget.
+- Output averaged ~117 tokens/call (thinking + answer) against the 2048 cap; no truncation (`stop=end_turn` on the probe, zero thrown errors in both runs).
+- Leg-2 captures: `.ai-workspace/eval-captures/claude-haiku-5-5-2026-10-15T05-50-39-653Z.json` (A) and `...T05-53-02-298Z.json` (B) — gitignored, never printed; only aggregates above.
+
+### Leg 2 environment notes
+
+- Same dispatch-shell deviation as leg 1: eval/test commands run as `env -u ANTHROPIC_MODEL -u ANTHROPIC_API_KEY node --env-file=.env …` (harness exports `ANTHROPIC_MODEL=glm-5.3` and an empty key; `--env-file` never overrides pre-set names).
+- The `.env` / `.ai-workspace/catalog` relative symlinks from leg 1 still in place (gitignored, nothing committed).
+- AC-9 restart step is unchanged (see leg-1 environment notes): orchestrator runs `npm run redeploy` on the primary checkout post-merge and checks the `llm-model:` line in the INSTALLED plist's StandardOutPath. The bot was NOT restarted here.
