@@ -38,7 +38,7 @@ const DIST = path.resolve(__dirname, "..", "dist");
 const { matchFeatureFlow } = require(path.join(DIST, "triage", "featureFlowMatcher"));
 const { scoreEval, estimateCost } = require(path.join(DIST, "triage", "featureFlowEval"));
 const { assertCatalogReviewed } = require(path.join(DIST, "catalog", "reviewedGate"));
-const { resolveModel, pricingForModel } = require(path.join(DIST, "llm", "modelConfig"));
+const { resolveModel, pricingForModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
 
 /** Gitignored catalog path (mirrors backfill-namespaced-labels.js). */
 const CATALOG_OUTPUT_PATH = path.resolve(
@@ -97,7 +97,7 @@ function buildProductionComplete(usage) {
     const res = await client.messages.create({
       model,
       max_tokens: 256,
-      output_config: { effort: "low" },
+      output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
     if (usage && res.usage) {

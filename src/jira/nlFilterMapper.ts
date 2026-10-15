@@ -8,7 +8,7 @@
  * then turns that filter into the JQL string — no LLM in the builder.
  *
  * Classification-shape → Haiku tier (resolved via `src/llm/modelConfig.ts`),
- * low reasoning effort and NO sampling parameter for a stable mapping
+ * classifier reasoning effort (CLASSIFIER_EFFORT) and NO sampling parameter
  * (mirrors `src/llm/generate.ts`).
  *
  * Degrades gracefully + never throws into the pipeline:
@@ -23,7 +23,7 @@
  * status clause (the SHOULD-fix folded into the plan).
  */
 import { getClient } from "../llm/anthropicClient";
-import { resolveModel } from "../llm/modelConfig";
+import { CLASSIFIER_EFFORT, resolveModel } from "../llm/modelConfig";
 import { categorizeDefect } from "../triage/categorizeDefect";
 import { LabelVocab, StructuredFilter } from "./jqlFromFilter";
 
@@ -262,7 +262,7 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
         const response = await create({
           model,
           max_tokens: MAX_TOKENS,
-          output_config: { effort: "low" },
+          output_config: { effort: CLASSIFIER_EFFORT },
           system: buildSystemPrompt(vocab),
           messages: [{ role: "user", content: question }],
         });

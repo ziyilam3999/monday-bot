@@ -11,6 +11,14 @@
 /** Default model: Claude Haiku 5.5 (1M context, standard rate card). */
 export const DEFAULT_MODEL = "claude-haiku-5-5";
 
+/**
+ * Reasoning effort for the classifier routes (feature/flow matcher, NL filter
+ * mapper, backfill) — ONE constant here, never a per-call-site literal (#3136).
+ * Leg 1 ran `low` (A/B RED vs Haiku 4.5); leg 2 retries at `medium` per the
+ * 2026-10-15 operator decision.
+ */
+export const CLASSIFIER_EFFORT: "low" | "medium" | "high" = "medium";
+
 /** Resolve the REQUESTED model id: `ANTHROPIC_MODEL` override, else the default. */
 export function resolveModel(): string {
   return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;

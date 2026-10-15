@@ -57,7 +57,8 @@ export interface MatchResult {
  * Build the static "menu" + per-issue prompt. The menu lists every catalog
  * feature id + its human label, then every flow id + its label; the model must
  * answer with ids FROM THE MENU ONLY, as strict JSON. Determinism upstream
- * rests on prompt wording + low effort — no sampling parameter is sent (#3136).
+ * rests on prompt wording + the shared CLASSIFIER_EFFORT — no sampling parameter
+ * is sent (#3136).
  */
 export function buildMatcherPrompt(catalog: MatcherCatalog, issue: MatcherIssue): string {
   const featureMenu = catalog.features.map((e) => `  - ${e.id}: ${e.label}`).join("\n");

@@ -183,14 +183,14 @@ function persistProposedAdditions(state) {
  */
 function buildProductionComplete() {
   const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
-  const { resolveModel } = require(path.join(DIST, "llm", "modelConfig"));
+  const { resolveModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
   const model = resolveModel();
   return async function complete(prompt) {
     const client = getClient();
     const res = await client.messages.create({
       model,
       max_tokens: 256,
-      output_config: { effort: "low" },
+      output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
     return Array.isArray(res.content)
