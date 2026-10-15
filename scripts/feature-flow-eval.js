@@ -39,6 +39,7 @@ const { matchFeatureFlow } = require(path.join(DIST, "triage", "featureFlowMatch
 const { scoreEval, estimateCost } = require(path.join(DIST, "triage", "featureFlowEval"));
 const { assertCatalogReviewed } = require(path.join(DIST, "catalog", "reviewedGate"));
 const { resolveModel, pricingForModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
+const { warnMaxTokensStop } = require(path.join(DIST, "llm", "anthropicClient"));
 
 /** Gitignored catalog path (mirrors backfill-namespaced-labels.js). */
 const CATALOG_OUTPUT_PATH = path.resolve(
@@ -101,6 +102,7 @@ function buildProductionComplete(usage) {
       output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
+    warnMaxTokensStop(res, "feature-flow-eval.complete");
     if (usage && res.usage) {
       usage.inputTokens += res.usage.input_tokens || 0;
       usage.outputTokens += res.usage.output_tokens || 0;

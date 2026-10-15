@@ -37,8 +37,8 @@ const { run, CATALOG_OUTPUT_PATH, CATALOG_REGENERATED_PATH, chooseWritePath } = 
   path.join(DIST, "catalog", "cli"),
 );
 const { buildConfluenceFetcher } = require(path.join(DIST, "confluence", "sync"));
-const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
-const { resolveModel } = require(path.join(DIST, "llm", "modelConfig"));
+const { getClient, warnMaxTokensStop } = require(path.join(DIST, "llm", "anthropicClient"));
+const { resolveModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
 
 /** Strip a trailing /wiki (and trailing slash) so buildConfluenceFetcher gets the site root. */
 function toSiteRoot(url) {
@@ -80,9 +80,16 @@ function buildLlmDistiller() {
         "are the `id` values of the pages that entry was drawn from. Respond with JSON ONLY.";
       const res = await client.messages.create({
         model,
-        max_tokens: 4096,
+        // #3136 fix cycle: 4096, 8192 AND 16384 all STOPPED at max_tokens on
+        // Haiku 5.5 with DEFAULT thinking (it burns the whole cap before any
+        // JSON; 2026-10-15 runs). Same class as plan risk-5: bound the effort
+        // (CLASSIFIER_EFFORT medium, the operator's leg-2 decision) and keep
+        // the 8192 cap; max_tokens stops surfaced via warnMaxTokensStop.
+        max_tokens: 8192,
+        output_config: { effort: CLASSIFIER_EFFORT },
         messages: [{ role: "user", content: `${instructions}\n\n${corpus}` }],
       });
+      warnMaxTokensStop(res, "build-catalog.distiller");
       const text = Array.isArray(res.content)
         ? res.content
             .filter((b) => b && b.type === "text" && typeof b.text === "string")

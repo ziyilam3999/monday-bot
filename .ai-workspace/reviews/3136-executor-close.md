@@ -108,3 +108,73 @@ thrown errors.
 - Same dispatch-shell deviation as leg 1: eval/test commands run as `env -u ANTHROPIC_MODEL -u ANTHROPIC_API_KEY node --env-file=.env …` (harness exports `ANTHROPIC_MODEL=glm-5.3` and an empty key; `--env-file` never overrides pre-set names).
 - The `.env` / `.ai-workspace/catalog` relative symlinks from leg 1 still in place (gitignored, nothing committed).
 - AC-9 restart step is unchanged (see leg-1 environment notes): orchestrator runs `npm run redeploy` on the primary checkout post-merge and checks the `llm-model:` line in the INSTALLED plist's StandardOutPath. The bot was NOT restarted here.
+
+## Fix cycle 1 — 2026-10-15 (dispatch OR-NONCE-8f3f54cb5adbe0ac)
+
+DISPATCH-NONCE:OR-NONCE-8f3f54cb5adbe0ac
+
+Executor-close: PR ziyilam3999/monday-bot#267 branch 3136-haiku-55 — fixed all 3 execution-review findings (generator cap 8192 + max_tokens-stop surfacing everywhere, empty ANTHROPIC_MODEL fallback, build-catalog measured then fixed after it stopped at max_tokens), re-probed 3/3 end_turn on Haiku 5.5.
+
+### FIX-TABLE
+
+| finding | change | proof command | rc |
+|---|---|---|---|
+| 1 HIGH generator 1024 cap + silent truncation | `src/llm/generate.ts` MAX_TOKENS 1024->8192 (named constant; 4x the classifier medium-effort 2048 cap, worst case $0.004/reply output) + `warnMaxTokensStop(response, callSite)` in `callModel` (shared helper in `src/llm/anthropicClient.ts`); backstop retry logs under its own call-site name; tests in `tests/generate.test.ts` | red: `git grep -n "MAX_TOKENS = 1024" 19ea2a8 -- src/llm/generate.ts` (hit) / green: `env -u ANTHROPIC_MODEL npx jest tests/generate.test.ts` — 39 passed | red 0 / green 0 |
+| 2 LOW-4 empty ANTHROPIC_MODEL | `resolveModel()` in `src/llm/modelConfig.ts` now falls back to the default on empty string (one helper; all 3 scripts import it from `dist/`); new `tests/modelConfig.test.ts` | red: `git grep -n "ANTHROPIC_MODEL ?? DEFAULT_MODEL" 19ea2a8 -- src/llm/modelConfig.ts` (hit) / green: `env -u ANTHROPIC_MODEL npx jest tests/modelConfig.test.ts` — 4 passed | red 0 / green 0 |
+| 3 LOW-3 build-catalog measure | ran once as named (`node --env-file=.env scripts/build-catalog.js`, 306 pages, 2 batches): STOPPED at max_tokens 4096/4096 then failed loudly ("no JSON object") — so per the brief it was changed: cap 8192 + `warnMaxTokensStop`; 8192 and 16384 with DEFAULT thinking still stopped (8192/8192, 16384/16384), so the distiller got `output_config: { effort: CLASSIFIER_EFFORT }` (medium, operator leg-2 decision — same class as plan risk-5); final run 3/3 end_turn | red: `git grep -n "max_tokens: 4096" 19ea2a8 -- scripts/build-catalog.js` (hit) / green: measured runs above | red 0 / green 0 |
+
+Also closed the RULE class in the two remaining `max_tokens` sites so the sibling target is 0 with no exemptions: `scripts/feature-flow-eval.js` and `scripts/backfill-namespaced-labels.js` now call `warnMaxTokensStop` (imported from `dist/llm/anthropicClient`); `src/jira/nlFilterMapper.ts` (classifier) surfaces its stop before the empty-filter degrade.
+
+### SIBLING-SEARCH
+
+Command: `command grep -rn -E "max_tokens|stop_reason" src scripts` (also `command grep -rn -E "max_tokens:" src scripts` post-fix). Sites:
+
+| call site | cap | surfaces max_tokens stop |
+|---|---|---|
+| `src/llm/generate.ts` callModel (+backstop retry) | 8192 | yes — `warnMaxTokensStop` w/ call-site name |
+| `src/jira/nlFilterMapper.ts` buildLlmFilterMapper | 2048 | yes — `warnMaxTokensStop` before degrade |
+| `scripts/feature-flow-eval.js` buildProductionComplete | 2048 | yes — `warnMaxTokensStop` |
+| `scripts/build-catalog.js` buildLlmDistiller | 8192 (+effort medium) | yes — `warnMaxTokensStop` |
+| `scripts/backfill-namespaced-labels.js` matcher | 2048 | yes — `warnMaxTokensStop` |
+
+(`src/jira/nlFilterMapper.ts:37` is the `MessagesCreate` type field, not a call site.) Sites still not surfacing: **0** — no exemptions needed.
+
+### HELD-OUT (PR-TABLE)
+
+| variant | direction | expected | observed |
+|---|---|---|---|
+| generator reply, stop_reason max_tokens, partial text | must-fire | warning names call site | `env -u ANTHROPIC_MODEL npx jest … -t "partial text"` rc=0 |
+| classifier reply, stop_reason max_tokens, no text block | must-fire | warning + empty-filter degrade | `env -u ANTHROPIC_MODEL npx jest … -t "no text block"` rc=0 |
+| ANTHROPIC_MODEL="" | must-fire | resolves to default id | `env -u ANTHROPIC_MODEL npx jest … -t "empty string -> default id"` rc=0 |
+| generator reply, stop_reason end_turn | must-not-fire | no max_tokens warning | `env -u ANTHROPIC_MODEL npx jest … -t "stop_reason end_turn -> no"` rc=0 |
+| thinking block then complete text block, end_turn | must-not-fire | no warning, text kept | `env -u ANTHROPIC_MODEL npx jest … -t "thinking block before"` rc=0 |
+| classifier end_turn + complete JSON | must-not-fire | no warning, filter parsed | `env -u ANTHROPIC_MODEL npx jest … -t "complete JSON text block"` rc=0 |
+| ANTHROPIC_MODEL unset | must-not-fire | default id | `env -u ANTHROPIC_MODEL npx jest … -t "unset ANTHROPIC_MODEL"` rc=0 |
+| ANTHROPIC_MODEL=claude-haiku-4-5-20251001 | must-not-fire | override wins (legacy card) | `env -u ANTHROPIC_MODEL npx jest … -t "still overrides"` rc=0 |
+
+("…" = `tests/generate.test.ts tests/nlFilterMapper.test.ts tests/modelConfig.test.ts`. Variants 1-3 and 5-6 per the dispatch brief's held-out list; 4, 7, 8 my own.)
+
+INPUT-BOUND: the generator cap is ONE named constant (`MAX_TOKENS`); `warnMaxTokensStop` reads only `stop_reason` and the call-site string — never reply text, never credentials — O(1); `resolveModel` reads one env var, O(1). No loop in any fixed path can grow with input size, and an oversized reply fails LOUD (warning +, for the catalog distiller, the existing no-JSON throw), never silently.
+
+### Re-probe (generator, real size, Haiku 5.5)
+
+3-part how-to question over 5 short SYNTHETIC chunks (Zephyr-hub fiction), 3 sequential runs via `dist/llm/generate.js` (client wrapped to log stop_reason/usage only):
+
+| run | stop_reason | output_tokens | max_tokens | warnings | answer |
+|---|---|---|---|---|---|
+| 1 | end_turn | 206 | 8192 | 0 | 717 chars, 2 citations |
+| 2 | end_turn | 238 | 8192 | 0 | 683 chars, 2 citations |
+| 3 | end_turn | 224 | 8192 | 0 | 692 chars, 2 citations |
+
+Target 3/3 end_turn: MET (gateway-reported input_tokens was a bogus 7 — recorded as reported, not trusted).
+
+### build-catalog final numbers
+
+306 pages, 2 batches + reduce, cap 8192, effort medium: 3 calls, all end_turn, output_tokens 4600 / 2258 / 2258 vs the 8192 cap; 53 features, 34 flows; catalog written to the gitignored path.
+
+### Suites, privacy, env notes
+
+- `env -u ANTHROPIC_MODEL npx jest tests/generate.test.ts` — 39 passed rc=0; `tests/modelConfig.test.ts` — 4 passed rc=0; `tests/nlFilterMapper.test.ts` — 15 passed rc=0; `env -u ANTHROPIC_MODEL npm run typecheck` rc=0. (The harness exports `ANTHROPIC_MODEL=glm-5.3` and an EMPTY `ANTHROPIC_API_KEY`; leg-2 already documented the `env -u` deviation, and `--env-file` never overrides pre-set names — that empty ambient key also masked the real `.env` key, so the probes routed the ambient `ANTHROPIC_AUTH_TOKEN` into `ANTHROPIC_API_KEY` by name, value never printed, and ran with `HOME` redirected to the scratch sandbox so the stale OAuth file was not used.)
+- Privacy scan (`bash ../../../../ai-brain/scripts/privacy-scan.sh --working <file>`) over all 11 changed files: CLEAN; home-folder basename count 0 (plain, dash and underscore forms). This close file scanned CLEAN after append (see below).
+- Probe scratch under `/private/tmp/fakehome3136f1`; measurement wrappers log model/stop_reason/token counts only — never headers, auth material, or reply text. Approx probe cost: ~28.7K truncated output tokens (three failed catalog attempts) + ~9.1K (final catalog) + ~0.7K (generator) at $0.50/MTok output ≈ $0.02.
+- The bot was NOT restarted; no launchctl. Ledger append skipped (fix cycle; orchestrator pins the row).

@@ -184,6 +184,7 @@ function persistProposedAdditions(state) {
 function buildProductionComplete() {
   const { getClient } = require(path.join(DIST, "llm", "anthropicClient"));
   const { resolveModel, CLASSIFIER_EFFORT } = require(path.join(DIST, "llm", "modelConfig"));
+  const { warnMaxTokensStop } = require(path.join(DIST, "llm", "anthropicClient"));
   const model = resolveModel();
   return async function complete(prompt) {
     const client = getClient();
@@ -194,6 +195,7 @@ function buildProductionComplete() {
       output_config: { effort: CLASSIFIER_EFFORT },
       messages: [{ role: "user", content: prompt }],
     });
+    warnMaxTokensStop(res, "backfill.featureFlowMatcher");
     return Array.isArray(res.content)
       ? res.content
           .filter((b) => b && b.type === "text" && typeof b.text === "string")
