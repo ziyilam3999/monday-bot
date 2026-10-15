@@ -53,19 +53,32 @@ class Anthropic {
         // can script the two-call regenerate path. Empty queue -> canonical
         // answer below (existing tests unchanged). [1] keeps AC-01 happy; the
         // word count keeps AC-04 happy if a real call somehow hits the stub.
-        const text =
-          __responseQueue.length > 0
-            ? __responseQueue.shift()
-            : "Per the provided context, the documented procedure is to follow the " +
-              "cited source material directly [1]. The context supplies a complete, " +
-              "self-contained answer with no outside knowledge required.";
+        // #3136 fix 1: a queued entry may be a string (stop_reason end_turn,
+        // one full text block) OR an object { stop_reason, text?, blocks? } so
+        // tests can script a max_tokens stop and/or a reply with no text block.
+        let text =
+          "Per the provided context, the documented procedure is to follow the " +
+          "cited source material directly [1]. The context supplies a complete, " +
+          "self-contained answer with no outside knowledge required.";
+        let stopReason = "end_turn";
+        let blocks;
+        if (__responseQueue.length > 0) {
+          const queued = __responseQueue.shift();
+          if (typeof queued === "string") {
+            text = queued;
+          } else if (queued && typeof queued === "object") {
+            if (queued.stop_reason !== undefined) stopReason = queued.stop_reason;
+            if (queued.text !== undefined) text = queued.text;
+            if (queued.blocks !== undefined) blocks = queued.blocks;
+          }
+        }
         return {
           id: "msg_stub_001",
           type: "message",
           role: "assistant",
           model: (_req && _req.model) || "claude-haiku-stub",
-          content: [{ type: "text", text }],
-          stop_reason: "end_turn",
+          content: blocks !== undefined ? blocks : [{ type: "text", text }],
+          stop_reason: stopReason,
           stop_sequence: null,
           usage: { input_tokens: 42, output_tokens: 42 },
           _capturedRequest: _req,
@@ -88,6 +101,10 @@ Anthropic.__enqueueResponse = (text) => {
 };
 Anthropic.__setResponses = (texts) => {
   __responseQueue = Array.isArray(texts) ? [...texts] : [];
+};
+// #3136 fix 1: queue a full message shape (stop_reason + optional text/blocks).
+Anthropic.__enqueueMessage = (msg) => {
+  __responseQueue.push(msg);
 };
 Anthropic.__getCallCount = () => __callCount;
 // __reset() clears the FIFO queue, the call counter, AND __lastRequest

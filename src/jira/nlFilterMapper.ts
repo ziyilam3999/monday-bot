@@ -22,7 +22,7 @@
  * `extraStatus` field in the model's JSON — the LLM must never inject a raw
  * status clause (the SHOULD-fix folded into the plan).
  */
-import { getClient } from "../llm/anthropicClient";
+import { getClient, warnMaxTokensStop } from "../llm/anthropicClient";
 import { CLASSIFIER_EFFORT, resolveModel } from "../llm/modelConfig";
 import { categorizeDefect } from "../triage/categorizeDefect";
 import { LabelVocab, StructuredFilter } from "./jqlFromFilter";
@@ -38,7 +38,7 @@ export type MessagesCreate = (req: {
   output_config?: { effort: "low" | "medium" | "high" };
   system: string;
   messages: Array<{ role: string; content: string }>;
-}) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+}) => Promise<{ content: Array<{ type: string; text?: string }>; stop_reason?: string | null }>;
 
 export interface NlFilterMapper {
   map(question: string, vocab: LabelVocab): Promise<StructuredFilter>;
@@ -267,6 +267,9 @@ export function buildLlmFilterMapper(deps: LlmFilterMapperDeps = {}): NlFilterMa
           system: buildSystemPrompt(vocab),
           messages: [{ role: "user", content: question }],
         });
+        // #3136 fix-cycle RULE: a max_tokens stop is surfaced even though the
+        // route then degrades to the empty filter - the truncation is never silent.
+        warnMaxTokensStop(response, "nlFilterMapper.buildLlmFilterMapper");
         filter = parseFilterJson(extractText(response));
       } catch {
         // No creds / network error / malformed response → degrade to empty.

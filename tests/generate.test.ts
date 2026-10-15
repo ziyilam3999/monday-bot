@@ -598,3 +598,56 @@ describe("stripStrayAbstainCitations", () => {
     expect(result.citations).toEqual([]);
   });
 });
+
+describe("#3136 fix 1 - max_tokens stop visibility (generator)", () => {
+  const AnthropicStub = require("@anthropic-ai/sdk");
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    AnthropicStub.__reset();
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+    AnthropicStub.__reset();
+  });
+
+  const chunks: Chunk[] = [
+    { id: "c1", text: "Step 1 installs the CLI. Step 2 runs the login command.", source: "setup.txt" },
+    { id: "c2", text: "Step 3 verifies the connection with the status command.", source: "setup.txt" },
+  ];
+
+  test("MUST-FIRE: stop_reason max_tokens with partial text -> warning names the call site", async () => {
+    AnthropicStub.__enqueueMessage({
+      stop_reason: "max_tokens",
+      text: "Per the context, step one is to install [1]",
+    });
+    await generateAnswer("How do I set it up?", chunks);
+    expect(warnSpy).toHaveBeenCalled();
+    const line = warnSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes("max_tokens"));
+    expect(line).toBeDefined();
+    expect(line).toContain("generateAnswer");
+  });
+
+  test("MUST-NOT-FIRE: stop_reason end_turn -> no max_tokens warning", async () => {
+    AnthropicStub.__enqueueMessage({
+      stop_reason: "end_turn",
+      text: "Per the context, install then log in [1], then verify [2].",
+    });
+    await generateAnswer("How do I set it up?", chunks);
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("max_tokens");
+  });
+
+  test("MUST-NOT-FIRE: thinking block before a complete text block, end_turn -> no warning", async () => {
+    AnthropicStub.__enqueueMessage({
+      stop_reason: "end_turn",
+      blocks: [
+        { type: "thinking", thinking: "internal reasoning steps here" },
+        { type: "text", text: "The docs describe a three-step setup [1] [2]." },
+      ],
+    });
+    const result = await generateAnswer("How do I set it up?", chunks);
+    expect(result.answer).toContain("[1]");
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("max_tokens");
+  });
+});

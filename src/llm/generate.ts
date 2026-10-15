@@ -1,8 +1,13 @@
-import { getClient } from "./anthropicClient";
+import { getClient, warnMaxTokensStop } from "./anthropicClient";
 import { resolveModel } from "./modelConfig";
 
 const MODEL = resolveModel();
-const MAX_TOKENS = 1024;
+// #3136 fix 1: Haiku 5.5's DEFAULT (unset-effort) thinking budget spends tokens
+// BEFORE the text block, so the old 1024 cap truncated real-size how-to replies
+// (review probe: 2/3 runs stopped at max_tokens). 8192 = 4x the classifier's
+// medium-effort 2048 cap - ample for default thinking plus the 50-400-word
+// answer target, and at $0.50/MTok output the worst case is $0.004 per reply.
+const MAX_TOKENS = 8192;
 
 export const SYSTEM_PROMPT =
   "You answer factually from the provided context only. " +
@@ -495,7 +500,7 @@ export async function generateAnswer(
   ) {
     const directive = howToClass ? HOWTO_REGEN_DIRECTIVE : REGEN_DIRECTIVE;
     const harderContent = `${userContent}\n\n${directive}`;
-    const retry = await callModel(client, harderContent);
+    const retry = await callModel(client, harderContent, "generateAnswer.backstopRetry");
     if (retry.length > 0) text = retry;
   }
 
@@ -521,6 +526,7 @@ export async function generateAnswer(
 async function callModel(
   client: ReturnType<typeof getClient>,
   userContent: string,
+  callSite = "generateAnswer",
 ): Promise<string> {
   const response = await client.messages.create({
     model: MODEL,
@@ -528,6 +534,9 @@ async function callModel(
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent }],
   });
+  // #3136 fix 1: a max_tokens stop must be VISIBLE - the reply may be cut
+  // mid-sentence and must never be posted as a finished Slack answer silently.
+  warnMaxTokensStop(response, callSite);
   return response.content
     .filter((block) => block.type === "text")
     .map((block) => (block as { type: "text"; text: string }).text)

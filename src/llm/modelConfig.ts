@@ -19,9 +19,15 @@ export const DEFAULT_MODEL = "claude-haiku-5-5";
  */
 export const CLASSIFIER_EFFORT: "low" | "medium" | "high" = "medium";
 
-/** Resolve the REQUESTED model id: `ANTHROPIC_MODEL` override, else the default. */
+/**
+ * Resolve the REQUESTED model id: `ANTHROPIC_MODEL` override, else the default.
+ * An EMPTY override falls back to the default too (#3136 fix 2): the scripts
+ * used `||` before the modelConfig consolidation, and `??` would hand the API
+ * an empty string it rejects - empty means "unset", not "a model named """.
+ */
 export function resolveModel(): string {
-  return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
+  const override = process.env.ANTHROPIC_MODEL;
+  return override && override.length > 0 ? override : DEFAULT_MODEL;
 }
 
 /**
