@@ -4,8 +4,9 @@
  * Implements the EXISTING `IssueFeatureFlowClassifier` seam
  * (`src/triage/classifier.ts`): given one issue's text, pick exactly ONE feature
  * id and zero-or-more flow ids FROM THE INJECTED CATALOG MENU. It mirrors the
- * `build-catalog.js` LLM-boundary pattern (model from env, `temperature: 0`,
- * JSON-from-text parse, counts-only logging) but factors the actual model call
+ * `build-catalog.js` LLM-boundary pattern (model from env, no sampling
+ * parameter — Haiku 5.5, #3136 — JSON-from-text parse, counts-only logging)
+ * but factors the actual model call
  * out into an INJECTED `complete(prompt) → string` seam, so this core is unit-
  * tested with a FAKE and makes ZERO network / model / cred calls.
  *
@@ -55,8 +56,9 @@ export interface MatchResult {
 /**
  * Build the static "menu" + per-issue prompt. The menu lists every catalog
  * feature id + its human label, then every flow id + its label; the model must
- * answer with ids FROM THE MENU ONLY, as strict JSON. `temperature: 0` upstream
- * keeps it deterministic.
+ * answer with ids FROM THE MENU ONLY, as strict JSON. Determinism upstream
+ * rests on prompt wording + the shared CLASSIFIER_EFFORT — no sampling parameter
+ * is sent (#3136).
  */
 export function buildMatcherPrompt(catalog: MatcherCatalog, issue: MatcherIssue): string {
   const featureMenu = catalog.features.map((e) => `  - ${e.id}: ${e.label}`).join("\n");
