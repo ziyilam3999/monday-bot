@@ -31,10 +31,19 @@ function defaultLogPath(): string {
   return path.join(os.homedir(), "Library", "Logs", "monday-bot-telegram-asks.jsonl");
 }
 
-export function recordAsk(input: AskLogInput, logPathOverride?: string): void {
+/**
+ * `nowFn` (fix round 1, finding 1) makes the ts injectable so the ask-log
+ * privacy assertions are deterministic — they must never key on real-clock
+ * timestamp digits (any digit pair occurs in some timestamp).
+ */
+export function recordAsk(
+  input: AskLogInput,
+  logPathOverride?: string,
+  nowFn: () => Date = () => new Date(),
+): void {
   try {
     const line = JSON.stringify({
-      ts: new Date().toISOString(),
+      ts: nowFn().toISOString(),
       chatHash: chatIdHash(input.chatId),
       questionLen: input.questionLen,
       cited: input.cited,

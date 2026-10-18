@@ -60,6 +60,9 @@ export interface TelegramAdapterOptions {
    * (fix round 1, finding 3): an instantly-resolving transport must not be
    * able to spin the loop. Default 1000ms; 0 disables (backoff-schedule tests). */
   minPollIntervalMs?: number;
+  /** Injectable clock in epoch ms (fix round 1, finding 1): pins latencyMs
+   * and the ask-log ts so ask-log assertions are deterministic. */
+  nowFn?: () => number;
 }
 
 export class TelegramConfigError extends Error {
@@ -95,6 +98,7 @@ export class TelegramAdapter {
   private readonly askLogPath: string | undefined;
   private readonly sleepFn: SleepFn;
   private readonly minPollIntervalMs: number;
+  private readonly nowFn: () => number;
   private stopped = false;
   private loopDone: Promise<void> = Promise.resolve();
   private backoffWaiters: Array<() => void> = [];
@@ -142,6 +146,7 @@ export class TelegramAdapter {
           this.pendingTimers.add(timer);
         }));
     this.minPollIntervalMs = opts.minPollIntervalMs ?? 1000;
+    this.nowFn = opts.nowFn ?? Date.now;
     this.transport = opts.transportFactory
       ? opts.transportFactory()
       : new HttpTelegramTransport({ botToken: this.botToken });
@@ -166,10 +171,10 @@ export class TelegramAdapter {
       return; // silence: no query, no reply, no ask-log line
     }
 
-    const startedAt = Date.now();
+    const startedAt = this.nowFn();
     // handleQuery never throws — a service error becomes the friendly fallback.
     const result: QueryHandlerResult = await handleQuery(text, this.knowledgeService);
-    const latencyMs = Date.now() - startedAt;
+    const latencyMs = this.nowFn() - startedAt;
 
     const rendered = renderTelegramReply(result);
     try {
@@ -188,6 +193,7 @@ export class TelegramAdapter {
         latencyMs,
       },
       this.askLogPath,
+      () => new Date(this.nowFn()),
     );
   }
 
@@ -223,7 +229,7 @@ export class TelegramAdapter {
   private async pollLoop(offset: number): Promise<void> {
     let streak = 0;
     while (!this.stopped) {
-      const pollStartedAt = Date.now();
+      const pollStartedAt = this.nowFn();
       let batch: TgUpdate[];
       try {
         batch = await this.transport.getUpdates(offset, POLL_TIMEOUT_SEC);
@@ -257,7 +263,7 @@ export class TelegramAdapter {
         // empty transport must not spin the loop microtask-only — the next
         // poll is held to at least minPollIntervalMs after this poll STARTED.
         // A non-empty batch takes the branch above with no added delay.
-        const floor = this.minPollIntervalMs - (Date.now() - pollStartedAt);
+        const floor = this.minPollIntervalMs - (this.nowFn() - pollStartedAt);
         if (floor > 0) await this.sleepOrStop(floor);
       }
     }

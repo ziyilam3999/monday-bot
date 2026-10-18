@@ -22,7 +22,7 @@ import {
   TgUpdate,
 } from "../src/telegram/transport";
 import { renderTelegramReply, splitMessage } from "../src/telegram/formatter";
-import { recordAsk } from "../src/telegram/askLog";
+import { chatIdHash, recordAsk } from "../src/telegram/askLog";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -138,6 +138,15 @@ function update(updateId: number, chatId: number | undefined, text?: string): Tg
 
 const ALLOWED = [42];
 
+// Fixed injected clocks (fix round 1, finding 1): ask-log assertions must
+// never key on real-clock timestamp digits. FIXED_CLOCK_ISO contains no "42";
+// FIXED_COLLIDING_CLOCK_ISO deliberately contains "42" three times — the
+// targeted assertion set has to hold for BOTH.
+const FIXED_CLOCK_MS = Date.parse("2025-10-09T08:53:20.000Z");
+const FIXED_CLOCK_ISO = "2025-10-09T08:53:20.000Z";
+const FIXED_COLLIDING_CLOCK_MS = Date.parse("2025-10-09T12:42:42.424Z");
+const FIXED_COLLIDING_CLOCK_ISO = "2025-10-09T12:42:42.424Z";
+
 // ---------------------------------------------------------------------------
 // adapter — config validation
 // ---------------------------------------------------------------------------
@@ -234,6 +243,7 @@ describe("telegram/adapter — allowed asks", () => {
       knowledgeService: service,
       transportFactory: () => transport,
       askLogPath: logPath,
+      nowFn: () => FIXED_CLOCK_MS,
     });
 
     await adapter.processUpdate(update(1, 42, "what is the leave policy?"));
@@ -264,9 +274,22 @@ describe("telegram/adapter — allowed asks", () => {
     expect(entry.cited).toBe(true);
     expect(typeof entry.latencyMs).toBe("number");
     expect((entry.latencyMs as number)).toBeGreaterThanOrEqual(0);
+    expect(entry.ts).toBe(FIXED_CLOCK_ISO); // the injected clock, not the real one
     expect(Number.isNaN(Date.parse(entry.ts as string))).toBe(false);
     expect(raw).not.toContain("what is the leave policy?");
-    expect(raw).not.toContain("42"); // raw chat id never stored
+    // Raw chat id never stored — assertions target ONLY the id-bearing
+    // fields: chatHash must equal the id's hash (the id appears solely in
+    // hashed form) and the numeric/boolean fields are digit-scanned. The ts
+    // field is EXCLUDED on purpose: any digit pair occurs in some timestamp,
+    // which is what made the old whole-line not.toContain("42") flaky.
+    expect(entry.chatHash).toBe(chatIdHash(42));
+    expect(
+      JSON.stringify({
+        questionLen: entry.questionLen,
+        cited: entry.cited,
+        latencyMs: entry.latencyMs,
+      }),
+    ).not.toContain("42");
   });
 
   it("AC7 — rendered reply over 4096 chars → one sendMessage per part, each ≤4096", async () => {
@@ -339,6 +362,84 @@ describe("telegram/adapter — allowed asks", () => {
     expect(sendAttempts.length).toBe(1);
     expect(fs.existsSync(logPath)).toBe(true); // ask still recorded
     errSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix round 1, finding 1 — ask-log determinism (injected clock)
+// ---------------------------------------------------------------------------
+
+describe("fix1-F1 — ask-log determinism (injected clock)", () => {
+  const ASK_KEYS = ["chatHash", "cited", "latencyMs", "questionLen", "ts"];
+
+  /** The fix-round assertion set: exact key set, the id ONLY in hashed form,
+   * and a digit scan of the id-BEARING fields only (never the ts). */
+  function assertNoRawChatId(
+    entry: Record<string, unknown>,
+    rawLine: string,
+    chatId: number,
+  ): void {
+    expect(Object.keys(entry).sort()).toEqual(ASK_KEYS);
+    expect(entry.chatHash).toBe(chatIdHash(chatId));
+    expect(
+      JSON.stringify({
+        questionLen: entry.questionLen,
+        cited: entry.cited,
+        latencyMs: entry.latencyMs,
+      }),
+    ).not.toContain(String(chatId));
+    expect(rawLine).not.toContain("what is the leave policy?");
+  }
+
+  it("holds for a full day of injected ts values (every minute + every second of a colliding-rich hour)", () => {
+    const logPath = tmpLogPath();
+    const midnight = Date.parse("2025-10-09T00:00:00.000Z");
+    const stamps: number[] = [];
+    for (let m = 0; m < 1440; m++) stamps.push(midnight + m * 60_000);
+    for (let sec = 0; sec < 3600; sec++) {
+      stamps.push(midnight + 12 * 3_600_000 + sec * 1000); // the 12:xx hour
+    }
+    for (const ms of stamps) {
+      recordAsk(
+        { chatId: 42, questionLen: 25, cited: true, latencyMs: 7 },
+        logPath,
+        () => new Date(ms),
+      );
+    }
+    const lines = fs.readFileSync(logPath, "utf8").trim().split("\n");
+    expect(lines.length).toBe(stamps.length);
+    let colliding = 0;
+    lines.forEach((line, i) => {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      expect(entry.ts).toBe(new Date(stamps[i]).toISOString());
+      assertNoRawChatId(entry, line, 42);
+      if ((entry.ts as string).includes("42")) colliding += 1;
+    });
+    // The sweep genuinely covers ts values containing the chat id's digits —
+    // the OLD whole-line not.toContain("42") failed on exactly these (~5.2%
+    // of a UTC day, i.e. npm test flaked about 1 run in 19).
+    expect(colliding).toBeGreaterThan(0);
+  });
+
+  it("an adapter ask under a colliding pinned clock (ts contains \"42\" three times) still passes", async () => {
+    const transport = new FakeTransport();
+    const logPath = tmpLogPath();
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: logPath,
+      nowFn: () => FIXED_COLLIDING_CLOCK_MS,
+    });
+
+    await adapter.processUpdate(update(1, 42, "what is the leave policy?"));
+
+    const line = fs.readFileSync(logPath, "utf8").trim();
+    const entry = JSON.parse(line) as Record<string, unknown>;
+    expect(entry.ts).toBe(FIXED_COLLIDING_CLOCK_ISO);
+    expect(entry.latencyMs).toBe(0); // constant clock → deterministic latency
+    assertNoRawChatId(entry, line, 42);
   });
 });
 
@@ -795,7 +896,11 @@ describe("telegram/askLog", () => {
     const logPath = path.join(dir, "asks.jsonl");
     process.env.MONDAY_TELEGRAM_ASK_LOG = logPath;
 
-    recordAsk({ chatId: 4242, questionLen: 21, cited: true, latencyMs: 12 });
+    recordAsk(
+      { chatId: 4242, questionLen: 21, cited: true, latencyMs: 12 },
+      undefined,
+      () => new Date(FIXED_CLOCK_MS), // pinned clock — the "4242" scan is deterministic
+    );
 
     const raw = fs.readFileSync(logPath, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
