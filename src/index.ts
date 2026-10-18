@@ -15,6 +15,8 @@ import { JiraFetcher } from "./jira/sync";
 import { SlackAdapter, AppFactory } from "./slack/adapter";
 import { resolveModel } from "./llm/modelConfig";
 import { AdminService } from "./slack/commands";
+import { TelegramAdapter } from "./telegram/adapter";
+import { TelegramTransport } from "./telegram/transport";
 import { buildAnswerJql } from "./jira/answerJql";
 import { buildAskJiraAugment } from "./jira/askAreaAugment";
 
@@ -34,6 +36,8 @@ export interface RunMondayOptions {
   jiraFetcher?: JiraFetcher;
   /** Inject a scheduler (tests) so no real timers leak. */
   scheduler?: Scheduler;
+  /** Override Telegram transport factory (#3277 tests). Default: real HTTP transport. */
+  telegramTransportFactory?: () => TelegramTransport;
 }
 
 export interface RunMondayHandle {
@@ -285,6 +289,30 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     `Monday is listening (Socket Mode). Slack bot token configured (${env.slackBotToken.slice(0, 5)}...).`,
   );
 
+  // #3277 — Telegram adapter, constructed and started ONLY when
+  // TELEGRAM_BOT_TOKEN is set. A misconfigured second channel must not serve
+  // silently beside a healthy Slack one: any Telegram startup failure (empty
+  // allow-list, bad token, failed boot drain) funnels through the same
+  // handleStartupError channel (exit 1 in prod). Mid-run poll failures never
+  // reach this path — the adapter backs off and parks itself, so a Telegram
+  // outage cannot take Slack down with it. No token slice is ever logged here
+  // (unlike the Slack line above): the Telegram token lives in request URLs.
+  let telegram: TelegramAdapter | null = null;
+  if (env.telegramBotToken) {
+    try {
+      telegram = new TelegramAdapter({
+        botToken: env.telegramBotToken,
+        allowedChatIds: env.telegramAllowedChatIds,
+        knowledgeService: knowledge,
+        transportFactory: opts.telegramTransportFactory,
+      });
+      await telegram.start();
+    } catch (err) {
+      return handleStartupError(err);
+    }
+    console.log(`Telegram listening (allowed chats: ${env.telegramAllowedChatIds.length}).`);
+  }
+
   // Signal listener references — captured so shutdown() can remove them,
   // preventing listener accumulation when runMonday() is called repeatedly.
   let onSIGINT: (() => void) | undefined;
@@ -301,6 +329,14 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`Monday: error stopping Slack adapter: ${message}`);
+    }
+    if (telegram) {
+      try {
+        telegram.stop();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Monday: error stopping Telegram adapter: ${message}`);
+      }
     }
     sources.stop();
   };
