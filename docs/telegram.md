@@ -76,8 +76,10 @@ LOG=~/Library/Logs/monday-bot-telegram-asks.jsonl
 # distinct askers
 jq -s 'map(.chatHash) | unique | length' "$LOG"
 
-# questions per week (last 14 days, split by week)
-jq -s 'map(select(.ts > "2026-10-04")) | group_by(.ts[0:7]) | map({week: .[0].ts[0:7], asks: length})' "$LOG"
+# questions per ISO week (the log file itself spans only the 2-week run —
+# no hardcoded start date; %G-W%V is the ISO-8601 week, so a week straddling
+# a month boundary is ONE bucket, never two)
+jq -s 'map(.ts[0:10] | strptime("%Y-%m-%d") | mktime | strftime("%G-W%V")) | group_by(.) | map({week: .[0], asks: length})' "$LOG"
 
 # citation rate
 jq -s 'map(.cited) | (map(select(. == true)) | length) / length' "$LOG"
@@ -85,6 +87,28 @@ jq -s 'map(.cited) | (map(select(. == true)) | length) / length' "$LOG"
 # median latency (ms)
 jq -s 'map(.latencyMs) | sort | .[length / 2 | floor]' "$LOG"
 ```
+
+Worked example — invented 3-line sample (two asks in ISO week 2026-W41, one
+in 2026-W42):
+
+```json
+{"ts":"2026-10-05T09:00:00.000Z","chatHash":"8a9bcf1e51e8","questionLen":37,"cited":true,"latencyMs":1840}
+{"ts":"2026-10-07T11:30:00.000Z","chatHash":"8a9bcf1e51e8","questionLen":21,"cited":false,"latencyMs":900}
+{"ts":"2026-10-13T15:00:00.000Z","chatHash":"ab12cd34ef56","questionLen":19,"cited":true,"latencyMs":1200}
+```
+
+The per-week line prints:
+
+```json
+[
+  {"week": "2026-W41", "asks": 2},
+  {"week": "2026-W42", "asks": 1}
+]
+```
+
+(Cross-checked against Python's `datetime.isocalendar()`. The pre-fix version
+of this one-liner grouped by `YYYY-MM`, which folded the whole sample into
+one "2026-10" bucket and could not answer questions-per-week.)
 
 Your own chat's hash, so "nobody but the operator" is decidable:
 
