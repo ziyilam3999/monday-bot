@@ -93,6 +93,9 @@ export class TelegramAdapter {
   private stopped = false;
   private loopDone: Promise<void> = Promise.resolve();
   private backoffWaiters: Array<() => void> = [];
+  /** Timers created by the DEFAULT sleepFn — cleared in stop() so a clean
+   * stop leaves no dangling 5-60s handle keeping the process alive. */
+  private readonly pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(opts: TelegramAdapterOptions) {
     if (!opts || typeof opts !== "object") {
@@ -124,7 +127,15 @@ export class TelegramAdapter {
     this.knowledgeService = opts.knowledgeService;
     this.askLogPath = opts.askLogPath;
     this.sleepFn =
-      opts.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+      opts.sleepFn ??
+      ((ms: number) =>
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            this.pendingTimers.delete(timer);
+            resolve();
+          }, ms);
+          this.pendingTimers.add(timer);
+        }));
     this.transport = opts.transportFactory
       ? opts.transportFactory()
       : new HttpTelegramTransport({ botToken: this.botToken });
@@ -253,11 +264,14 @@ export class TelegramAdapter {
     });
   }
 
-  /** Flip the stopped flag, clear any pending backoff sleep, abort the in-flight fetch. */
+  /** Flip the stopped flag, clear any pending backoff sleep (waiters AND the
+   * default sleepFn's own timer handles), abort the in-flight fetch. */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
     for (const wake of this.backoffWaiters.splice(0)) wake();
+    for (const timer of this.pendingTimers) clearTimeout(timer);
+    this.pendingTimers.clear();
     this.transport.abortInFlight?.();
   }
 

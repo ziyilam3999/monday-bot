@@ -477,6 +477,34 @@ describe("telegram/adapter — poll loop policy", () => {
     expect(transport.getUpdatesCalls.length).toBe(2); // no retry after stop
     expect(transport.abortCount).toBe(1);
   });
+
+  it("fix1-F4 — stop() during a pending backoff sleep leaves NO pending timer handle", async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new FakeTransport([
+        { kind: "ok", updates: [] },
+        { kind: "err", error: new Error("blip") },
+      ]);
+      const adapter = new TelegramAdapter({
+        botToken: "tg-token-1",
+        allowedChatIds: ALLOWED,
+        knowledgeService: fakeKnowledge(),
+        transportFactory: () => transport,
+        askLogPath: tmpLogPath(),
+      });
+      await adapter.start();
+      // Microtask flush only (no settle(): its 5ms setTimeout is faked here) —
+      // lets the loop reach the 5000ms default-sleep backoff timer.
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      expect(jest.getTimerCount()).toBe(1); // exactly the pending backoff timer
+      adapter.stop();
+      // The default sleepFn's setTimeout must be CLEARED, not just raced: a
+      // dangling 5-60s handle keeps the process alive after a clean stop().
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
