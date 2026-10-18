@@ -56,6 +56,10 @@ export interface TelegramAdapterOptions {
   askLogPath?: string;
   /** Injectable sleep so tests observe backoff delays without wall-clock waiting. */
   sleepFn?: SleepFn;
+  /** Minimum spacing between polls when a poll returns an EMPTY batch quickly
+   * (fix round 1, finding 3): an instantly-resolving transport must not be
+   * able to spin the loop. Default 1000ms; 0 disables (backoff-schedule tests). */
+  minPollIntervalMs?: number;
 }
 
 export class TelegramConfigError extends Error {
@@ -90,6 +94,7 @@ export class TelegramAdapter {
   private readonly transport: TelegramTransport;
   private readonly askLogPath: string | undefined;
   private readonly sleepFn: SleepFn;
+  private readonly minPollIntervalMs: number;
   private stopped = false;
   private loopDone: Promise<void> = Promise.resolve();
   private backoffWaiters: Array<() => void> = [];
@@ -136,6 +141,7 @@ export class TelegramAdapter {
           }, ms);
           this.pendingTimers.add(timer);
         }));
+    this.minPollIntervalMs = opts.minPollIntervalMs ?? 1000;
     this.transport = opts.transportFactory
       ? opts.transportFactory()
       : new HttpTelegramTransport({ botToken: this.botToken });
@@ -217,6 +223,7 @@ export class TelegramAdapter {
   private async pollLoop(offset: number): Promise<void> {
     let streak = 0;
     while (!this.stopped) {
+      const pollStartedAt = Date.now();
       let batch: TgUpdate[];
       try {
         batch = await this.transport.getUpdates(offset, POLL_TIMEOUT_SEC);
@@ -245,6 +252,13 @@ export class TelegramAdapter {
         // Offset advances past the batch even if a sendMessage inside it
         // failed (see processUpdate) — no duplicate partial re-sends.
         offset = batch[batch.length - 1].update_id + 1;
+      } else if (this.minPollIntervalMs > 0) {
+        // Minimum pace (fix round 1, finding 3): an instantly-returning
+        // empty transport must not spin the loop microtask-only — the next
+        // poll is held to at least minPollIntervalMs after this poll STARTED.
+        // A non-empty batch takes the branch above with no added delay.
+        const floor = this.minPollIntervalMs - (Date.now() - pollStartedAt);
+        if (floor > 0) await this.sleepOrStop(floor);
       }
     }
   }

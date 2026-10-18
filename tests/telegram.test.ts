@@ -356,6 +356,9 @@ describe("telegram/adapter — poll loop policy", () => {
       transportFactory: () => transport,
       askLogPath: tmpLogPath(),
       sleepFn: sleep.sleepFn,
+      // Backoff-schedule tests assert EXACT delay arrays; the minimum-poll
+      // pace (covered by its own fix1-F3 tests) would interleave 1000s.
+      minPollIntervalMs: 0,
     });
     return { adapter, transport };
   }
@@ -501,6 +504,122 @@ describe("telegram/adapter — poll loop policy", () => {
       // The default sleepFn's setTimeout must be CLEARED, not just raced: a
       // dangling 5-60s handle keeps the process alive after a clean stop().
       expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("fix1-F3 — instant EMPTY poll is held to the minimum pace floor before re-polling", async () => {
+    const sleep = makeSleep();
+    const transport = new FakeTransport([
+      { kind: "ok", updates: [] }, // drain: instant empty
+      { kind: "ok", updates: [] }, // loop poll 1: instant empty
+    ]);
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+      sleepFn: sleep.sleepFn,
+    });
+    await adapter.start();
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(2);
+    expect(sleep.delays).toEqual([1000]); // pace floor charged before a 3rd poll
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(2); // held: pace sleep unresolved
+    sleep.resolvePending();
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(3); // re-poll only after the floor
+    await adapter.stop();
+  });
+
+  it("fix1-F3 — a NON-empty batch is answered with no added pace delay", async () => {
+    const sleep = makeSleep();
+    const transport = new FakeTransport([
+      { kind: "ok", updates: [] }, // drain
+      { kind: "ok", updates: [update(10, 42, "hello there")] },
+      { kind: "pending" },
+    ]);
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+      sleepFn: sleep.sleepFn,
+    });
+    await adapter.start();
+    await settle();
+    expect(transport.sendMessageCalls.length).toBe(1); // answered
+    expect(sleep.delays).toEqual([]); // no pace sleep, no backoff — batch work only
+    await adapter.stop();
+  });
+
+  it("fix1-F3 — stop() during a pending pace sleep cuts it short (no further polls)", async () => {
+    const sleep = makeSleep();
+    const transport = new FakeTransport([
+      { kind: "ok", updates: [] },
+      { kind: "ok", updates: [] },
+    ]);
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+      sleepFn: sleep.sleepFn,
+    });
+    await adapter.start();
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(2);
+    expect(sleep.delays).toEqual([1000]);
+    adapter.stop(); // pace sleep still pending
+    await adapter._loopDone();
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(2); // no re-poll after stop
+    expect(transport.abortCount).toBe(1);
+  });
+
+  it("fix1-F3 — real timers: an instantly-empty transport cannot spin (bounded polls/sec)", async () => {
+    const transport = new FakeTransport([], { kind: "ok", updates: [] }); // instant empty forever
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+    });
+    await adapter.start();
+    await new Promise<void>((resolve) => setTimeout(resolve, 1300));
+    adapter.stop();
+    await adapter._loopDone();
+    // 1s floor between polls: drain + at most ~2 polls in 1.3s. Without the
+    // floor an instantly-empty transport spins microtask-only (thousands of
+    // polls, event loop starved so badly this test's own stop timer cannot fire).
+    expect(transport.getUpdatesCalls.length).toBeLessThanOrEqual(4);
+  }, 10000);
+
+  it("fix1-F3 — stop() also clears a pending pace-sleep timer handle", async () => {
+    jest.useFakeTimers();
+    try {
+      const transport = new FakeTransport([
+        { kind: "ok", updates: [] },
+        { kind: "ok", updates: [] },
+      ]);
+      const adapter = new TelegramAdapter({
+        botToken: "tg-token-1",
+        allowedChatIds: ALLOWED,
+        knowledgeService: fakeKnowledge(),
+        transportFactory: () => transport,
+        askLogPath: tmpLogPath(),
+      });
+      await adapter.start();
+      for (let i = 0; i < 20; i++) await Promise.resolve(); // loop reaches the pace sleep
+      expect(jest.getTimerCount()).toBe(1); // exactly the 1000ms pace timer
+      adapter.stop();
+      expect(jest.getTimerCount()).toBe(0); // cleared too — no dangling handle
     } finally {
       jest.useRealTimers();
     }
