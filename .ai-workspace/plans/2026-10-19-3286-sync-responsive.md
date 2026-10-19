@@ -7,7 +7,7 @@ Branch: 3286-sync-responsive (worktree from origin/master f80f204)
 Status: PLAN — first draft, awaiting plan-review round 1
 SUITES: none
 
-cairn: T1 stone 2026-10-18 (`t1-run-scratch/2026-10-18/…jsonl:362`): "Monday bot goes deaf for minutes after every restart: initial Jira/Confluence sy[nc]…" — the operator-filed symptom this plan is bounded by (receipt `tmp/cairn-3286.log:1`). No T1/T2 stone contradicts the approach; nearest neighbors are forge-era session notes only.
+cairn: "monday" -> T1 stone 2026-10-18 line 362: "Monday bot goes deaf for minutes after every restart: initial Jira/Confluence sy[nc]…" — the operator-filed symptom this plan is bounded by (receipt `tmp/cairn-3286.log:1`). No T1/T2 stone contradicts the approach; nearest neighbors are forge-era session notes only.
 cairn-wiki: wiki tier off
 
 ## ELI5
