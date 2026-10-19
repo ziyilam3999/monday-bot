@@ -160,3 +160,37 @@ project key to DEMO everywhere this PR touches, re-recorded the AC-8 parity
 receipt at base 6873485 with the renamed corpus, re-verified RED-at-base by exit
 code, and re-ran the proofs (diff key-shape count 0 case-sensitive and
 case-insensitive; typecheck 0; 65/65 suites, 678/678 tests).
+
+## Round 4 — restore word-glued coverage after the privacy rename (2026-10-19)
+
+DISPATCH-NONCE:OR-NONCE-64d1f1b88d47ee6d
+
+Gap: the round-3 privacy rename left no test asserting that an English word
+ENDING in the project key glued to digits extracts nothing (the renamed arm
+covers letters AFTER the key only). Added beside the `demon-673` assertion in
+tests/key-lookup.test.ts: `extractKeys("nodemo-673 is not a key", PROJECTS)`
+and `extractKeys("xdemo-673", PROJECTS)` both `[]`. Nothing else changed.
+
+Mutant proof (real guard, not a tautology): broke the exact-token configured
+lookup in src/knowledge/keyLookup.ts to a suffix match (one line) —
+`npx jest tests/key-lookup.test.ts` → rc=1 with the new `nodemo-673`
+assertion failing (23 passed, 1 failed). Restored via git restore;
+`git diff --stat src/` empty; rerun → rc=0 (24/24).
+
+Totals: `npm run typecheck` rc=0. Full suite per the round-2/3 convention
+(session-ambient `ANTHROPIC_MODEL` override breaks the pre-existing
+tests/generate.test.ts default-model assertion — not from this diff):
+`npx jest` with the override unset → rc=0, **Test Suites: 65 passed, 65
+total; Tests: 678 passed, 678 total**. Privacy diff check:
+`git diff origin/master...HEAD --unified=0 | command grep -E '^\+' |
+command grep -c -iE 'get[- ]?[0-9]'` → 0.
+
+Ledger note: the self-append line could not be run — `hooks/3role-ledger.mjs`
+does not exist in this worktree or on `master` (nor does
+`tools/openrouter-briefs/seat-rules.md`); handing that back in the dispatch
+report instead of fabricating a row.
+
+Executor-close: PR ziyilam3999/monday-bot#270 head 8f8ddcf — added the two
+letters-before-key glued-digit must-not-fire assertions, mutant-verified them
+(mutant rc=1 / restored rc=0), and re-ran the proofs (typecheck 0; 65/65
+suites, 678/678 tests; privacy grep count 0).
