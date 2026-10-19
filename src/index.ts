@@ -7,6 +7,7 @@ import { loadConfig, AppConfig } from "./config/config";
 import { KnowledgeService } from "./knowledge/service";
 import {
   startKnowledgeSources,
+  buildIssueLookupFromEnv,
   KnowledgeSourcesHandle,
   Scheduler,
 } from "./knowledge/startup";
@@ -230,7 +231,13 @@ export async function runMonday(opts: RunMondayOptions = {}): Promise<RunMondayH
   // from (passed to SlackAdapter below → handleQuery), so the levers run on the
   // real Slack path, not just in tests. config.recall omitted → shipped defaults
   // (expansion ON, diversity cap ON, rerank OFF).
-  const knowledge = new KnowledgeService({ recall: config.recall });
+  const knowledge = new KnowledgeService({
+    recall: config.recall,
+    // #3299 — exact-key lookup leg: JIRA_PROJECTS (env var NAME only) + the
+    // one-issue read-only fetcher when the Atlassian creds the Jira sync uses
+    // are present. No projects configured → undefined → unchanged path.
+    issueLookup: buildIssueLookupFromEnv(process.env),
+  });
 
   // Wire Confluence + Jira knowledge sources (env-driven; skips cleanly when
   // creds absent). Initial sync runs in the background — it MUST NOT block

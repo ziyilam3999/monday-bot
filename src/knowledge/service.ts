@@ -11,6 +11,7 @@ import {
   DEFAULT_DOC_PRIOR_BONUS,
   DEFAULT_DOC_SOURCE_TYPES,
 } from "./docPrior";
+import { extractIssueKeys } from "./keyLookup";
 
 // Raised 5 -> 12 (#1189): passage-chunking can fill several top slots with
 // passages from the same doc, so a wider window leaves room for the relevant
@@ -26,6 +27,64 @@ const NO_DOCUMENTS_ANSWER =
  * refusal), and the "no sources configured at all" case keeps the old
  * NO_DOCUMENTS_ANSWER so a misconfigured bot cannot hide behind "warming up".
  */
+/**
+ * #3299 — exact-key lookup leg. A question that NAMES an issue key pins that
+ * issue's chunks first (or live-fetches exactly that issue when unindexed).
+ * Bounds: at most MAX_NAMED_KEYS distinct keys resolved per question;
+ * <= MAX_CHUNKS_PER_NAMED_SOURCE chunks per named source (its first passages
+ * in index order); the named chunks DISPLACE the vector tail (total context
+ * stays topK — they never grow it); each live fetch is time-boxed
+ * (LIVE_FETCH_TIMEOUT_MS) and the whole live leg of one question carries a
+ * deadline (LIVE_LEG_DEADLINE_MS). Leg composition: SEQUENTIAL fetches in
+ * first-mention order, each budgeted min(per-fetch bound, remaining leg time)
+ * — a slow early fetch therefore shrinks (and can exhaust) later fetches'
+ * budgets rather than overshooting the leg bound (plan-review r2 LOW-2).
+ */
+const MAX_NAMED_KEYS = 3;
+const MAX_CHUNKS_PER_NAMED_SOURCE = 3;
+const LIVE_FETCH_TIMEOUT_MS = 5_000;
+const LIVE_LEG_DEADLINE_MS = 10_000;
+
+/**
+ * One issue as returned by the live one-issue fetch seam (`IssueFetcher` in
+ * src/jira/sync.ts — structurally this shape; no runtime dep from here on Jira).
+ */
+export interface LiveIssue {
+  key: string;
+  summary: string;
+  descriptionText: string;
+  commentTexts: string[];
+}
+
+/** Read-only one-issue fetch seam for the #3299 live leg. */
+export interface IssueFetcher {
+  fetchIssue(key: string): Promise<LiveIssue | null>;
+}
+
+/** #3299 exact-key lookup wiring: configured projects + optional live fetcher. */
+export interface IssueLookupOptions {
+  /** Configured project keys (JIRA_PROJECTS). Question prefixes match these
+   * case-insensitively; emitted keys use the list's OWN casing. */
+  projectKeys: string[];
+  /**
+   * One-issue read-only fetcher. Without it, an unindexed named key has no live
+   * leg: no fetch, no honest-miss copy — the question falls back to the plain
+   * vector answer (Jira not configured must not fabricate "not found").
+   */
+  issueFetcher?: IssueFetcher;
+}
+
+/** Sentinel rejection reason for `withTimeout` — distinguishes expiry from a
+ * fetch error so the honest-miss copy can say "timed out" truthfully. */
+const FETCH_TIMEOUT = "issue-fetch-timeout";
+
+/** Honest-miss line for a key Jira did not hand back (absent or not visible). */
+const keyMissLine = (key: string): string =>
+  `${key}: not found or not visible in Jira.`;
+/** Honest-miss line for a key whose lookup exceeded its time budget. */
+const keyTimeoutLine = (key: string): string =>
+  `${key}: the live lookup timed out, so I have no fresh answer for that ticket.`;
+
 const WARMING_UP_ANSWER =
   "I'm still warming up — the knowledge index is being built for the first time. Please ask again in a few minutes.";
 const SYNC_FAILED_ANSWER =
@@ -141,6 +200,11 @@ export interface KnowledgeServiceOptions {
    * the production construction site (src/index.ts).
    */
   recall?: RecallConfig;
+  /**
+   * #3299 — exact-key lookup leg. Omitted → the question path is byte-identical
+   * to today's (extraction runs only when project keys are configured).
+   */
+  issueLookup?: IssueLookupOptions;
 }
 
 function toLlmChunk(result: SearchResult): LlmChunk {
@@ -164,6 +228,7 @@ export class KnowledgeService {
   private readonly startedAt: number;
   private readonly indexedSources = new Set<string>();
   private readonly recall: ResolvedRecall;
+  private readonly issueLookup: IssueLookupOptions | undefined;
   private initialSyncPhase: InitialSyncPhase = "not-started";
 
   constructor(opts: KnowledgeServiceOptions = {}) {
@@ -174,6 +239,7 @@ export class KnowledgeService {
     this.now = opts.now ?? Date.now;
     this.startedAt = this.now();
     this.recall = resolveRecall(opts.recall);
+    this.issueLookup = opts.issueLookup;
   }
 
   async query(question: string): Promise<QueryResult> {
@@ -192,9 +258,164 @@ export class KnowledgeService {
       }
       return { answer: NO_DOCUMENTS_ANSWER, citations: [] };
     }
+    return this.answerWithKeyLookup(question);
+  }
+
+  /**
+   * #3299 — the answer path with the exact-key leg in front of the vector
+   * pipeline. A question that names no configured key takes the UNTOUCHED
+   * branch: `retrieve()` → generator, byte-identical to today (AC-8 parity).
+   * A named key is pinned FIRST (its indexed chunks, <= 3 passages in index
+   * order) or live-fetched (one read-only fetch of exactly that issue) when
+   * unindexed; the live leg is sequential with a whole-leg deadline; a key Jira
+   * does not hand back (miss, error, or timeout) gets an honest answer naming
+   * it — never a neighbouring ticket as a stand-in.
+   */
+  private async answerWithKeyLookup(question: string): Promise<QueryResult> {
+    const namedKeys = this.issueLookup
+      ? extractIssueKeys(question, this.issueLookup.projectKeys).slice(0, MAX_NAMED_KEYS)
+      : [];
+    if (namedKeys.length === 0) {
+      // No key named: the plain, unchanged vector path.
+      const hits = await this.retrieve(question);
+      return this.generator(question, hits.map(toLlmChunk));
+    }
+
+    const pinned: LlmChunk[] = [];
+    const missLines: string[] = [];
+    const liveKeys: string[] = [];
+    const legStart = this.now();
+
+    for (const key of namedKeys) {
+      const source = `jira:${key}`;
+      // Named + indexed: pin its first passages, ahead of every vector hit.
+      const indexed = this.vectorIndex.getChunksBySource(source);
+      if (indexed.length > 0) {
+        for (const c of indexed.slice(0, MAX_CHUNKS_PER_NAMED_SOURCE)) {
+          const chunk: LlmChunk = {
+            id: c.id,
+            text: c.text,
+            source: c.source,
+            score: 1, // pinned by name, not by vector similarity
+          };
+          if (c.heading !== undefined) chunk.heading = c.heading;
+          if (c.section !== undefined) chunk.section = c.section;
+          pinned.push(chunk);
+        }
+        continue;
+      }
+      // Named + unindexed: one bounded live fetch of exactly that issue.
+      const fetched = await this.fetchIssueLive(key, legStart);
+      if (fetched.status === "ok") {
+        pinned.push(...fetched.chunks);
+        liveKeys.push(key);
+      } else if (fetched.status === "timeout") {
+        missLines.push(keyTimeoutLine(key));
+      } else if (fetched.status === "miss") {
+        missLines.push(keyMissLine(key));
+      }
+      // "skipped" (no fetcher configured): no pin, no miss copy — falls back
+      // to the vector answer rather than fabricating a not-found.
+    }
+
+    // Every named key missed (and at least one had a live leg): the honest
+    // answer, naming each key with its reason. No generator call, no
+    // citations, no vector-neighbour substitute (plan intent item 4).
+    if (pinned.length === 0 && missLines.length > 0) {
+      return { answer: missLines.join(" "), citations: [] };
+    }
+
     const hits = await this.retrieve(question);
-    const chunks = hits.map(toLlmChunk);
-    return this.generator(question, chunks);
+    // Pinned chunks LEAD; vector hits fill the remainder up to the SAME topK —
+    // named chunks displace the vector tail, they never grow the context.
+    const context = [...pinned, ...hits.map(toLlmChunk)].slice(0, this.topK);
+    const result = await this.generator(question, context);
+
+    let answer = result.answer;
+    const prelude: string[] = [];
+    if (liveKeys.length > 0) {
+      prelude.push(
+        `Answer includes ${liveKeys.join(", ")} fetched live from Jira just now ` +
+          `(created too recently for the 6-hourly sync).`,
+      );
+    }
+    if (missLines.length > 0) prelude.push(missLines.join(" "));
+    if (prelude.length > 0) answer = `${prelude.join(" ")} ${answer}`;
+    return { answer, citations: result.citations };
+  }
+
+  /**
+   * One time-boxed read-only fetch of exactly `key`. Sequential leg with a
+   * deadline: this fetch's budget is min(LIVE_FETCH_TIMEOUT_MS, leg time left),
+   * so N slow fetches can never overshoot LIVE_LEG_DEADLINE_MS. Expiry, an
+   * errored fetch, and an empty result are all honest misses (timeout / not
+   * found) — the answer path never hangs on Jira (#3286 regression class).
+   * The fetched text fills the context ONLY (<= 3 passages); it is NOT added
+   * to the index — the next 6-hourly sync indexes it anyway.
+   */
+  private async fetchIssueLive(
+    key: string,
+    legStart: number,
+  ): Promise<
+    { status: "ok"; chunks: LlmChunk[] } | { status: "miss" } | { status: "timeout" } | { status: "skipped" }
+  > {
+    const fetcher = this.issueLookup?.issueFetcher;
+    if (!fetcher) return { status: "skipped" };
+
+    const remaining = LIVE_LEG_DEADLINE_MS - (this.now() - legStart);
+    if (remaining <= 0) return { status: "timeout" };
+    const budget = Math.min(LIVE_FETCH_TIMEOUT_MS, remaining);
+
+    let issue: LiveIssue | null;
+    try {
+      issue = await this.withTimeout(fetcher.fetchIssue(key), budget);
+    } catch (err) {
+      // Timed out, HTTP error, or network failure — all honest misses; only
+      // the timeout expiry gets the timed-out copy.
+      return {
+        status: err instanceof Error && err.message === FETCH_TIMEOUT ? "timeout" : "miss",
+      };
+    }
+    if (!issue) return { status: "miss" };
+
+    // Mirror JiraSync's body assembly so live and indexed text match in shape.
+    const body = [
+      issue.key,
+      issue.summary,
+      issue.descriptionText,
+      ...issue.commentTexts,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const passages = splitIntoPassages(body).slice(0, MAX_CHUNKS_PER_NAMED_SOURCE);
+    const chunks: LlmChunk[] = passages.map((passage, i) => {
+      const chunk: LlmChunk = {
+        id: `live:${key}:${i}`,
+        text: passage,
+        source: `jira:${key}`,
+        score: 1, // pinned by name, fetched live
+      };
+      if (issue && issue.summary) chunk.heading = issue.summary;
+      return chunk;
+    });
+    return { status: "ok", chunks };
+  }
+
+  /** Reject with a timeout error if `p` does not settle within `ms`. */
+  private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(FETCH_TIMEOUT)), ms);
+      p.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
+    });
   }
 
   /**

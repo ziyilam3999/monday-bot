@@ -1,0 +1,27 @@
+{
+  "_comment": "#3299 fixture corpus (checked in; jest hash-stub embedder). Reproduces the repro SHAPE under the stub: for the question 'Can you extract Jira Get 673?' every neighbour shares more query tokens (can/you/extract/jira/get) than the target GET-673, whose body shares only the token 'get' (from its own key), so at base GET-673 falls outside the vector top-12 while the neighbours fill it. Same corpus is reused by the no-key parity receipt (tests/fixtures/key-lookup/parity-receipt.json, recorded at the branch point 6873485).",
+  "projectKeys": ["GET"],
+  "target": {
+    "key": "GET-673",
+    "summary": "Rotation handover checklist",
+    "description": "GET-673 Rotation handover checklist alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu.",
+    "comments": []
+  },
+  "neighbours": [
+    { "key": "GET-674", "summary": "Can you extract the jira intake notes seven four", "description": "GET-674 can you extract the jira intake notes seven four.", "comments": [] },
+    { "key": "GET-675", "summary": "Can you extract the jira intake notes seven five", "description": "GET-675 can you extract the jira intake notes seven five.", "comments": [] },
+    { "key": "GET-676", "summary": "Can you extract the jira triage rota seventy six", "description": "GET-676 can you extract the jira triage rota seventy six.", "comments": [] },
+    { "key": "GET-677", "summary": "Can you extract the jira triage rota seventy seven", "description": "GET-677 can you extract the jira triage rota seventy seven.", "comments": [] },
+    { "key": "GET-678", "summary": "Can you extract the jira weekly digest seventy eight", "description": "GET-678 can you extract the jira weekly digest seventy eight.", "comments": [] },
+    { "key": "GET-679", "summary": "Can you extract the jira weekly digest seventy nine", "description": "GET-679 can you extract the jira weekly digest seventy nine.", "comments": [] },
+    { "key": "GET-680", "summary": "Can you extract the jira oncall report eighty", "description": "GET-680 can you extract the jira oncall report eighty.", "comments": [] },
+    { "key": "GET-681", "summary": "Can you extract the jira oncall report eighty one", "description": "GET-681 can you extract the jira oncall report eighty one.", "comments": [] },
+    { "key": "GET-682", "summary": "Can you extract the jira backlog groom eighty two", "description": "GET-682 can you extract the jira backlog groom eighty two.", "comments": [] },
+    { "key": "GET-683", "summary": "Can you extract the jira backlog groom eighty three", "description": "GET-683 can you extract the jira backlog groom eighty three.", "comments": [] },
+    { "key": "GET-684", "summary": "Can you extract the jira release gate eighty four", "description": "GET-684 can you extract the jira release gate eighty four.", "comments": [] },
+    { "key": "GET-685", "summary": "Can you extract the jira release gate eighty five", "description": "GET-685 can you extract the jira release gate eighty five.", "comments": [] },
+    { "key": "GET-686", "summary": "Can you extract the jira deploy window eighty six", "description": "GET-686 can you extract the jira deploy window eighty six.", "comments": [] },
+    { "key": "GET-687", "summary": "Can you extract the jira deploy window eighty seven", "description": "GET-687 can you extract the jira deploy window eighty seven.", "comments": [] },
+    { "key": "GET-688", "summary": "Can you extract the jira retro board eighty eight", "description": "GET-688 can you extract the jira retro board eighty eight.", "comments": [] }
+  ]
+}

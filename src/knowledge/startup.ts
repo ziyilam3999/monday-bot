@@ -1,11 +1,11 @@
-import { KnowledgeService } from "./service";
+import { KnowledgeService, IssueLookupOptions } from "./service";
 import { AppConfig } from "../config/config";
 import {
   ConfluenceSync,
   ConfluenceFetcher,
   buildConfluenceFetcher,
 } from "../confluence/sync";
-import { JiraSync, JiraFetcher, buildJiraFetcher } from "../jira/sync";
+import { JiraSync, JiraFetcher, buildJiraFetcher, buildIssueFetcher } from "../jira/sync";
 
 /** Default periodic re-sync cadence: every 6 hours. */
 export const DEFAULT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -82,6 +82,32 @@ function splitList(value: string | undefined): string[] {
  */
 function toSiteRoot(url: string): string {
   return url.replace(/\/wiki\/?$/, "").replace(/\/$/, "");
+}
+
+/**
+ * #3299 — build the exact-key lookup wiring from env (env var NAMES only; the
+ * dot-env file is never opened here). Returns undefined when no JIRA_PROJECTS
+ * are configured (the question path stays byte-identical to today). The live
+ * one-issue fetcher is attached only when the Atlassian creds the Jira sync
+ * itself uses are present — no new auth site, the same buildIssueFetcher seam.
+ */
+export function buildIssueLookupFromEnv(
+  env: NodeJS.ProcessEnv,
+): IssueLookupOptions | undefined {
+  const projects = splitList(env.JIRA_PROJECTS);
+  if (projects.length === 0) return undefined;
+  const url = env.CONFLUENCE_URL ?? env.CONFLUENCE_BASE_URL;
+  const email = env.CONFLUENCE_EMAIL;
+  const apiToken = env.CONFLUENCE_API_TOKEN;
+  const lookup: IssueLookupOptions = { projectKeys: projects };
+  if (url && email && apiToken) {
+    lookup.issueFetcher = buildIssueFetcher({
+      baseUrl: toSiteRoot(url),
+      email: email!,
+      apiToken: apiToken!,
+    });
+  }
+  return lookup;
 }
 
 /**
