@@ -130,14 +130,26 @@ function loadFixtures(fixturesDir) {
  * receive path — stand-ins here) and R6 (DNS/threadpool — fetchers are stubs,
  * so no DNS happens) are NOT observable by this probe: the receipt says so
  * instead of guessing (plan-review r2 finding 3).
+ *
+ * CAVEAT discovered while calibrating this probe on the real backend
+ * (darwin, onnxruntime-node): an await-chained embed loop starves the timers
+ * phase — due setTimeout callbacks do NOT run until the chain ends — and
+ * monitorEventLoopDelay is itself timer-sampled, so it reads ~0ms while
+ * handlers are completely starved. Handler wake starvation (a channel firing
+ * far fewer wakes than its cadence implies, or a wake landing with
+ * seconds-large delay) is therefore the LOAD-BEARING signal; the loop-delay
+ * histogram is corroborating only. Zero wakes during the sync window is NOT
+ * zero latency — it is unbounded latency.
  */
-function classify(loopMaxMs, handlerMaxMs, cpuBusyRatio) {
-  if (loopMaxMs <= BOUND_MS && handlerMaxMs <= BOUND_MS) return "R0";
-  // Stall reproduced (>1s somewhere). With stub fetchers the awaited work in
-  // the sync window is embedding (off-node-thread, but onnxruntime intra-op
-  // threads compete for cores) plus synchronous passage chunking. CPU-pegged
-  // during embed bursts is the R2 signature; loop delay without saturation is
-  // R1's cooperative-yield case.
+function classify(loopMaxMs, handlerMaxMs, cpuBusyRatio, starved) {
+  const bounded = !starved && loopMaxMs <= BOUND_MS && handlerMaxMs <= BOUND_MS;
+  if (bounded) return "R0";
+  // Stall reproduced: a handler stand-in went silent for the sync window.
+  // With stub fetchers the awaited work in that window is the embed chain
+  // (off-thread, but the chained awaits never yield to the timers phase) plus
+  // synchronous passage chunking. CPU-pegged during embed bursts is the R2
+  // signature; everything else reachable here is R1 — the cooperative
+  // yield-between-passages fix.
   return cpuBusyRatio >= 0.85 ? "R2" : "R1";
 }
 
@@ -196,8 +208,10 @@ async function runSyncMeasurement(dist, fixturesDir) {
   });
 
   // Mid-sync query: wait until the FIRST doc is indexed (partial beats
-  // refusal), then race query() against the sync's completion.
-  let midSync = { issued: false, resolvedBeforeSync: null, latencyMs: null, docsAtIssue: 0 };
+  // refusal), then race query() against the sync's completion. The completion
+  // timestamp is recorded INSIDE the query promise — awaiting it here first
+  // would falsify "resolved before the sync completed".
+  let midSync = { issued: false, resolvedBeforeSync: null, latencyMs: null, docsAtIssue: 0, completedAt: null };
   const queryPromise = (async () => {
     const deadline = performance.now() + 10 * 60 * 1000;
     while (performance.now() < deadline) {
@@ -207,6 +221,7 @@ async function runSyncMeasurement(dist, fixturesDir) {
         midSync.docsAtIssue = knowledge.getStatus().documentCount;
         await knowledge.query(MID_SYNC_QUERY);
         midSync.latencyMs = performance.now() - qs;
+        midSync.completedAt = performance.now();
         return;
       }
       await new Promise((r) => setTimeout(r, 5));
@@ -215,10 +230,16 @@ async function runSyncMeasurement(dist, fixturesDir) {
 
   await sources.ready;
   const readyAt = performance.now();
-  const queryDone = await queryPromise.then(() => performance.now());
-  if (midSync.issued && midSync.latencyMs !== null) {
-    midSync.resolvedBeforeSync = queryDone <= readyAt;
+  await queryPromise;
+  if (midSync.issued && midSync.completedAt !== null) {
+    midSync.resolvedBeforeSync = midSync.completedAt <= readyAt;
   }
+
+  // Grace wait: a wake stand-in whose callback was starved by the embed chain
+  // has ONE pending timer; it fires on the first timers phase after the chain
+  // ends, landing with the true (seconds-large) handler latency. Without this
+  // grace period that number would be lost when stopWakes() runs.
+  await new Promise((r) => setTimeout(r, WAKE_INTERVAL_MS + 150));
 
   const wallMs = performance.now() - t0;
   const cpu = process.cpuUsage(cpuBefore);
@@ -231,6 +252,10 @@ async function runSyncMeasurement(dist, fixturesDir) {
   const cores = os.cpus().length;
   const cpuBusyRatio = (cpu.user + cpu.system) / 1e3 / wallMs / cores;
   const handlerMaxMs = Math.max(handlerState.slack.max, handlerState.telegram.max);
+  // Starvation: how many wakes SHOULD a healthy loop have delivered?
+  const expectedWakes = Math.floor(wallMs / WAKE_INTERVAL_MS);
+  const minWakes = Math.min(handlerState.slack.samples, handlerState.telegram.samples);
+  const starved = minWakes < Math.ceil(expectedWakes / 2);
 
   // Pre-chunk with the production splitter to report the corpus passage count.
   let passageCount = 0;
@@ -255,6 +280,8 @@ async function runSyncMeasurement(dist, fixturesDir) {
     handlerMaxMs,
     cpuBusyRatio,
     cores,
+    starved,
+    expectedWakes,
     midSync,
   };
 }
@@ -263,15 +290,15 @@ function printReceipt(mode, r) {
   const round = (x) => Math.round(x * 10) / 10;
   console.log(`receipt: mode=${mode} docs=${r.docs} docsIndexed=${r.docsIndexed} passages=${r.passages} chunksInIndex=${r.chunksInIndex}`);
   console.log(`wall: ${Math.round(r.wallMs)}ms (${round(r.wallMs / Math.max(1, r.chunksInIndex))}ms per embedded chunk)`);
-  console.log(`loop-delay: max=${round(r.loopMaxMs)}ms p99=${round(r.loopP99Ms)}ms`);
+  console.log(`loop-delay: max=${round(r.loopMaxMs)}ms p99=${round(r.loopP99Ms)}ms${r.starved ? " (histogram is timer-sampled and UNDER-REPORTS while handlers are starved — see handler-latency)" : ""}`);
   console.log(
-    `handler-latency: slack max=${round(r.handlerSlackMaxMs)}ms (n=${r.handlerSlackSamples}) telegram max=${round(r.handlerTelegramMaxMs)}ms (n=${r.handlerTelegramSamples})`,
+    `handler-latency: slack max=${round(r.handlerSlackMaxMs)}ms (n=${r.handlerSlackSamples}) telegram max=${round(r.handlerTelegramMaxMs)}ms (n=${r.handlerTelegramSamples}) expectedWakes~${r.expectedWakes}${r.starved ? " STARVED: zero/few wakes = unbounded latency, not zero latency" : ""}`,
   );
   console.log(`cpu: busyRatio=${r.cpuBusyRatio.toFixed(2)} of ${r.cores} cores`);
   console.log(
     `mid-sync query: issued=${r.midSync.issued} atDocs=${r.midSync.docsAtIssue} latencyMs=${r.midSync.latencyMs === null ? "n/a" : Math.round(r.midSync.latencyMs)} resolvedBeforeSync=${r.midSync.resolvedBeforeSync}`,
   );
-  const row = classify(r.loopMaxMs, r.handlerMaxMs, r.cpuBusyRatio);
+  const row = classify(r.loopMaxMs, r.handlerMaxMs, r.cpuBusyRatio, r.starved);
   console.log(`dominant-stall: ${row}`);
   console.log(
     "notes: rows R3 (store save/load is dead code at HEAD), R5 (real Slack client receive path; stand-in timers here) and R6 (DNS/threadpool; fixture fetchers make no network calls) are unreachable by this probe design — plan-review r2 finding 3; the row above claims only what this machine measured",
@@ -299,6 +326,11 @@ async function main() {
 
   if (mode === "bound") {
     const violations = [];
+    if (r.starved) {
+      violations.push(
+        `handler wake starvation: stand-ins fired ${Math.min(r.handlerSlackSamples, r.handlerTelegramSamples)} of ~${r.expectedWakes} expected wakes (loop-delay histogram is blind here)`,
+      );
+    }
     if (r.loopMaxMs > BOUND_MS) violations.push(`max event-loop delay ${Math.round(r.loopMaxMs)}ms > ${BOUND_MS}ms`);
     if (r.handlerMaxMs > BOUND_MS) violations.push(`max handler latency ${Math.round(r.handlerMaxMs)}ms > ${BOUND_MS}ms`);
     if (r.midSync.resolvedBeforeSync !== true) violations.push("mid-sync query did not resolve before the sync completed");
