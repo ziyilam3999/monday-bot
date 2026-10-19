@@ -113,7 +113,7 @@ src/knowledge/*.ts comments, src/jira/sync.ts comment, and the .ai-workspace
 plan/review/close files. Test meaning kept: same shapes, same must-fire and
 must-not-fire arms, same counts — `demo` is itself an English word, so the
 word-like-key guard arms (AC-2c, AC-7 arms 2–3) still exercise the class; the
-`forget-673` gluing arm became `demon-673 is not a key` (word("demon") ≠ "demo",
+the word-glued gluing arm became `demon-673 is not a key` (word("demon") ≠ "demo",
 same token-boundary class). In prose, the real key is referred to as "the project
 key"; the plan's quoted operator stone now says "the operator's original key
 question" (dispatch-authorized rendering).
