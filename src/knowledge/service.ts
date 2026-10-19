@@ -20,6 +20,27 @@ const NO_DOCUMENTS_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
 
 /**
+ * 3286 Part A (AC-3): truthful answers for the two empty-index states that are
+ * NOT "no relevant information". Both are served only while the index is EMPTY
+ * (any indexed documents answer normally from what is there — partial beats
+ * refusal), and the "no sources configured at all" case keeps the old
+ * NO_DOCUMENTS_ANSWER so a misconfigured bot cannot hide behind "warming up".
+ */
+const WARMING_UP_ANSWER =
+  "I'm still warming up — the knowledge index is being built for the first time. Please ask again in a few minutes.";
+const SYNC_FAILED_ANSWER =
+  "My first knowledge sync didn't complete, so I have nothing to search yet. Please check the sync logs, or ask again after a successful sync.";
+
+/**
+ * Lifecycle of the initial (boot) sync, as tracked by `startKnowledgeSources`
+ * and consumed by `query()`'s empty-index branch (AC-3):
+ *   not-started → in-flight → settled | failed
+ * "failed" means EVERY wired initial sync errored (errors are caught so
+ * `ready` still resolves); a partial success settles normally.
+ */
+export type InitialSyncPhase = "not-started" | "in-flight" | "settled" | "failed";
+
+/**
  * Recall v2 ranking levers (#1191). Threaded from `config.yaml` → `AppConfig`
  * → here at the production construction site (src/index.ts). Defaults below ARE
  * the SHIPPED defaults: expansion ON, diversity cap ON, rerank OFF — so the
@@ -143,6 +164,7 @@ export class KnowledgeService {
   private readonly startedAt: number;
   private readonly indexedSources = new Set<string>();
   private readonly recall: ResolvedRecall;
+  private initialSyncPhase: InitialSyncPhase = "not-started";
 
   constructor(opts: KnowledgeServiceOptions = {}) {
     this.vectorIndex = opts.index ?? new VectorIndex();
@@ -159,11 +181,41 @@ export class KnowledgeService {
       throw new TypeError("KnowledgeService.query: question must be a string");
     }
     if (this.vectorIndex.size() === 0) {
+      // 3286 AC-3: empty index + first sync in flight → warming-up copy; every
+      // initial sync errored → sync-failed copy; anything else (no sources
+      // configured, or a settled sync that indexed nothing) keeps the old copy.
+      if (this.initialSyncPhase === "in-flight") {
+        return { answer: WARMING_UP_ANSWER, citations: [] };
+      }
+      if (this.initialSyncPhase === "failed") {
+        return { answer: SYNC_FAILED_ANSWER, citations: [] };
+      }
       return { answer: NO_DOCUMENTS_ANSWER, citations: [] };
     }
     const hits = await this.retrieve(question);
     const chunks = hits.map(toLlmChunk);
     return this.generator(question, chunks);
+  }
+
+  /**
+   * 3286 Part A (AC-3): initial-sync lifecycle hooks. `startKnowledgeSources`
+   * calls `noteInitialSyncStarted()` when the first boot sync is kicked off and
+   * `noteInitialSyncSettled(allFailed)` once every initial sync has settled,
+   * so `query()` can tell "warming up" and "sync failed" apart from "no
+   * relevant information" while the index is empty.
+   */
+  noteInitialSyncStarted(): void {
+    if (this.initialSyncPhase === "not-started") {
+      this.initialSyncPhase = "in-flight";
+    }
+  }
+
+  noteInitialSyncSettled(allFailed: boolean): void {
+    this.initialSyncPhase = allFailed ? "failed" : "settled";
+  }
+
+  getInitialSyncPhase(): InitialSyncPhase {
+    return this.initialSyncPhase;
   }
 
   /**

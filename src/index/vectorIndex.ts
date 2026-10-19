@@ -63,6 +63,15 @@ export class VectorIndex {
       const vec = await embed(c.text);
       this.chunks.push({ ...c, id });
       this.vectors.push(vec);
+      // 3286 (decision rule R1): cooperative yield between passages. Each
+      // embed is cheap and off-thread, but an await-chained embed loop never
+      // reaches the timers phase, so every due timer in the process is starved
+      // for the WHOLE sync — measured at fixture scale: handler wake stand-ins
+      // fired 2 of ~35 expected wakes, loop-delay max 6.7s, while CPU sat at
+      // 0.33 of 18 cores (the operator-visible "bot goes deaf" defect). One
+      // setImmediate per passage restores on-time timer wake-ups at no
+      // measurable throughput cost.
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
 

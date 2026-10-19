@@ -106,6 +106,24 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
   const timers: ScheduledTimer[] = [];
   const initialSyncs: Array<Promise<unknown>> = [];
 
+  // 3286 Part A (AC-3): track the initial-sync lifecycle so `query()` can give
+  // a truthful "still warming up" while the first sync is in flight and a
+  // distinct sync-failed copy after every wired initial sync errored. Errors
+  // are still caught per-sync below, so `ready` never rejects.
+  let initialSyncTotal = 0;
+  let initialSyncFailed = 0;
+  const trackInitialSync = <T,>(p: Promise<T>): Promise<T> => {
+    initialSyncTotal++;
+    deps.knowledge.noteInitialSyncStarted();
+    return p.then(
+      (res) => res,
+      (err) => {
+        initialSyncFailed++;
+        throw err;
+      },
+    );
+  };
+
   // Hoisted so the returned handle can reach them for on-demand re-sync. These
   // stay `undefined`/empty unless the corresponding source is actually wired
   // (creds present AND a non-empty space/project list).
@@ -143,8 +161,7 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
       confluenceSpaces.push(...spaces);
       for (const space of spaces) {
         initialSyncs.push(
-          sync
-            .syncSpace(space)
+          trackInitialSync(sync.syncSpace(space))
             .then((res) => log(`confluence:${space} indexed ${res.pagesIndexed} pages`))
             .catch((err) => {
               if (logger.error) logger.error(`Confluence initial sync failed for ${space}`, err);
@@ -178,8 +195,7 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
     jiraProjects.push(...projects);
     for (const project of projects) {
       initialSyncs.push(
-        sync
-          .syncProject(project)
+        trackInitialSync(sync.syncProject(project))
           .then((res) => log(`jira:${project} indexed ${res.issuesIndexed} issues`))
           .catch((err) => {
             if (logger.error) logger.error(`Jira initial sync failed for ${project}`, err);
@@ -201,8 +217,13 @@ export function startKnowledgeSources(deps: KnowledgeSourcesDeps): KnowledgeSour
     log("Jira sync: no JIRA_PROJECTS configured, skipping");
   }
 
-  // `ready` resolves once every initial sync has settled — never rejects.
-  const ready = Promise.allSettled(initialSyncs).then(() => undefined);
+  // `ready` resolves once every initial sync has settled — never rejects. On
+  // the way out it also settles the AC-3 lifecycle: all-failed (with nothing
+  // indexed) is what `query()`'s empty-index branch reads as the sync-failed
+  // copy; anything else settles normally.
+  const ready = Promise.allSettled(initialSyncs).then(() => {
+    deps.knowledge.noteInitialSyncSettled(initialSyncTotal > 0 && initialSyncFailed === initialSyncTotal);
+  });
 
   let stopped = false;
   const stop = (): void => {
