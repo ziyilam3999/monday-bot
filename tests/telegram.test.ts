@@ -326,7 +326,7 @@ describe("telegram/adapter — allowed asks", () => {
       askLogPath: logPath,
     });
 
-    await expect(adapter.processUpdate(update(1, 42, "hello?"))).resolves.toBeUndefined();
+    await expect(adapter.processUpdate(update(1, 42, "what is the travel policy?"))).resolves.toBeUndefined();
 
     expect(transport.sendMessageCalls.length).toBe(1);
     expect(transport.sendMessageCalls[0].text).toContain(
@@ -640,7 +640,7 @@ describe("telegram/adapter — poll loop policy", () => {
     const sleep = makeSleep();
     const transport = new FakeTransport([
       { kind: "ok", updates: [] }, // drain
-      { kind: "ok", updates: [update(10, 42, "hello there")] },
+      { kind: "ok", updates: [update(10, 42, "what is the expense policy?")] },
       { kind: "pending" },
     ]);
     const adapter = new TelegramAdapter({
