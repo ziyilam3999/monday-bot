@@ -1,0 +1,49 @@
+# 3307 plan review — round 1 (plan-review, dispatch OR-NONCE-1640731b58c8f501)
+
+Plan: `.ai-workspace/plans/2026-10-19-3307-issue-meta.md` (commit 502e73b)
+Reviewer environment: worktree `3307-issue-meta`, ff-only to `origin/3307-issue-meta` (already 502e73b).
+Note: `tools/openrouter-briefs/seat-rules.md` does not exist in this worktree (searched repo-wide) — no seat bans could be read; nothing was enforced against this review. `hooks/named-risk-notes.mjs` is likewise absent, so the named-risk note below is carried in this artifact instead of registered.
+
+## Review
+
+DISPATCH-NONCE:OR-NONCE-1640731b58c8f501
+
+Decision: NEEDS-WORK
+
+Premises verified by execution (all held unless numbered below):
+
+- **"The sync drops these fields" — TRUE.** `buildJiraFetcher` requests `fields=summary,description,comment` (src/jira/sync.ts:254) and the #3299 one-issue fetcher requests the same three (src/jira/sync.ts:282); `toJiraIssue` maps summary/description/comments/projectKey/labels/issuetype only (src/jira/sync.ts:379-395); the indexed body is `[key, summary, descriptionText, ...commentTexts]` (src/jira/sync.ts:427-433). Status/assignee/priority/resolution/updated exist nowhere today. The dispatch's option 1 ("from the index") is factually unavailable, as the plan says.
+- **Budget — INSIDE the boxes.** `MAX_NAMED_KEYS = 3`, `LIVE_FETCH_TIMEOUT_MS = 5_000`, `LIVE_LEG_DEADLINE_MS = 10_000`, sequential leg with per-fetch `min(per-fetch, remaining)` budgeting (src/knowledge/service.ts:47-50, 365-367). An indexed key's extra facts GET rides the same leg, so worst case 3 GETs ≤ 10 s; expiry/timeout is an honest miss and the pinned chunks survive (AC-5 covers reject and timeout separately — good).
+- **No-fetcher case — matches code.** `fetchIssueLive` returns `"skipped"` when no fetcher (src/knowledge/service.ts:363) and the loop adds no pin, no miss line, no prelude for indexed keys (src/knowledge/service.ts:317-320) — plan item 4's "exactly today's answer" is the current behavior, and AC-7 protects it.
+- **Non-key parity — matches code.** `namedKeys.length === 0` takes the untouched `retrieve()` → generator branch regardless of `issueLookup` presence (src/knowledge/service.ts:278-282); AC-6's deep-equal construction is checkable from outside.
+- **RED-at-master is real.** `origin/master` (c865a53) already contains #3299 (0ab8bd1), so the exact-key leg exists at pristine master and the must-fire meta arms run (and fail) there rather than erroring.
+- **Privacy arm is sound.** AC-8 drives the REAL one-issue fetcher through a fake `fetchImpl` with both `displayName` and `emailAddress` on the assignee and asserts no `@`-shaped string — that proves the mapper/wiring leak nowhere, which is the right shape. Test-suite conventions (stub generator recording context, injected fetcher, `tests/fixtures/key-lookup/` already present, DEMO-only keys) all exist in `tests/key-lookup.test.ts`.
+
+Numbered findings:
+
+1. **HIGH — blocking (load-bearing premise refuted by execution): AC-9 asserts a lock that does not exist.** AC-9 says "the existing locked knowledge-sync URL/fields arms pass UNCHANGED", and the Why leans on "a URL contract the tests lock". Verified: `tests/jira.test.ts` locks the URL *shape* (`/rest/api/3/search/jql`, `jql=`, `project=PROJ`, `maxResults=100`, no `nextPageToken` — tests/jira.test.ts:217-223) but **no test anywhere locks the knowledge-sync fetcher's `fields` list**; the only `fields=` assertion in the repo is the open-defects one (tests/jira.openDefects.test.ts:68), and `buildIssueFetcher` has zero URL/fields test coverage at all. Consequence: an implementation that accidentally (or "helpfully") widens `buildJiraFetcher`'s fields — the exact mistake this plan's whole shape argues against, and the thing "no re-sync needed" depends on — passes AC-1 through AC-10 silently. The plan's headline invariant is unprotected by its AC set. Fix (narrow, one arm): amend AC-9 — or add to the new suite — an arm that drives `buildJiraFetcher` (and the one-issue fetcher) through a fake `fetchImpl` and asserts the request URL contains exactly `fields=summary,description,comment` for the sync fetcher and the widened list for the one-issue fetcher. No network, fixture-only, same discipline as the rest.
+2. **MEDIUM — AC-5 fixture underspecified.** "the answer … contains NO status/assignee/priority value" is only decidable if the AC-5 indexed fixture's body carries no meta values (unlike AC-3's fixture, which by design embeds a stale status). Specify that the AC-5 indexed chunks are meta-free, otherwise the pinned-retelling assertion and the no-value assertion can conflict.
+3. **LOW — AC-7's "no extra fetch attempted" is not assertable** when no fetcher exists (there is nothing to observe). The decidable content is: the answer deep-equals the plain #3299 indexed answer (generator output with no prelude, no facts line, no unavailable line). Say that.
+4. **LOW — overclaim to trim.** With the generator stubbed to a fixed echo, AC-4's "NO invented priority value" proves the CODE renders plain wordings; it cannot prove "the model never invents a value" (plan item 2 / dispatch check 3). Fine as intent — but the plan text should claim the arm proves code-rendering, not model behavior.
+5. **NAMED-RISK NOTE (carried to execution-review, not a blocker — #2416/#2434):** the fixed-echo stub cannot show the REAL model presenting a stale indexed status as current alongside a live facts line. Falsifiable condition for execution-review: read the actual diff and confirm the facts line is assembled by code from the live fields, labelled live, and that no prompt/code path presents indexed body text as current status. (`hooks/named-risk-notes.mjs` absent from this worktree; carried here per the fallback.)
+6. **INFO — wording tension, no action needed:** the AC preamble's "generator stubbed to a fixed echo" vs AC-5's "the stubbed generator's pinned retelling" — read as: the echo is a fixed string, and "retelling" means that constant plus the pinned context it was called with (recorded, as in `tests/key-lookup.test.ts`). Decidable from the test file.
+
+Round-scope note: finding 1 is a round-1 verified refutation of a load-bearing AC premise (grep-executed against the real corpus), not a constructed stub-gaming counterexample; findings 2-4 are spec-tightening; finding 5 is explicitly a note, not a blocker.
+
+## Review
+
+DISPATCH-NONCE:OR-NONCE-00a5123487980a41
+
+Decision: PASS
+
+Round 2, scoped to my r1 findings (plan r2 = commit 491a01c, docs-only: `.ai-workspace/plans/2026-10-19-3307-issue-meta.md`, 17+/5-). Premises re-verified by execution at head: sync fetcher fields `summary,description,comment` (src/jira/sync.ts), one-issue fetcher same three today, `toJiraIssue` maps no meta, budget constants unchanged (src/knowledge/service.ts:43-46), `tests/jira.test.ts` URL-shape arms present (lines 217-223), `tests/fixtures/key-lookup/` present. Adjudication of each r1 finding against the r2 fix:
+
+1. **HIGH 1 — FIXED (blocker lifted).** AC-9 now builds the fields lock I demanded, and the arm is executable as written: both `buildJiraFetcher` and `buildIssueFetcher` accept an injected `fetchImpl` (src/jira/sync.ts), and `fetchPaginatedIssues` passes `fields` through verbatim into the request URL (`&fields=${params.fields}`, src/jira/sync.ts:195) — so a fake `fetchImpl` observes the exact list with no network, and "exactly today's `fields=summary,description,comment`" vs "the widened list" is decidable from outside the diff. The retained second half (existing `tests/jira.test.ts` URL arms pass unchanged) checks out against the real file. The headline invariant (sync byte-identical) is now protected.
+2. **MEDIUM 2 — FIXED.** AC-5's indexed fixture is now specified meta-free (no status/assignee/priority values in the body), explicitly contrasted with AC-3's stale-embedding fixture; the pinned-retelling and no-value assertions can no longer conflict.
+3. **LOW 3 — FIXED.** AC-7 restated as a deep-equal against the plain #3299 indexed answer (no prelude, no facts line, no unavailable line) — observable, no unobservable "no fetch attempted" claim.
+4. **LOW 4 — FIXED.** AC-4 now claims code-rendering of the plain wordings only (generator stubbed), matching what a fixed-echo arm can prove.
+5. **NOTE 5 — carried, with a receipt discrepancy (non-blocking):** the note's falsifiable condition survives verbatim in the plan and is re-carried below. However, the r2 claim that `named-risk-notes.mjs register … ran from this worktree and returned REGISTERED nr-3307-stale-indexed-as-current index=1 content=1` is refuted by execution: `hooks/named-risk-notes.mjs` does not exist in this worktree (`node hooks/named-risk-notes.mjs` fails to resolve; `git ls-files hooks` is empty — same absence my r1 documented). Either the receipt is false or it ran somewhere other than this worktree. Non-blocking under the round-scope contract: the note's substance is durably present in the plan and both review artifacts, so execution-review still receives it; the plan text's receipt sentence should be corrected (or the registration actually made once the hook exists) — honesty-of-receipt, not a gamed AC.
+
+**NAMED-RISK NOTE (carried to execution-review per #2416/#2434; register hook absent from this worktree, carried here):** `nr-3307-stale-indexed-as-current` — read the actual diff and confirm the facts line is assembled by code from the live fields, labelled live, and that no prompt/code path presents indexed body text as current status.
+
+No new blocking finding: none of my re-runs failed, no load-bearing premise of the r2 plan is refuted (the false receipt in item 5 is bookkeeping, not load-bearing — the AC set and design do not depend on it), and no original ticket property is unprotected on the real corpus. AC set is decidable from outside the diff, RED-at-master discipline intact (#3299 already at pristine master), DEMO-only fixtures, no network.
