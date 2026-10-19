@@ -42,7 +42,7 @@ export interface OpenDefectsFetcher {
 
 /**
  * #3299 — one-issue read for the exact-key lookup leg. `fetchIssue` returns the
- * SINGLE issue named by its exact key (`GET-673`), or null when Jira hands back
+ * SINGLE issue named by its exact key (`DEMO-673`), or null when Jira hands back
  * nothing (absent / not visible). Read-only: one GET, maxResults 1, no writes,
  * no project sweep. Structurally compatible with `KnowledgeService`'s
  * `IssueFetcher` seam (src/knowledge/service.ts), which never imports Jira code

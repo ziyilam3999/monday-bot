@@ -6,7 +6,7 @@ Branch `3299-key-lookup`, head `0b3c3c8` (this file committed with it). Round 1'
 uncommitted work (keyLookup module, service funnel, env wiring, suite AC-2 block,
 fixtures incl. the parity receipt recorded at `6873485`) was reviewed and continued;
 round 2 added the AC-3..AC-11 both-ends arms, fixed one test-authoring defect
-(handler keys written `GET_900` instead of `"GET-900"`, which made every stubbed
+(handler keys written `DEMO_900` instead of `"DEMO-900"`, which made every stubbed
 live fetch answer null — caught by the suite itself, not by review), and produced
 the RED-at-base receipt.
 
@@ -43,30 +43,30 @@ lazy `require` that this arm never executes):
 ```
 expect(received).toContain(expected) // indexOf
 
-Expected value: "jira:GET-673"
-Received array: ["jira:GET-680", "jira:GET-674", "jira:GET-675", "jira:GET-676", "jira:GET-677", "jira:GET-678", "jira:GET-679", "jira:GET-681", "jira:GET-682", "jira:GET-683", …]
+Expected value: "jira:DEMO-673"
+Received array: ["jira:DEMO-680", "jira:DEMO-674", "jira:DEMO-675", "jira:DEMO-676", "jira:DEMO-677", "jira:DEMO-678", "jira:DEMO-679", "jira:DEMO-681", "jira:DEMO-682", "jira:DEMO-683", …]
 
   315 |     expect(genCalls.length).toBe(1);
   316 |     const sources = genCalls[0].chunks.map((c) => c.source);
-> 317 |     expect(sources).toContain("jira:GET-673");
+> 317 |     expect(sources).toContain("jira:DEMO-673");
       |                     ^
 
 at Object.<anonymous> (tests/key-lookup.test.ts:317:21)
 ```
 
-At head the same command exits 0 with `sources[0] === "jira:GET-673"`.
+At head the same command exits 0 with `sources[0] === "jira:DEMO-673"`.
 
 ## Variant table (observed values from the real runs above)
 
 | variant | direction | expected | observed |
 |---------|-----------|----------|----------|
-| "Can you extract Jira Get 673?" @ base 6873485 | must-fire (RED) | GET-673 absent from context, assertion fails | exit 1, `toContain("jira:GET-673")` failed, neighbours filled the top-12 (tmp/red-at-base.log) |
-| "Can you extract Jira Get 673?" @ head | must-fire (GREEN) | GET-673 pinned first, cited first | exit 0, chunks[0]/citations[0] = jira:GET-673 (tmp/suite-logs/ac-repro shape.log) |
-| `GET-673` / `get-673` hyphenated, no context word | must-fire | canonical GET-673 | exit 0, 7/7 extraction arms passed |
-| `Get 673` / `get673` with context word before | must-fire | canonical GET-673 | exit 0 |
-| `Get 673` / `get673`, no context word | must-not-fire | [] | exit 0 |
-| "Can I get 2 volunteers to review the doc?" | must-not-fire | 0 keys, 0 fetches, 0 pins, plain vector context | exit 0, ids/sources equal retrieve() (arm 2) |
-| "I need to get 3 tickets for the jira talk" (context AFTER) | must-not-fire | 0 keys, 0 fetches, 0 pins | exit 0 (arm 3) |
+| "Can you extract Jira Demo 673?" @ base 6873485 | must-fire (RED) | DEMO-673 absent from context, assertion fails | exit 1, `toContain("jira:DEMO-673")` failed, neighbours filled the top-12 (tmp/red-at-base.log) |
+| "Can you extract Jira Demo 673?" @ head | must-fire (GREEN) | DEMO-673 pinned first, cited first | exit 0, chunks[0]/citations[0] = jira:DEMO-673 (tmp/suite-logs/ac-repro shape.log) |
+| `DEMO-673` / `demo-673` hyphenated, no context word | must-fire | canonical DEMO-673 | exit 0, 7/7 extraction arms passed |
+| `Demo 673` / `demo673` with context word before | must-fire | canonical DEMO-673 | exit 0 |
+| `Demo 673` / `demo673`, no context word | must-not-fire | [] | exit 0 |
+| "Can I demo 2 volunteers to review the doc?" | must-not-fire | 0 keys, 0 fetches, 0 pins, plain vector context | exit 0, ids/sources equal retrieve() (arm 2) |
+| "I need to demo 3 tickets for the jira talk" (context AFTER) | must-not-fire | 0 keys, 0 fetches, 0 pins | exit 0 (arm 3) |
 | bare "673" / unconfigured "ABC-673" | must-not-fire | nothing extracted | exit 0 (arms 4–5) |
 | indexed key, Slack + Telegram ends | must-fire | pinned source first in both channel payloads | exit 0, 7/7 indexed arms passed |
 | unindexed key, fetcher stub | must-fire | 1 fetch, ≤3 live chunks, says live, not indexed | exit 0 (re-ask re-fetches) |
@@ -78,7 +78,7 @@ At head the same command exits 0 with `sources[0] === "jira:GET-673"`.
 
 Red control (exercised): the AC-3 base run above IS the suite's central
 assertion failing — quoted verbatim, exit 1. A second, incidental red was
-exercised during development: the `GET_900` handler-key typo made the live arm
+exercised during development: the `DEMO_900` handler-key typo made the live arm
 fail (`genCalls.length` expected 1, received 0) before the fix.
 
 ## Carried notes honored
@@ -93,7 +93,7 @@ fail (`genCalls.length` expected 1, received 0) before the fix.
   whole-leg deadline.
 - Project prefixes match case-insensitively; the emitted key uses the configured
   list's OWN casing (keyLookup `canonical` map; asserted in the extraction arms
-  `ops-42 → OPS-42`, `get-43 → get-43` for a lowercase-configured list).
+  `ops-42 → OPS-42`, `demo-43 → demo-43` for a lowercase-configured list).
 
 Executor-close: draft PR opened on ziyilam3999/monday-bot (base master, title
 "3299: exact issue-key lookup (pin keyed issue, bounded live fetch)") carrying

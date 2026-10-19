@@ -1,7 +1,7 @@
 /**
  * #3299 — exact issue-key extraction, the cheap guard in front of the vector
  * pipeline. The bot today answers only by meaning (bi-encoder top-12), so a
- * question that NAMES a ticket ("Can you extract Jira Get 673?") is answered by
+ * question that NAMES a ticket ("Can you extract Jira Demo 673?") is answered by
  * the ticket's look-alike neighbours instead. This module pulls the named key
  * out of the question so `KnowledgeService.query` can pin that issue's chunks
  * first (or live-fetch exactly that issue when it is unindexed).
@@ -10,17 +10,17 @@
  * matched as a standalone token, case-insensitively, never glued to other
  * letters or digits:
  *
- *   1. HYPHENATED `GET-673` (any case) — fires UNCONDITIONALLY. A hyphen
+ *   1. HYPHENATED `DEMO-673` (any case) — fires UNCONDITIONALLY. A hyphen
  *      directly joining a configured project key to digits is unambiguous.
- *   2. SPACED `GET 673` / `Get 673`, or FUSED `get673` (any case) — fires ONLY
+ *   2. SPACED `DEMO 673` / `Demo 673`, or FUSED `demo673` (any case) — fires ONLY
  *      when a Jira-context word (jira/ticket/issue/key, any case) appears among
  *      the 3 tokens immediately BEFORE the project-key token. The context word
  *      must PRECEDE the key: English prose puts its nouns after the number
- *      ("get 3 tickets"), so a context word that only follows never fires.
+ *      ("demo 3 tickets"), so a context word that only follows never fires.
  *
  * The context guard is paid for by separator tolerance: the fixture project key
- * `GET` is itself an English word, so without the guard "Can I get 2 volunteers
- * to review the doc?" would pin GET-2 and replace the real answer (plan-review
+ * `DEMO` is itself an English word, so without the guard "Can I demo 2 volunteers
+ * to review the doc?" would pin DEMO-2 and replace the real answer (plan-review
  * r1 finding 1). The guard applies uniformly to the loose shapes for EVERY
  * configured key — no dictionary, conservative direction: a missed loose form
  * falls back to today's vector behavior.
@@ -39,7 +39,7 @@
 /**
  * Words that make a loose (spaced/fused) key mention unambiguous. Any case.
  * NOTE (named risk 3299-word-context-guard, plan-review r2): `key`, `issue`,
- * `ticket` are ordinary English, so "the key is to get 3 volunteers on this"
+ * `ticket` are ordinary English, so "the key is to demo 3 volunteers on this"
  * DOES satisfy the guard as specified — the plan's uniform rule fires there.
  * This is the registered trade-off for not shipping a prose dictionary; the
  * plan-review registered the risk rather than growing the guard arms.
@@ -74,8 +74,8 @@ function charKind(ch: string): TokenKind | undefined {
 /**
  * Split into maximal runs: `[A-Za-z]+` → word, `[0-9]+` → num, every other
  * character a single `other` token. Token boundaries carry the gluing
- * information the shapes need: `forget-673` is word("forget") ≠ "get";
- * `get673` is word("get") immediately followed by num("673"); `673a` is
+ * information the shapes need: `demon-673` is word("demon") ≠ "demo";
+ * `demo673` is word("demo") immediately followed by num("673"); `673a` is
  * num("673") immediately followed by word("a").
  */
 function tokenize(question: string): Token[] {
@@ -152,11 +152,11 @@ function matchKeyNumber(
 ): NumberMatch | null {
   const key = toks[keyIdx];
   const prev = toks[keyIdx - 1];
-  if (prev && adjacent(prev, key) && prev.kind !== "other") return null; // xGET / 3GET
+  if (prev && adjacent(prev, key) && prev.kind !== "other") return null; // xDEMO / 3DEMO
 
   // First non-whitespace token after the key (whitespace tokens are `other`
-  // singles; skipping them is what makes "GET 673" a SPACED shape while
-  // "GET-673" / "get673" stay directly adjacent).
+  // singles; skipping them is what makes "DEMO 673" a SPACED shape while
+  // "DEMO-673" / "demo673" stay directly adjacent).
   let nextIdx = keyIdx + 1;
   while (nextIdx < toks.length && toks[nextIdx].kind === "other" && /\s/.test(toks[nextIdx].text)) {
     nextIdx++;
@@ -182,7 +182,7 @@ function matchKeyNumber(
       : null;
   }
   const gap = question.slice(key.end, next.start);
-  if (!/^\s+$/.test(gap)) return null; // "GET, 673" / "GET- 673" / "GET/673" — not a key shape
+  if (!/^\s+$/.test(gap)) return null; // "DEMO, 673" / "DEMO- 673" / "DEMO/673" — not a key shape
   return numberIsCleanAfter(toks, nextIdx)
     ? { digits: next.text, shape: "spaced" }
     : null;
@@ -222,7 +222,7 @@ export function extractIssueKeys(
     // Loose shapes need a Jira-context word BEFORE the key; hyphenated is
     // unambiguous and fires unconditionally.
     if (m.shape !== "hyphen" && !hasContextWordBefore(toks, i)) continue;
-    // Normalize leading zeros only (GET-0673 -> GET-673); never through
+    // Normalize leading zeros only (DEMO-0673 -> DEMO-673); never through
     // Number(), which would go scientific on very long digit runs.
     const digits = m.digits.replace(/^0+(?=\d)/, "");
     const key = `${configured}-${digits}`;

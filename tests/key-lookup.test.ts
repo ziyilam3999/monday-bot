@@ -88,7 +88,7 @@ async function indexCorpus(svc: KnowledgeService): Promise<void> {
       title: issue.summary,
       body: bodyOf(issue),
       source: `jira:${issue.key}`,
-      spaceKey: "GET",
+      spaceKey: "DEMO",
     });
   }
 }
@@ -170,7 +170,7 @@ function makeFetcher(handlers: Record<string, Handler>): {
   return { calls, fetcher };
 }
 
-/** The #3299 wiring shape used by every funnel arm: GET projects + stub fetcher. */
+/** The #3299 wiring shape used by every funnel arm: DEMO projects + stub fetcher. */
 function lookupConfig(fetcher?: unknown): { projectKeys: string[]; issueFetcher?: unknown } {
   const cfg: { projectKeys: string[]; issueFetcher?: unknown } = {
     projectKeys: [...corpusFixture.projectKeys],
@@ -209,26 +209,26 @@ afterAll(() => {
 // ===========================================================================
 
 describe("extraction (AC-2)", () => {
-  const PROJECTS = ["GET"];
+  const PROJECTS = ["DEMO"];
 
   it("extraction (a): hyphenated fires with NO context word, any case, canonical casing", () => {
-    expect(extractKeys("GET-673", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("get-673", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("status of Get-673 please", PROJECTS)).toEqual(["GET-673"]);
+    expect(extractKeys("DEMO-673", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("demo-673", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("status of Demo-673 please", PROJECTS)).toEqual(["DEMO-673"]);
   });
 
   it("extraction (b): inside a Jira-context sentence the spaced and fused forms resolve to the SAME canonical key", () => {
-    expect(extractKeys("Can you extract Jira Get 673?", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("can you show the jira GET 673 summary", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("Jira get673 status", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("what does ticket GET 673 say", PROJECTS)).toEqual(["GET-673"]);
-    expect(extractKeys("the issue Get 673 broke again", PROJECTS)).toEqual(["GET-673"]);
+    expect(extractKeys("Can you extract Jira Demo 673?", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("can you show the jira DEMO 673 summary", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("Jira demo673 status", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("what does ticket DEMO 673 say", PROJECTS)).toEqual(["DEMO-673"]);
+    expect(extractKeys("the issue Demo 673 broke again", PROJECTS)).toEqual(["DEMO-673"]);
   });
 
   it("extraction (c): with NO context word, spaced and fused forms resolve to NOTHING", () => {
-    expect(extractKeys("Get 673 please", PROJECTS)).toEqual([]);
-    expect(extractKeys("get673 now", PROJECTS)).toEqual([]);
-    expect(extractKeys("tell me about GET 673", PROJECTS)).toEqual([]);
+    expect(extractKeys("Demo 673 please", PROJECTS)).toEqual([]);
+    expect(extractKeys("demo673 now", PROJECTS)).toEqual([]);
+    expect(extractKeys("tell me about DEMO 673", PROJECTS)).toEqual([]);
   });
 
   it("extraction (d): a bare number with no project prefix resolves to NOTHING", () => {
@@ -243,19 +243,19 @@ describe("extraction (AC-2)", () => {
 
   it("extraction: prefixes match case-insensitively and the canonical casing comes from the configured list", () => {
     expect(extractKeys("ops-42 and ops-43", ["OPS"])).toEqual(["OPS-42", "OPS-43"]);
-    expect(extractKeys("jira get 43 and GET-42", ["get"])).toEqual(["get-43", "get-42"]);
+    expect(extractKeys("jira demo 43 and DEMO-42", ["demo"])).toEqual(["demo-43", "demo-42"]);
   });
 
   it("extraction: keys are distinct, first-mention order, number is a standalone digit run", () => {
-    expect(extractKeys("GET-673 and GET-674 and GET-673 again", PROJECTS)).toEqual([
-      "GET-673",
-      "GET-674",
+    expect(extractKeys("DEMO-673 and DEMO-674 and DEMO-673 again", PROJECTS)).toEqual([
+      "DEMO-673",
+      "DEMO-674",
     ]);
     // glued letters / longer numbers are not key numbers
-    expect(extractKeys("forget-673 is not a key", PROJECTS)).toEqual([]);
-    expect(extractKeys("GET-673a nope", PROJECTS)).toEqual([]);
-    expect(extractKeys("GET-673.5 nope", PROJECTS)).toEqual([]);
-    expect(extractKeys("GET, 673 nope", PROJECTS)).toEqual([]);
+    expect(extractKeys("demon-673 is not a key", PROJECTS)).toEqual([]);
+    expect(extractKeys("DEMO-673a nope", PROJECTS)).toEqual([]);
+    expect(extractKeys("DEMO-673.5 nope", PROJECTS)).toEqual([]);
+    expect(extractKeys("DEMO, 673 nope", PROJECTS)).toEqual([]);
   });
 });
 
@@ -264,11 +264,11 @@ describe("extraction (AC-2)", () => {
 // ===========================================================================
 
 /** A checked-in live-issue answer for an unindexed key (AC-5/AC-10/AC-11). */
-const LIVE_GET_900: LiveIssueLike = {
-  key: "GET-900",
+const LIVE_DEMO_900: LiveIssueLike = {
+  key: "DEMO-900",
   summary: "Freshly filed rollback drill",
   descriptionText:
-    "GET-900 rollback drill kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey.",
+    "DEMO-900 rollback drill kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey.",
   commentTexts: [],
 };
 
@@ -305,19 +305,19 @@ async function assertDoesNotFire(question: string): Promise<void> {
 // ===========================================================================
 
 describe("repro shape (AC-3)", () => {
-  it("repro shape: 'Can you extract Jira Get 673?' is answered from GET-673's own chunks", async () => {
+  it("repro shape: 'Can you extract Jira Demo 673?' is answered from DEMO-673's own chunks", async () => {
     const { calls: genCalls, generator } = makeGenerator();
     const svc = makeService({ generator, lookup: lookupConfig() });
     await indexCorpus(svc);
-    const result = await svc.query("Can you extract Jira Get 673?");
+    const result = await svc.query("Can you extract Jira Demo 673?");
     // At base the generator IS called (pure vector path) — the RED falls on
     // the key-not-in-context assertion just below, not on a missing call.
     expect(genCalls.length).toBe(1);
     const sources = genCalls[0].chunks.map((c) => c.source);
-    expect(sources).toContain("jira:GET-673");
-    expect(sources[0]).toBe("jira:GET-673");
-    expect(result.citations[0]?.source).toBe("jira:GET-673");
-    expect(result.answer).toContain("jira:GET-673");
+    expect(sources).toContain("jira:DEMO-673");
+    expect(sources[0]).toBe("jira:DEMO-673");
+    expect(result.citations[0]?.source).toBe("jira:DEMO-673");
+    expect(result.answer).toContain("jira:DEMO-673");
   });
 });
 
@@ -330,23 +330,23 @@ describe("indexed-first (AC-4)", () => {
     const { calls: genCalls, generator } = makeGenerator();
     const svc = makeService({ generator, lookup: lookupConfig() });
     await indexCorpus(svc);
-    const result = await svc.query("Can you extract Jira Get 673?");
+    const result = await svc.query("Can you extract Jira Demo 673?");
     expect(genCalls.length).toBe(1);
     const chunks = genCalls[0].chunks;
     expect(chunks.length).toBe(12);
-    expect(chunks[0].source).toBe("jira:GET-673");
+    expect(chunks[0].source).toBe("jira:DEMO-673");
     expect(chunks[0].score).toBe(1); // pinned by name, not vector similarity
     expect(chunks[0].text).toContain("Rotation handover checklist");
-    expect(result.citations[0]?.source).toBe("jira:GET-673");
+    expect(result.citations[0]?.source).toBe("jira:DEMO-673");
   });
 
   it("indexed: Slack handleQuery path — pinned source first in the Slack payload", async () => {
     const { generator } = makeGenerator();
     const svc = makeService({ generator, lookup: lookupConfig() });
     await indexCorpus(svc);
-    const payload = await handleQuery("Can you extract Jira Get 673?", svc);
-    expect(payload.text).toContain("jira:GET-673");
-    expect(payload.text.indexOf("jira:GET-673")).toBeLessThan(payload.text.indexOf("jira:GET-674"));
+    const payload = await handleQuery("Can you extract Jira Demo 673?", svc);
+    expect(payload.text).toContain("jira:DEMO-673");
+    expect(payload.text.indexOf("jira:DEMO-673")).toBeLessThan(payload.text.indexOf("jira:DEMO-674"));
   });
 
   it("indexed: Telegram adapter path — pinned source first in the sent reply", async () => {
@@ -363,12 +363,12 @@ describe("indexed-first (AC-4)", () => {
     });
     await adapter.processUpdate({
       update_id: 1,
-      message: { chat: { id: 42 }, text: "Can you extract Jira Get 673?" },
+      message: { chat: { id: 42 }, text: "Can you extract Jira Demo 673?" },
     } as TgUpdate);
     expect(transport.sent.length).toBe(1);
     const text = transport.sent[0].text;
-    expect(text).toContain("jira:GET-673");
-    expect(text.indexOf("jira:GET-673")).toBeLessThan(text.indexOf("jira:GET-674"));
+    expect(text).toContain("jira:DEMO-673");
+    expect(text.indexOf("jira:DEMO-673")).toBeLessThan(text.indexOf("jira:DEMO-674"));
   });
 });
 
@@ -379,23 +379,23 @@ describe("indexed-first (AC-4)", () => {
 describe("live fill (AC-5)", () => {
   it("live: unindexed key → ONE fetch of exactly that key; text in context (≤3 chunks); NOT indexed; answer says live", async () => {
     const { calls: genCalls, generator } = makeGenerator();
-    const { calls: fetchCalls, fetcher } = makeFetcher({ "GET-900": LIVE_GET_900 });
+    const { calls: fetchCalls, fetcher } = makeFetcher({ "DEMO-900": LIVE_DEMO_900 });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
-    const result = await svc.query("ticket GET-900 status");
-    expect(fetchCalls).toEqual(["GET-900"]);
+    const result = await svc.query("ticket DEMO-900 status");
+    expect(fetchCalls).toEqual(["DEMO-900"]);
     expect(genCalls.length).toBe(1);
     const chunks = genCalls[0].chunks;
-    const liveChunks = chunks.filter((c) => c.source === "jira:GET-900");
+    const liveChunks = chunks.filter((c) => c.source === "jira:DEMO-900");
     expect(liveChunks.length).toBeGreaterThan(0);
     expect(liveChunks.length).toBeLessThanOrEqual(3);
-    expect(chunks[0].source).toBe("jira:GET-900");
+    expect(chunks[0].source).toBe("jira:DEMO-900");
     expect(liveChunks[0].text).toContain("rollback drill");
     expect(result.answer).toMatch(/live/i);
-    expect(result.answer).toContain("GET-900");
+    expect(result.answer).toContain("DEMO-900");
     // NOT added to the index: the same question fetches again (no cached pin)
-    await svc.query("ticket GET-900 status");
-    expect(fetchCalls).toEqual(["GET-900", "GET-900"]);
+    await svc.query("ticket DEMO-900 status");
+    expect(fetchCalls).toEqual(["DEMO-900", "DEMO-900"]);
   });
 });
 
@@ -409,9 +409,9 @@ describe("not found (AC-6)", () => {
     const { calls: fetchCalls, fetcher } = makeFetcher({}); // every key → null
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
-    const result = await svc.query("GET-901 status");
-    expect(fetchCalls).toEqual(["GET-901"]);
-    expect(result.answer).toContain("GET-901");
+    const result = await svc.query("DEMO-901 status");
+    expect(fetchCalls).toEqual(["DEMO-901"]);
+    expect(result.answer).toContain("DEMO-901");
     expect(result.answer).toMatch(/not found or not visible/i);
     expect(result.citations).toEqual([]);
     expect(genCalls.length).toBe(0); // no vector-derived substitute answer
@@ -430,10 +430,10 @@ describe("must-not-fire (AC-7)", () => {
     await assertDoesNotFire("How do I add a new deploy check?");
   });
   it("must-not-fire (2): word-like key + number, no Jira context", async () => {
-    await assertDoesNotFire("Can I get 2 volunteers to review the doc?");
+    await assertDoesNotFire("Can I demo 2 volunteers to review the doc?");
   });
   it("must-not-fire (3): context word AFTER the number", async () => {
-    await assertDoesNotFire("I need to get 3 tickets for the jira talk");
+    await assertDoesNotFire("I need to demo 3 tickets for the jira talk");
   });
   it("must-not-fire (4): bare number", async () => {
     await assertDoesNotFire("what happened to 673 yesterday?");
@@ -473,37 +473,37 @@ describe("multi-key (AC-10)", () => {
     const { calls: genCalls, generator } = makeGenerator();
     const svc = makeService({ generator, lookup: lookupConfig() });
     await indexCorpus(svc);
-    await svc.query("GET-673 and GET-674");
+    await svc.query("DEMO-673 and DEMO-674");
     expect(genCalls.length).toBe(1);
     const chunks = genCalls[0].chunks;
     expect(chunks.length).toBe(12);
-    expect(chunks[0].source).toBe("jira:GET-673");
+    expect(chunks[0].source).toBe("jira:DEMO-673");
     expect(chunks[0].score).toBe(1);
-    expect(chunks[1].source).toBe("jira:GET-674");
+    expect(chunks[1].source).toBe("jira:DEMO-674");
     expect(chunks[1].score).toBe(1);
   });
 
   it("multi-key (b): one indexed + one unindexed → exactly ONE fetch, for the unindexed key only", async () => {
     const { generator } = makeGenerator();
-    const { calls: fetchCalls, fetcher } = makeFetcher({ "GET-900": LIVE_GET_900 });
+    const { calls: fetchCalls, fetcher } = makeFetcher({ "DEMO-900": LIVE_DEMO_900 });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
-    await svc.query("GET-673 and GET-900");
-    expect(fetchCalls).toEqual(["GET-900"]);
+    await svc.query("DEMO-673 and DEMO-900");
+    expect(fetchCalls).toEqual(["DEMO-900"]);
   });
 
   it("multi-key (c): four unindexed keys → fetcher called for EXACTLY the first three, in order", async () => {
     const { generator } = makeGenerator();
     const { calls: fetchCalls, fetcher } = makeFetcher({
-      "GET-900": liveIssueFor("GET-900"),
-      "GET-901": liveIssueFor("GET-901"),
-      "GET-902": liveIssueFor("GET-902"),
-      "GET-903": liveIssueFor("GET-903"),
+      "DEMO-900": liveIssueFor("DEMO-900"),
+      "DEMO-901": liveIssueFor("DEMO-901"),
+      "DEMO-902": liveIssueFor("DEMO-902"),
+      "DEMO-903": liveIssueFor("DEMO-903"),
     });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
-    await svc.query("GET-900 and GET-901 and GET-902 and GET-903");
-    expect(fetchCalls).toEqual(["GET-900", "GET-901", "GET-902"]);
+    await svc.query("DEMO-900 and DEMO-901 and DEMO-902 and DEMO-903");
+    expect(fetchCalls).toEqual(["DEMO-900", "DEMO-901", "DEMO-902"]);
   });
 });
 
@@ -519,15 +519,15 @@ describe("timeout (AC-11)", () => {
   it("timeout (a): never-resolving fetch → query resolved past the 5 s bound with an honest timed-out answer, no substitute", async () => {
     const { calls: genCalls, generator } = makeGenerator();
     const never: () => Promise<LiveIssueLike | null> = () => new Promise(() => undefined);
-    const { calls: fetchCalls, fetcher } = makeFetcher({ "GET-900": never });
+    const { calls: fetchCalls, fetcher } = makeFetcher({ "DEMO-900": never });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
     jest.useFakeTimers();
-    const pending = svc.query("ticket GET-900 status");
+    const pending = svc.query("ticket DEMO-900 status");
     await jest.advanceTimersByTimeAsync(5_001);
     const result = await pending;
-    expect(fetchCalls).toEqual(["GET-900"]);
-    expect(result.answer).toContain("GET-900");
+    expect(fetchCalls).toEqual(["DEMO-900"]);
+    expect(result.answer).toContain("DEMO-900");
     expect(result.answer).toMatch(/timed out/i);
     expect(result.citations).toEqual([]); // zero neighbouring citations
     expect(genCalls.length).toBe(0); // no vector substitute
@@ -537,18 +537,18 @@ describe("timeout (AC-11)", () => {
     const { calls: genCalls, generator } = makeGenerator();
     const never: () => Promise<LiveIssueLike | null> = () => new Promise(() => undefined);
     const { calls: fetchCalls, fetcher } = makeFetcher({
-      "GET-900": never,
-      "GET-901": never,
+      "DEMO-900": never,
+      "DEMO-901": never,
     });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
     jest.useFakeTimers();
-    const pending = svc.query("GET-900 and GET-901");
+    const pending = svc.query("DEMO-900 and DEMO-901");
     await jest.advanceTimersByTimeAsync(10_000);
     const result = await pending;
-    expect(fetchCalls).toEqual(["GET-900", "GET-901"]);
-    expect(result.answer).toContain("GET-900");
-    expect(result.answer).toContain("GET-901");
+    expect(fetchCalls).toEqual(["DEMO-900", "DEMO-901"]);
+    expect(result.answer).toContain("DEMO-900");
+    expect(result.answer).toContain("DEMO-901");
     expect(result.answer).toMatch(/timed out/i);
     expect(result.citations).toEqual([]);
     expect(genCalls.length).toBe(0);
