@@ -48,8 +48,52 @@ named in the receipt rather than guessed at.
 
 ## AC verification (Part A)
 
-(to be filled after the R1 fix lands)
+Head at verification: d0c3f52. `npm run build` run before every runner AC
+(plan-review r2 F1 prerequisite). Model backend: local MiniLM artifact via the
+shared node_modules; first real-backend embed completed in 145 ms — no download
+hang encountered (F2 note: had it hung 10 min, this would have handed back).
+
+| AC | Command | Exit | Observed |
+|---|---|---|---|
+| AC-1 | `npm run typecheck` | 0 | clean |
+| AC-1 | `npm test` | 0* | 654 passed / 654 with `env -u ANTHROPIC_MODEL npm test`. *Bare `npm test` in THIS dispatch shell fails exactly one assertion (tests/generate.test.ts:94, expects default model `claude-haiku-5-5`, receives the shell's `ANTHROPIC_MODEL` value): the harness exports `ANTHROPIC_MODEL`, which `src/llm/modelConfig.ts` honors as a documented override contract (#18/#51). Pre-existing at HEAD d45f28b (no file my diff touches is involved); in a normal shell the suite is green. |
+| AC-2 | `node scripts/sync-responsive-smoke.js probe` (SMOKE_FIXTURES unset) | 1 | "refusing to run: SMOKE_FIXTURES is unset — no fixture target named … never falls back to a live … target" |
+| AC-2 | `SMOKE_FIXTURES=tests/fixtures/sync-responsive node scripts/sync-responsive-smoke.js probe` (at probe-only commit 18c2879, pre-fix) | 0 | receipt quoted above; `dominant-stall: R1` |
+| AC-3 | `npm test -- tests/sync-responsive.smoke.test.ts -t warming` | 0 | 4 passed, 1 skipped (the non-warming yield test) |
+| AC-3 | `command grep -rn "still warming up" src/` | 0 | 2 hits (src/knowledge/service.ts:30, src/knowledge/startup.ts:110) |
+| AC-4 | `node scripts/sync-responsive-smoke.js bound` (unset) | 1 | names the unset fixture target |
+| AC-4 | `node scripts/sync-responsive-smoke.js store` (unset) | 1 | names the unset fixture target |
+| AC-5 | `SMOKE_FIXTURES=tests/fixtures/sync-responsive node scripts/sync-responsive-smoke.js bound` (post-fix, real backend) | 0 | loop max 227.8 ms, p99 83 ms; handler max 207.7 ms both stand-ins, wakes 28 of ~31 expected (no starvation); mid-sync query resolvedBeforeSync=true; `bound: PASS` |
+| AC-13 | `command grep -rnE "globalThis\.fetch\|new Anthropic\|@slack/bolt\|@anthropic-ai/sdk" tests/sync-responsive.smoke.test.ts scripts/sync-responsive-smoke.js` | 1 | zero matches |
+
+### variant | direction | expected | observed
+
+| variant | direction | expected | observed |
+|---|---|---|---|
+| probe, SMOKE_FIXTURES unset | must-fire (refuse) | exit ≥ 1 + names unset target | exit 1, refuse message names SMOKE_FIXTURES and the no-live-target rule |
+| bound, SMOKE_FIXTURES unset | must-fire (refuse) | exit ≥ 1 + names unset target | exit 1, same refuse path |
+| store, SMOKE_FIXTURES unset | must-fire (refuse) | exit ≥ 1 + names unset target | exit 1, same refuse path |
+| probe, fixtures set, at HEAD (pre-fix) | must-fire (detect the stall) | > 1 s somewhere + one dominant-stall row | loop max 6719.3 ms; wakes 2 of ~35 (starved); dominant-stall: R1 |
+| bound, fixtures set, post-fix | must-not-fire (no violation) | exit 0, all ≤ 1000 ms, mid-sync query first | exit 0; loop 227.8 ms, handler 207.7 ms, wakes 28/31, resolvedBeforeSync=true |
+| empty index + initial sync in flight | must-fire | /warming up/, not "couldn't find" | jest pass (answer matches /warming up/, citations []) |
+| initial sync all-rejected via startKnowledgeSources | must-fire | distinct sync-failed copy, not couldn't-find, not warming | jest pass (phase "failed", distinct copy) |
+| no sources configured | must-not-fire | old couldn't-find copy retained | jest pass (old copy, no "warming up") |
+| docs indexed mid-sync, sync in flight | must-not-fire | normal answer from partial index | jest pass (stub generator answer served) |
+| pending setImmediate during multi-chunk add() | must-fire | interleaves before add() resolves | jest pass (regression test for the R1 yield) |
+| real-service tokens in new harness files | must-not-fire | AC-13 grep zero matches | exit 1, zero matches |
+
+Input-bound note (probe/runner): the fixture corpus is capped by a checked-in
+guard — the runner refuses (< 60 docs exits 1) and every fixture fetcher
+throws on any space/project other than the fixture keys, so an oversized or
+misdirected corpus fails closed instead of reaching a live target; store mode
+refuses outright in Part A. The sync loop itself is bounded by the corpus (495
+passages, ~12.5 ms/embed measured), so no loop/DoS class exists at probe
+scale.
 
 ## Executor-close
 
-(to be filled at close)
+Executor-close: draft PR https://github.com/ziyilam3999/monday-bot/pull/269 shipped Part A of #3286 — the probe-first
+commit (fixtures + plain-node runner with refuse rule), the R1 receipt (loop
+delay 6719 ms, handler wakes starved 2/~35, CPU 0.33/18 cores → cooperative
+yield between passages), the AC-3 warming-up/sync-failed answers, and all
+Part A ACs verified as tabled above.
