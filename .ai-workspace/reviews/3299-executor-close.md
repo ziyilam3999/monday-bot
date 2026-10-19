@@ -99,3 +99,64 @@ Executor-close: draft PR opened on ziyilam3999/monday-bot (base master, title
 "3299: exact issue-key lookup (pin keyed issue, bounded live fetch)") carrying
 commit 0b3c3c8 — implemented the exact-key lookup leg per plan round 3, all 11
 binary ACs green at head with the RED-at-base receipt quoted above.
+
+## Round 3 (privacy rename) — 2026-10-19
+
+DISPATCH-NONCE:OR-NONCE-5132464b2dcda0d0
+
+Blocker: the repo's public privacy CI ("privacy / denylist") failed because 195
+added lines carried the real Jira project-key shape `GET-<digits>` (private work
+project). Renamed to the made-up key `DEMO` (the repo's own fixture-key
+convention — see `src/jira/jqlFromFilter.ts`) across every file this PR adds or
+changes: tests/key-lookup.test.ts, tests/fixtures/key-lookup/*,
+src/knowledge/*.ts comments, src/jira/sync.ts comment, and the .ai-workspace
+plan/review/close files. Test meaning kept: same shapes, same must-fire and
+must-not-fire arms, same counts — `demo` is itself an English word, so the
+word-like-key guard arms (AC-2c, AC-7 arms 2–3) still exercise the class; the
+`forget-673` gluing arm became `demon-673 is not a key` (word("demon") ≠ "demo",
+same token-boundary class). In prose, the real key is referred to as "the project
+key"; the plan's quoted operator stone now says "the operator's original key
+question" (dispatch-authorized rendering).
+
+Parity receipt: the jest hash-stub embedder tokenizes `[a-z]+`, so the corpus
+rename changed chunk vectors and the frozen AC-8 receipt drifted (post-rename
+run: 23/24, only parity failing). The receipt was RE-RECORDED at the base commit
+`6873485` with the renamed corpus, using the plan's temporary-worktree method
+(`tmp/base-6873485`, renamed suite + fixtures copied in untracked, scratch
+recording spec — since neutralized in place, as `rm` is seat-forbidden).
+`recordedAt` stays `6873485` because that is where it was recorded. The quoted
+RED-at-base receipt arrays further up were recorded pre-rename and renamed in
+place; the RED property itself was re-verified post-rename by exit code only
+(`npx jest tests/key-lookup.test.ts -t "repro shape"` in the base worktree →
+exit 1, log not printed per the tmp/ read ban).
+
+Privacy proofs (step 3 of the dispatch, against the pushed diff
+`origin/master...HEAD` at `7088d99`):
+
+- `git diff origin/master...HEAD --unified=0 | command grep -E '^\+' | command grep -c -E 'GET[- ]?[0-9]'` → **0**
+- same with `-i` over `get[- ]?[0-9]` → **0 lines** (nothing to justify)
+
+Production-code check: `command grep -rn 'DEMO' src/` finds comments/examples
+only (`keyLookup.ts` shape documentation, one `sync.ts` comment, plus the
+pre-existing base comments in `jqlFromFilter.ts` / `nlFilterMapper.ts`); no
+project key is hard-coded — keys come from configuration (`projectKeys`
+argument fed from `JIRA_PROJECTS`, never a literal).
+
+Tests (step 4): `npm run typecheck` → rc=0. Full suite per the round-2
+convention (the session-ambient `ANTHROPIC_MODEL` override breaks the
+pre-existing `tests/generate.test.ts` default-model assertion — not from this
+diff; empty = unset per `resolveModel`'s own contract):
+`ANTHROPIC_MODEL= npx jest > tmp/suite-logs/r3-jest.log 2>&1` → rc=0,
+**Test Suites: 65 passed, 65 total; Tests: 678 passed, 678 total**
+(the plain un-emptied form fails only that one pre-existing test, as in round 2).
+
+Ledger note: the self-append line could not be run — `hooks/3role-ledger.mjs`
+does not exist in this worktree, on `master`, or in the main checkout (nor does
+`tools/openrouter-briefs/seat-rules.md`); handing that back in the dispatch
+report instead of fabricating a row.
+
+Executor-close: PR ziyilam3999/monday-bot#270 head 7088d99 — renamed the real
+project key to DEMO everywhere this PR touches, re-recorded the AC-8 parity
+receipt at base 6873485 with the renamed corpus, re-verified RED-at-base by exit
+code, and re-ran the proofs (diff key-shape count 0 case-sensitive and
+case-insensitive; typecheck 0; 65/65 suites, 678/678 tests).
