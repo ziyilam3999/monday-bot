@@ -29,3 +29,21 @@ Numbered findings:
 6. **INFO — wording tension, no action needed:** the AC preamble's "generator stubbed to a fixed echo" vs AC-5's "the stubbed generator's pinned retelling" — read as: the echo is a fixed string, and "retelling" means that constant plus the pinned context it was called with (recorded, as in `tests/key-lookup.test.ts`). Decidable from the test file.
 
 Round-scope note: finding 1 is a round-1 verified refutation of a load-bearing AC premise (grep-executed against the real corpus), not a constructed stub-gaming counterexample; findings 2-4 are spec-tightening; finding 5 is explicitly a note, not a blocker.
+
+## Review
+
+DISPATCH-NONCE:OR-NONCE-00a5123487980a41
+
+Decision: PASS
+
+Round 2, scoped to my r1 findings (plan r2 = commit 491a01c, docs-only: `.ai-workspace/plans/2026-10-19-3307-issue-meta.md`, 17+/5-). Premises re-verified by execution at head: sync fetcher fields `summary,description,comment` (src/jira/sync.ts), one-issue fetcher same three today, `toJiraIssue` maps no meta, budget constants unchanged (src/knowledge/service.ts:43-46), `tests/jira.test.ts` URL-shape arms present (lines 217-223), `tests/fixtures/key-lookup/` present. Adjudication of each r1 finding against the r2 fix:
+
+1. **HIGH 1 — FIXED (blocker lifted).** AC-9 now builds the fields lock I demanded, and the arm is executable as written: both `buildJiraFetcher` and `buildIssueFetcher` accept an injected `fetchImpl` (src/jira/sync.ts), and `fetchPaginatedIssues` passes `fields` through verbatim into the request URL (`&fields=${params.fields}`, src/jira/sync.ts:195) — so a fake `fetchImpl` observes the exact list with no network, and "exactly today's `fields=summary,description,comment`" vs "the widened list" is decidable from outside the diff. The retained second half (existing `tests/jira.test.ts` URL arms pass unchanged) checks out against the real file. The headline invariant (sync byte-identical) is now protected.
+2. **MEDIUM 2 — FIXED.** AC-5's indexed fixture is now specified meta-free (no status/assignee/priority values in the body), explicitly contrasted with AC-3's stale-embedding fixture; the pinned-retelling and no-value assertions can no longer conflict.
+3. **LOW 3 — FIXED.** AC-7 restated as a deep-equal against the plain #3299 indexed answer (no prelude, no facts line, no unavailable line) — observable, no unobservable "no fetch attempted" claim.
+4. **LOW 4 — FIXED.** AC-4 now claims code-rendering of the plain wordings only (generator stubbed), matching what a fixed-echo arm can prove.
+5. **NOTE 5 — carried, with a receipt discrepancy (non-blocking):** the note's falsifiable condition survives verbatim in the plan and is re-carried below. However, the r2 claim that `named-risk-notes.mjs register … ran from this worktree and returned REGISTERED nr-3307-stale-indexed-as-current index=1 content=1` is refuted by execution: `hooks/named-risk-notes.mjs` does not exist in this worktree (`node hooks/named-risk-notes.mjs` fails to resolve; `git ls-files hooks` is empty — same absence my r1 documented). Either the receipt is false or it ran somewhere other than this worktree. Non-blocking under the round-scope contract: the note's substance is durably present in the plan and both review artifacts, so execution-review still receives it; the plan text's receipt sentence should be corrected (or the registration actually made once the hook exists) — honesty-of-receipt, not a gamed AC.
+
+**NAMED-RISK NOTE (carried to execution-review per #2416/#2434; register hook absent from this worktree, carried here):** `nr-3307-stale-indexed-as-current` — read the actual diff and confirm the facts line is assembled by code from the live fields, labelled live, and that no prompt/code path presents indexed body text as current status.
+
+No new blocking finding: none of my re-runs failed, no load-bearing premise of the r2 plan is refuted (the false receipt in item 5 is bookkeeping, not load-bearing — the AC set and design do not depend on it), and no original ticket property is unprotected on the real corpus. AC set is decidable from outside the diff, RED-at-master discipline intact (#3299 already at pristine master), DEMO-only fixtures, no network.
