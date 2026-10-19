@@ -27,6 +27,8 @@ import {
 } from "./transport";
 import { renderTelegramReply, splitMessage } from "./formatter";
 import { recordAsk } from "./askLog";
+import { classifyHelpGate } from "./helpGate";
+import { buildHelpCard } from "./helpCard";
 
 /**
  * Minimal contract the adapter requires from the knowledge layer — same shape
@@ -169,6 +171,21 @@ export class TelegramAdapter {
     const chatId = message.chat?.id;
     if (typeof chatId !== "number" || !this.allowedChatIds.includes(chatId)) {
       return; // silence: no query, no reply, no ask-log line
+    }
+
+    // #3306 — pre-retrieval help-card gate: a command-shaped unknown slash
+    // token, a short greeting, or a whole-message help probe gets ONE fixed
+    // capability card — ZERO retrieval, ZERO LLM, and NO ask-log line (a card
+    // is not an ask; the log must keep meaning "real asks" for the kill
+    // rule). Anything else keeps today's byte-identical doc path below.
+    const gate = classifyHelpGate(text);
+    if (gate.card && gate.arm) {
+      try {
+        await this.transport.sendMessage(chatId, buildHelpCard(gate.arm));
+      } catch (err) {
+        console.error(`Telegram adapter: sendMessage failed (${safeErrorText(err)}).`);
+      }
+      return;
     }
 
     const startedAt = this.nowFn();

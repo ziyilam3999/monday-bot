@@ -8,6 +8,7 @@
  * Handlers are intentionally tolerant of partial service shapes — the AC tests
  * pass `{}` or a minimal mock object — and never throw on missing methods.
  */
+import { renderSlackHelp } from "../capabilities";
 
 export interface AdminServiceStatus {
   documentCount: number;
@@ -210,15 +211,10 @@ export type CommandHandler = (
   arg?: string,
 ) => string | Promise<string>;
 
-const AVAILABLE_COMMANDS: ReadonlyArray<{ name: string; description: string }> = [
-  { name: "/ask <question>", description: "Ask the bot a question against the indexed docs." },
-  { name: "/status-monday", description: "Show document count and uptime." },
-  { name: "/sync-confluence [space]", description: "Trigger a fresh sync of the Confluence space." },
-  { name: "/reindex", description: "Re-index all Confluence pages and Jira issues." },
-  { name: "/jql <question>", description: "Turn an English defect question into JQL and show the matching defects." },
-  { name: "/help", description: "Show this help message." },
-  { name: "/feedback-monday <message>", description: "Send feedback to the bot maintainers." },
-];
+// #3306 — the command registry moved VERBATIM to the shared capability
+// source (`src/capabilities.ts`) so every surface renders from ONE place;
+// `helpCommand()` below delegates to the shared renderer and its output is
+// byte-identical to the pre-#3306 text (golden-tested).
 
 function formatUptime(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -305,12 +301,10 @@ export const jqlCommand: CommandHandler = async (service, question) => {
 
 /**
  * `/help` — static help text listing every command. Synchronous so callers can
- * post the response without awaiting.
+ * post the response without awaiting. Delegates to the shared capability
+ * renderer (#3306); output is byte-identical to the pre-#3306 text.
  */
-export const helpCommand: CommandHandler = () => {
-  const lines = AVAILABLE_COMMANDS.map((c) => `• ${c.name} — ${c.description}`);
-  return ["Available commands:", ...lines].join("\n");
-};
+export const helpCommand: CommandHandler = () => renderSlackHelp();
 
 /**
  * `/feedback-monday <message>` — capture user feedback. By default we log to stdout so
