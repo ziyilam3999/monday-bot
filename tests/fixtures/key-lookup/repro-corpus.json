@@ -1,0 +1,27 @@
+{
+  "_comment": "#3299 fixture corpus (checked in; jest hash-stub embedder). Reproduces the repro SHAPE under the stub: for the question 'Can you extract Jira Demo 673?' every neighbour shares more query tokens (can/you/extract/jira/demo) than the target DEMO-673, whose body shares only the token 'demo' (from its own key), so at base DEMO-673 falls outside the vector top-12 while the neighbours fill it. Same corpus is reused by the no-key parity receipt (tests/fixtures/key-lookup/parity-receipt.json, recorded at the branch point 6873485).",
+  "projectKeys": ["DEMO"],
+  "target": {
+    "key": "DEMO-673",
+    "summary": "Rotation handover checklist",
+    "description": "DEMO-673 Rotation handover checklist alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu.",
+    "comments": []
+  },
+  "neighbours": [
+    { "key": "DEMO-674", "summary": "Can you extract the jira intake notes seven four", "description": "DEMO-674 can you extract the jira intake notes seven four.", "comments": [] },
+    { "key": "DEMO-675", "summary": "Can you extract the jira intake notes seven five", "description": "DEMO-675 can you extract the jira intake notes seven five.", "comments": [] },
+    { "key": "DEMO-676", "summary": "Can you extract the jira triage rota seventy six", "description": "DEMO-676 can you extract the jira triage rota seventy six.", "comments": [] },
+    { "key": "DEMO-677", "summary": "Can you extract the jira triage rota seventy seven", "description": "DEMO-677 can you extract the jira triage rota seventy seven.", "comments": [] },
+    { "key": "DEMO-678", "summary": "Can you extract the jira weekly digest seventy eight", "description": "DEMO-678 can you extract the jira weekly digest seventy eight.", "comments": [] },
+    { "key": "DEMO-679", "summary": "Can you extract the jira weekly digest seventy nine", "description": "DEMO-679 can you extract the jira weekly digest seventy nine.", "comments": [] },
+    { "key": "DEMO-680", "summary": "Can you extract the jira oncall report eighty", "description": "DEMO-680 can you extract the jira oncall report eighty.", "comments": [] },
+    { "key": "DEMO-681", "summary": "Can you extract the jira oncall report eighty one", "description": "DEMO-681 can you extract the jira oncall report eighty one.", "comments": [] },
+    { "key": "DEMO-682", "summary": "Can you extract the jira backlog groom eighty two", "description": "DEMO-682 can you extract the jira backlog groom eighty two.", "comments": [] },
+    { "key": "DEMO-683", "summary": "Can you extract the jira backlog groom eighty three", "description": "DEMO-683 can you extract the jira backlog groom eighty three.", "comments": [] },
+    { "key": "DEMO-684", "summary": "Can you extract the jira release gate eighty four", "description": "DEMO-684 can you extract the jira release gate eighty four.", "comments": [] },
+    { "key": "DEMO-685", "summary": "Can you extract the jira release gate eighty five", "description": "DEMO-685 can you extract the jira release gate eighty five.", "comments": [] },
+    { "key": "DEMO-686", "summary": "Can you extract the jira deploy window eighty six", "description": "DEMO-686 can you extract the jira deploy window eighty six.", "comments": [] },
+    { "key": "DEMO-687", "summary": "Can you extract the jira deploy window eighty seven", "description": "DEMO-687 can you extract the jira deploy window eighty seven.", "comments": [] },
+    { "key": "DEMO-688", "summary": "Can you extract the jira retro board eighty eight", "description": "DEMO-688 can you extract the jira retro board eighty eight.", "comments": [] }
+  ]
+}

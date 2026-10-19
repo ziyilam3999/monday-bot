@@ -40,6 +40,18 @@ export interface OpenDefectsFetcher {
   fetchOpenDefects(projectKey: string): Promise<JiraIssue[]>;
 }
 
+/**
+ * #3299 — one-issue read for the exact-key lookup leg. `fetchIssue` returns the
+ * SINGLE issue named by its exact key (`DEMO-673`), or null when Jira hands back
+ * nothing (absent / not visible). Read-only: one GET, maxResults 1, no writes,
+ * no project sweep. Structurally compatible with `KnowledgeService`'s
+ * `IssueFetcher` seam (src/knowledge/service.ts), which never imports Jira code
+ * at runtime.
+ */
+export interface IssueFetcher {
+  fetchIssue(key: string): Promise<JiraIssue | null>;
+}
+
 export interface JiraClientConfig {
   baseUrl: string;
   email: string;
@@ -242,6 +254,35 @@ export function buildJiraFetcher(
         fields: "summary,description,comment",
         maxResults: 100,
       });
+    },
+  };
+}
+
+/**
+ * Build an `IssueFetcher` for the #3299 exact-key live leg. Constructed FROM the
+ * same shared `fetchPaginatedIssues` helper as every other Jira read — it only
+ * parameterizes the JQL (`key = <KEY>`, `maxResults 1`); the auth + cursor loop
+ * are NOT re-implemented (no new auth site, no new search URL — anti-fork).
+ * A 404 or empty result surfaces as `null` (honest-miss compatible), an HTTP
+ * error throws (the caller's time box + honest-miss path handles it).
+ */
+export function buildIssueFetcher(
+  config: JiraClientConfig,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): IssueFetcher {
+  if (typeof fetchImpl !== "function") {
+    throw new TypeError(
+      "buildIssueFetcher: no global fetch available; pass an explicit fetchImpl",
+    );
+  }
+  return {
+    async fetchIssue(key: string): Promise<JiraIssue | null> {
+      const issues = await fetchPaginatedIssues(config, fetchImpl, {
+        jql: `key = ${key}`,
+        fields: "summary,description,comment",
+        maxResults: 1,
+      });
+      return issues.length > 0 ? issues[0] : null;
     },
   };
 }

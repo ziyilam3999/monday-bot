@@ -109,6 +109,25 @@ export class VectorIndex {
   }
 
   /**
+   * Chunks currently indexed under `source`, in INDEX ORDER (insertion order —
+   * for passage-chunked sources this is document order). Copies, so callers
+   * cannot mutate the index. Used by #3299's exact-key pinning to lift a named
+   * issue's first passages into the answer context ahead of vector hits.
+   */
+  getChunksBySource(sourcePath: string): Array<Chunk & { id: string }> {
+    if (typeof sourcePath !== "string" || sourcePath.length === 0) {
+      throw new TypeError(
+        "VectorIndex.getChunksBySource: sourcePath must be a non-empty string",
+      );
+    }
+    const out: Array<Chunk & { id: string }> = [];
+    for (const c of this.chunks) {
+      if (c.source === sourcePath) out.push({ ...c });
+    }
+    return out;
+  }
+
+  /**
    * Count chunks currently in the index that share the given `source` identifier.
    * Used by callers (e.g. Confluence sync) to verify dedup/replace semantics.
    */
