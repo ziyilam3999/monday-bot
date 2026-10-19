@@ -1,0 +1,67 @@
+{
+  "_comment": "#3307 checked-in fixtures (DEMO project key only; no network, no .env). fullMeta feeds the stubbed-fetcher arms (AC-2/AC-3/AC-4). staleBody embeds STALE meta values in the INDEXED body; liveFresh carries DIFFERENT live values so the live-preferred arm can differ on every field. sparseMeta is unassigned / unresolved / priority-absent. privacyPage is a RAW REST search page (fake fetchImpl input) whose assignee carries BOTH displayName and emailAddress (AC-8); emptyPage is the fields-lock arm's blank response.",
+  "projectKeys": ["DEMO"],
+  "fullMeta": {
+    "key": "DEMO-673",
+    "summary": "Rotation handover checklist",
+    "descriptionText": "DEMO-673 live copy alpha bravo charlie delta echo foxtrot golf hotel.",
+    "commentTexts": [],
+    "meta": {
+      "status": "In Progress",
+      "assignee": "Riley Demo",
+      "priority": "High",
+      "resolution": "Fixed",
+      "updated": "2026-10-18T09:41:00.000+0000"
+    }
+  },
+  "staleBody": {
+    "key": "DEMO-673",
+    "summary": "Rotation handover checklist",
+    "description": "DEMO-673 indexed copy: status Done, assignee Old Owner, priority Low, updated 2026-10-01. Story kilo lima mike november oscar papa."
+  },
+  "liveFresh": {
+    "key": "DEMO-673",
+    "summary": "Rotation handover checklist",
+    "descriptionText": "DEMO-673 live copy quebec romeo sierra tango uniform victor whiskey.",
+    "commentTexts": [],
+    "meta": {
+      "status": "In Progress",
+      "assignee": "Riley Demo",
+      "priority": "High",
+      "resolution": "Fixed",
+      "updated": "2026-10-18T09:41:00.000+0000"
+    }
+  },
+  "sparseMeta": {
+    "key": "DEMO-673",
+    "summary": "Rotation handover checklist",
+    "descriptionText": "DEMO-673 sparse copy xray yankee zulu alpha bravo charlie delta.",
+    "commentTexts": [],
+    "meta": {
+      "status": "Open",
+      "assignee": null,
+      "resolution": null,
+      "updated": "2026-10-17T22:03:00.000+0000"
+    }
+  },
+  "privacyPage": {
+    "issues": [
+      {
+        "key": "DEMO-673",
+        "fields": {
+          "summary": "Rotation handover checklist",
+          "description": "DEMO-673 privacy copy echo foxtrot golf hotel india juliet kilo.",
+          "comment": { "comments": [] },
+          "project": { "key": "DEMO" },
+          "status": { "name": "In Review" },
+          "assignee": { "displayName": "Dana Demo", "emailAddress": "dana@demo.example" },
+          "priority": { "name": "Medium" },
+          "resolution": null,
+          "updated": "2026-10-16T08:00:00.000+0000"
+        }
+      }
+    ],
+    "isLast": true
+  },
+  "emptyPage": { "issues": [], "isLast": true }
+}

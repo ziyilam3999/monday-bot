@@ -1,4 +1,5 @@
 import { KnowledgeService } from "../knowledge/service";
+import type { IssueMeta } from "../knowledge/service";
 
 /**
  * Jira sync: pulls issues (summary + description + comments) from a Jira project
@@ -24,6 +25,15 @@ export interface JiraIssue {
   labels?: string[];
   /** Issue type name (`fields.issuetype.name`); omitted when absent. */
   issueType?: string;
+  /**
+   * #3307 — live metadata (status/assignee/priority/resolution/updated),
+   * mapped ONLY when the fetch requested those fields (the one-issue fetcher
+   * does; the knowledge-sync fetcher does not, so its issues carry no meta and
+   * the indexed body is unchanged). `assignee` is the DISPLAY NAME alone — the
+   * mapper never reads `emailAddress` or any other assignee property, so an
+   * email cannot reach an answer.
+   */
+  meta?: IssueMeta;
 }
 
 /**
@@ -261,10 +271,17 @@ export function buildJiraFetcher(
 /**
  * Build an `IssueFetcher` for the #3299 exact-key live leg. Constructed FROM the
  * same shared `fetchPaginatedIssues` helper as every other Jira read — it only
- * parameterizes the JQL (`key = <KEY>`, `maxResults 1`); the auth + cursor loop
- * are NOT re-implemented (no new auth site, no new search URL — anti-fork).
- * A 404 or empty result surfaces as `null` (honest-miss compatible), an HTTP
- * error throws (the caller's time box + honest-miss path handles it).
+ * parameterizes the JQL (`key = <KEY>`, `maxResults 1`) and its `fields` list;
+ * the auth + cursor loop are NOT re-implemented (no new auth site, no new
+ * search URL — anti-fork). A 404 or empty result surfaces as `null`
+ * (honest-miss compatible), an HTTP error throws (the caller's time box +
+ * honest-miss path handles it).
+ *
+ * #3307 — the field list is WIDENED beyond the sync's three (`status`,
+ * `assignee`, `priority`, `resolution`, `updated` added to the SAME single GET)
+ * so the caller can assemble a live facts line. Read-only, still maxResults 1;
+ * the knowledge-sync fetcher above keeps its byte-identical field list (locked
+ * by `tests/key-lookup-meta.test.ts`).
  */
 export function buildIssueFetcher(
   config: JiraClientConfig,
@@ -279,7 +296,8 @@ export function buildIssueFetcher(
     async fetchIssue(key: string): Promise<JiraIssue | null> {
       const issues = await fetchPaginatedIssues(config, fetchImpl, {
         jql: `key = ${key}`,
-        fields: "summary,description,comment",
+        fields:
+          "summary,description,comment,status,assignee,priority,resolution,updated",
         maxResults: 1,
       });
       return issues.length > 0 ? issues[0] : null;
@@ -362,6 +380,12 @@ export function buildJqlSearchFetcher(
   };
 }
 
+/** Field-name extractor for Jira REST `{ name }` objects (status/priority/resolution). */
+const nameOf = (v: unknown): string | undefined =>
+  v && typeof v === "object" && typeof (v as { name?: unknown }).name === "string"
+    ? (v as { name: string }).name
+    : undefined;
+
 function toJiraIssue(raw: unknown): JiraIssue | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as {
@@ -393,6 +417,29 @@ function toJiraIssue(raw: unknown): JiraIssue | null {
     if (labels.length > 0) issue.labels = labels;
   }
   if (typeof fields.issuetype?.name === "string") issue.issueType = fields.issuetype.name;
+  // #3307 — live metadata, mapped ONLY for fields the fetch actually returned
+  // (`"x" in fields`): the knowledge-sync fetcher requests none of these five,
+  // so its issues carry no meta and the indexed body is unchanged. `null` is an
+  // explicit tracker value (unassigned / unresolved / not set) and is KEPT;
+  // `assignee` maps the DISPLAY NAME only — `emailAddress` (or any other
+  // assignee property) is never read.
+  const f = fields as Record<string, unknown>;
+  const meta: IssueMeta = {};
+  if ("status" in f) meta.status = nameOf(f.status);
+  if ("assignee" in f) {
+    if (f.assignee === null) {
+      meta.assignee = null;
+    } else {
+      const displayName = (f.assignee as { displayName?: unknown } | null)?.displayName;
+      if (typeof displayName === "string") meta.assignee = displayName;
+    }
+  }
+  if ("priority" in f) meta.priority = f.priority === null ? null : nameOf(f.priority);
+  if ("resolution" in f) {
+    meta.resolution = f.resolution === null ? null : nameOf(f.resolution);
+  }
+  if ("updated" in f && typeof f.updated === "string") meta.updated = f.updated;
+  if (Object.keys(meta).length > 0) issue.meta = meta;
   return issue;
 }
 

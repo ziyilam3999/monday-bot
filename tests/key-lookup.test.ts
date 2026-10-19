@@ -486,13 +486,19 @@ describe("multi-key (AC-10)", () => {
     expect(chunks[1].score).toBe(1);
   });
 
-  it("multi-key (b): one indexed + one unindexed → exactly ONE fetch, for the unindexed key only", async () => {
-    const { generator } = makeGenerator();
+  it("multi-key (b): one indexed + one unindexed → ONE fetch each; the indexed key's pin still comes from the INDEX", async () => {
+    const { calls: genCalls, generator } = makeGenerator();
     const { calls: fetchCalls, fetcher } = makeFetcher({ "DEMO-900": LIVE_DEMO_900 });
     const svc = makeService({ generator, lookup: lookupConfig(fetcher) });
     await indexCorpus(svc);
     await svc.query("DEMO-673 and DEMO-900");
-    expect(fetchCalls).toEqual(["DEMO-900"]);
+    // #3307: the INDEXED key is fetched exactly ONCE — for its live facts line,
+    // never for pinning (its pinned chunks are the indexed passages); the
+    // UNINDEXED key is fetched once for both pin and facts.
+    expect(fetchCalls).toEqual(["DEMO-673", "DEMO-900"]);
+    const pinned673 = genCalls[0].chunks.filter((c) => c.source === "jira:DEMO-673");
+    expect(pinned673.length).toBeGreaterThan(0);
+    for (const c of pinned673) expect(c.id).not.toMatch(/^live:/); // index ids, not live pins
   });
 
   it("multi-key (c): four unindexed keys → fetcher called for EXACTLY the first three, in order", async () => {

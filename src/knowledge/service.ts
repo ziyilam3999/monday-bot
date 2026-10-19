@@ -54,6 +54,28 @@ export interface LiveIssue {
   summary: string;
   descriptionText: string;
   commentTexts: string[];
+  /**
+   * #3307 — live metadata for the facts line, mapped only when the fetch
+   * requested those fields (the one-issue fetcher does; old stubs don't).
+   */
+  meta?: IssueMeta;
+}
+
+/**
+ * #3307 — live issue metadata. Display-safe values only: `assignee` is the
+ * tracker DISPLAY NAME (the Jira mapper reads `displayName` and nothing else,
+ * so an email cannot reach an answer). `null` is an explicit tracker value —
+ * unassigned / unresolved / priority not set — and renders as a plain wording;
+ * `undefined` means the field was absent from the fetch and the facts-line
+ * segment is omitted, never guessed.
+ */
+export interface IssueMeta {
+  status?: string;
+  assignee?: string | null;
+  priority?: string | null;
+  resolution?: string | null;
+  /** Raw tracker timestamp (ISO); only its date part is rendered. */
+  updated?: string;
 }
 
 /** Read-only one-issue fetch seam for the #3299 live leg. */
@@ -84,6 +106,35 @@ const keyMissLine = (key: string): string =>
 /** Honest-miss line for a key whose lookup exceeded its time budget. */
 const keyTimeoutLine = (key: string): string =>
   `${key}: the live lookup timed out, so I have no fresh answer for that ticket.`;
+
+/**
+ * #3307 — honest line when an INDEXED key's facts fetch missed, errored or
+ * timed out: the pinned retelling stays (from the indexed copy) and NO facts
+ * value appears — the line names the missing fields without inventing any.
+ */
+const keyMetaFailLine = (key: string): string =>
+  `Current status, assignee and priority for ${key} could not be fetched from Jira; ` +
+  `the summary below is the indexed copy, which may be stale.`;
+
+/**
+ * #3307 — the facts line for a named key, assembled by CODE from the fetched
+ * live fields (the #3299 prelude pattern — never left for the model to infer):
+ * `DEMO-673 — Status: … · Assignee: … · Priority: … · Resolution: … · Updated: …
+ * (live, fetched from Jira just now).` Every value is labelled live; empty
+ * tracker values get plain wordings (Unassigned / Unresolved / not set); a
+ * field genuinely absent from the fetch is omitted — nothing is guessed. Only
+ * the DATE part of `updated` is rendered. Returns null when the fetch carried
+ * no metadata at all (an issue fetched by a pre-#3307 fetcher shape).
+ */
+function renderIssueFactsLine(key: string, meta: IssueMeta | undefined): string | null {
+  if (!meta) return null;
+  const segs: string[] = [`Status: ${meta.status ?? "not set"}`];
+  if (meta.assignee !== undefined) segs.push(`Assignee: ${meta.assignee ?? "Unassigned"}`);
+  if (meta.priority !== undefined) segs.push(`Priority: ${meta.priority ?? "not set"}`);
+  if (meta.resolution !== undefined) segs.push(`Resolution: ${meta.resolution ?? "Unresolved"}`);
+  if (meta.updated !== undefined) segs.push(`Updated: ${meta.updated.slice(0, 10)}`);
+  return `${key} — ${segs.join(" · ")} (live, fetched from Jira just now).`;
+}
 
 const WARMING_UP_ANSWER =
   "I'm still warming up — the knowledge index is being built for the first time. Please ask again in a few minutes.";
@@ -284,6 +335,8 @@ export class KnowledgeService {
     const pinned: LlmChunk[] = [];
     const missLines: string[] = [];
     const liveKeys: string[] = [];
+    const factsLines: string[] = [];
+    const metaFailLines: string[] = [];
     const legStart = this.now();
 
     for (const key of namedKeys) {
@@ -302,13 +355,30 @@ export class KnowledgeService {
           if (c.section !== undefined) chunk.section = c.section;
           pinned.push(chunk);
         }
+        // #3307 — the pinned text is the 6-hourly indexed copy, but status is
+        // the field that goes stale fastest, so ONE bounded live fetch of the
+        // SAME key supplies a code-built facts line labelled live (the index
+        // body text is never presented as current status). The fetch rides the
+        // same sequential leg + deadline; a miss/error/timeout is honest and
+        // the pin survives; "skipped" (no fetcher) adds no line at all.
+        const facts = await this.fetchIssueLive(key, legStart);
+        if (facts.status === "ok") {
+          const line = renderIssueFactsLine(key, facts.meta);
+          if (line) factsLines.push(line);
+        } else if (facts.status === "miss" || facts.status === "timeout") {
+          metaFailLines.push(keyMetaFailLine(key));
+        }
         continue;
       }
-      // Named + unindexed: one bounded live fetch of exactly that issue.
+      // Named + unindexed: one bounded live fetch of exactly that issue —
+      // it supplies BOTH the pinned text and the #3307 facts line (one fetch,
+      // never two).
       const fetched = await this.fetchIssueLive(key, legStart);
       if (fetched.status === "ok") {
         pinned.push(...fetched.chunks);
         liveKeys.push(key);
+        const line = renderIssueFactsLine(key, fetched.meta);
+        if (line) factsLines.push(line);
       } else if (fetched.status === "timeout") {
         missLines.push(keyTimeoutLine(key));
       } else if (fetched.status === "miss") {
@@ -339,7 +409,9 @@ export class KnowledgeService {
           `(created too recently for the 6-hourly sync).`,
       );
     }
+    if (factsLines.length > 0) prelude.push(factsLines.join(" "));
     if (missLines.length > 0) prelude.push(missLines.join(" "));
+    if (metaFailLines.length > 0) prelude.push(metaFailLines.join(" "));
     if (prelude.length > 0) answer = `${prelude.join(" ")} ${answer}`;
     return { answer, citations: result.citations };
   }
@@ -357,7 +429,10 @@ export class KnowledgeService {
     key: string,
     legStart: number,
   ): Promise<
-    { status: "ok"; chunks: LlmChunk[] } | { status: "miss" } | { status: "timeout" } | { status: "skipped" }
+    | { status: "ok"; chunks: LlmChunk[]; meta: IssueMeta | undefined }
+    | { status: "miss" }
+    | { status: "timeout" }
+    | { status: "skipped" }
   > {
     const fetcher = this.issueLookup?.issueFetcher;
     if (!fetcher) return { status: "skipped" };
@@ -398,7 +473,10 @@ export class KnowledgeService {
       if (issue && issue.summary) chunk.heading = issue.summary;
       return chunk;
     });
-    return { status: "ok", chunks };
+    // #3307 — the same single fetch carries the live metadata (if the fetcher
+    // requested it); the caller renders the facts line, this never touches the
+    // index.
+    return { status: "ok", chunks, meta: issue.meta };
   }
 
   /** Reject with a timeout error if `p` does not settle within `ms`. */
