@@ -147,3 +147,39 @@ NEEDS-WORK: Findings 1+2 must be resolved before Part A means anything — the p
 bound that its own test environment cannot falsify, and the causal story it treats as verified
 did not survive a 20-line execution probe on the machine class available here. Findings 3–5 are
 cheap to fix in the plan text now and expensive to discover during execution.
+
+## Review
+
+DISPATCH-NONCE:OR-NONCE-f24b427a41878c53
+
+Decision: PASS
+
+Round 2 (plan 90d30f0). Scope held to the round-2 contract: re-adjudicated each r1 blocker's fix, verified plan premises by inspection and execution where the sandbox allowed, and re-checked the AC surface. No finding rises to class (a)/(b)/(c).
+
+### Fix adjudication (r1 F1–F7)
+
+- **F1 (BLOCKER, refuted premise) — CLOSED.** The plan no longer asserts a mechanism. Diagnose-first is structural: Decision 1 makes the probe Part A's first commit with no production change (so the probe run IS a HEAD run), AC-2 receipts it, and the R0–R6 table maps the receipt to a fix or, under R0, cancels the mechanism leg and ships instrumentation instead. Re-checked the rule's totality: with handler stand-ins being loop-scheduled, handler latency ≈ loop delay, so the outcome space reachable by the probe as designed (stub fetchers, no save/load at HEAD) is covered by R0/R1/R2/R4 with no row-less outcome. See finding 3 for the rows the probe cannot reach.
+- **F2 (BLOCKER, vacuous bound) — CLOSED.** Re-verified at HEAD: `jest.config.js` moduleNameMapper still stubs `@xenova/transformers` (and Anthropic + Bolt), so no jest-measured bound can falsify anything; every bound now lives in the plain-node runner with the real backend (Decision 2, AC-5 names backend + non-vacuity, and the R0 escape hatch forbids claiming the bound on the stub). Runner-drives-TS is feasible: the repo's established pattern is `npm run build && node scripts/x.js` against `dist/` (`scripts/eval-recall.js` does exactly this). See finding 1.
+- **F3 (HIGH, testMatch) — CLOSED, verified.** `tests/sync-responsive.smoke.test.ts` matches `testMatch ["<rootDir>/tests/**/*.test.ts"]`; every jest AC names that file, every runner AC names its own `node scripts/...` command.
+- **F4 (MEDIUM, store I/O) — CLOSED.** AC-6 states the scale (≥ 5,000 passages / ≥ 20 MB, printed in the receipt) and the measured contract (≤ 250 ms loop delay per save AND load); mechanism left open (Decision 6). Size figure is realistic: 5k × 384-dim decimal-JSON vectors ≈ tens of MB, matching the dead-code `save()` at `src/index/vectorIndex.ts:119` (verified still dead at HEAD — nothing in `src/` calls save/load).
+- **F5 (MEDIUM, deletions/unbounded growth) — CLOSED.** Decision 5 + AC-11: absent sources removed from index and store, reloaded-store chunk count asserted equal to live corpus (count-equality is the right shape — it cannot be gamed by removing only the index side).
+- **F6a/F6b/F7 (MINOR) — CLOSED.** Sync-failed copy is AC-3's fourth case; hash covers passage text AND title/heading (Decision 4); `.gitignore` edit site named in the split; worker-thread deferral re-conditioned on R2.
+
+### Findings (none blocking)
+
+1. **MEDIUM — runner commands omit the dist build prerequisite.** AC-2/AC-5/AC-6 invoke `node scripts/sync-responsive-smoke.js ...` bare, but the repo's plain-node scripts require `dist/` (built by `npm run build`; no tsx/ts-node in devDependencies, and no `dist/` exists on a fresh checkout of the probe-only first commit). Executor must pair each runner AC with `npm run build &&` or have the runner verify dist freshness, else the ACs fail environmentally. Carried as NR-3286-R2-build-prereq.
+2. **MEDIUM (environmental) — first real-backend run needs the MiniLM artifact fetch.** My re-run of the r1 probe shape (300 passages, real `dist/embeddings/embed.js`, `monitorEventLoopDelay` + per-channel wake stand-ins) hung >10 min at first model load: no `.cache` in this worktree, no onnx artifact anywhere local, sandboxed egress. This does not refute any premise — r1's executed 13–15 ms/embed measurement stands in the plan's evidence table, and the plan's own risk row names this exact one-time fetch — but AC-5/AC-6's first execution needs network or a pre-seeded cache. Carried as NR-3286-R2-model-fetch.
+3. **NAMED-RISK — rows R3/R5/R6 are unreachable by the HEAD probe as designed.** Fetchers are stubbed (no DNS → R6 unobservable), `save`/`load` are dead code at HEAD (R3 unobservable pre-Part-B), and handler stand-ins are not the real Slack client receive path (R5). R6 is the row that matches the operator's `getaddrinfo ENOTFOUND slack.com` symptom, so the likely local receipt is R0 and the mechanism decision defers to production instrumentation — which the plan itself provides for (R0 leg + risk row 2), so this is a scoping note, not a hole: the executor must not word the R0 receipt as having "ruled out" DNS/threadpool starvation. Carried as NR-3286-R2-unreachable-rows.
+4. **MINOR — AC-7's spy must scope to chunk embedding.** The reloaded index answering queries embeds the *query*; the AC's "ZERO chunk-embedding calls" is decidable only if the spy sits on the chunk-embed call site, not `embed()` globally. The AC text already says "chunk-embedding"; flagging so the executor picks the seam accordingly.
+5. **Part A / Part B split — still honest, Part A alone shippable.** The probe changes no production behavior (Decision 1); warming-up/sync-failed copy touches only the empty-index branch of `query()` (`src/knowledge/service.ts:161`); under R0 Part A still ships the instrumentation leg + truthful answers and is independently valuable; Part B's dependency on Part A is exactly the one copy. AC-13's grep plus the injected-stub-that-throws pattern covers the fixture-only rule.
+
+### Execution checks run this round
+
+- `git fetch` + `ff-only` merge: clean at 90d30f0.
+- `jest.config.js` testMatch + moduleNameMapper re-verified (F3/F2).
+- `src/index.ts` listening-before-sync ordering, `src/telegram/adapter.ts:21` shared `handleQuery`, `vectorIndex.save/load` dead at HEAD with model guard present, `service.ts` constructor injectability + `removeBySource`-then-re-add churn, `NO_DOCUMENTS_ANSWER` at empty index, `.monday-cache` absent from `.gitignore` — all re-verified at HEAD.
+- `npx tsc` clean; real-backend probe attempt executed (blocked at model-artifact fetch, see finding 2).
+
+### Verdict rationale
+
+PASS: both r1 blockers are closed structurally (diagnose-first with a total-enough decision rule; every bound off jest and on the real backend), the HIGH and MEDIUM findings are closed with verified ACs, and the remaining notes are execution-environment carries, not plan defects. Part A is safe to ship alone.
