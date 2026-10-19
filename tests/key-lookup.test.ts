@@ -253,6 +253,9 @@ describe("extraction (AC-2)", () => {
     ]);
     // glued letters / longer numbers are not key numbers
     expect(extractKeys("demon-673 is not a key", PROJECTS)).toEqual([]);
+    // an English word ENDING in the key, glued to digits, is still not a key
+    expect(extractKeys("nodemo-673 is not a key", PROJECTS)).toEqual([]);
+    expect(extractKeys("xdemo-673", PROJECTS)).toEqual([]);
     expect(extractKeys("DEMO-673a nope", PROJECTS)).toEqual([]);
     expect(extractKeys("DEMO-673.5 nope", PROJECTS)).toEqual([]);
     expect(extractKeys("DEMO, 673 nope", PROJECTS)).toEqual([]);
