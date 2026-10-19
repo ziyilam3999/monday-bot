@@ -105,7 +105,7 @@ binary ACs green at head with the RED-at-base receipt quoted above.
 DISPATCH-NONCE:OR-NONCE-5132464b2dcda0d0
 
 Blocker: the repo's public privacy CI ("privacy / denylist") failed because 195
-added lines carried the real Jira project-key shape `GET-<digits>` (private work
+added lines carried the real Jira project-key shape `<KEY>-<digits>` (private work
 project). Renamed to the made-up key `DEMO` (the repo's own fixture-key
 convention — see `src/jira/jqlFromFilter.ts`) across every file this PR adds or
 changes: tests/key-lookup.test.ts, tests/fixtures/key-lookup/*,
