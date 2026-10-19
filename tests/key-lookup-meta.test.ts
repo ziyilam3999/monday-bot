@@ -466,7 +466,12 @@ describe("fields lock (AC-9)", () => {
 
     urls.length = 0;
     const oneFetcher = buildIssueFetcher(config, fakeFetch);
-    const issue = await oneFetcher.fetchIssue("DEMO-673");
+    // Type-erased (RED-at-base): `meta` is a #3307 field that does not exist on
+    // the base JiraIssue — the access goes through this local shape so the file
+    // COMPILES at base and the arm fails there on the assertion, not the import.
+    const issue = (await oneFetcher.fetchIssue("DEMO-673")) as unknown as {
+      meta?: unknown;
+    } | null;
     expect(urls.length).toBe(1);
     expect(fieldsParam(urls[0])).toBe(
       "summary,description,comment,status,assignee,priority,resolution,updated",
@@ -504,7 +509,10 @@ describe("fields lock (AC-9)", () => {
       { baseUrl: "https://example.atlassian.net", email: "a@b.c", apiToken: "tok" },
       fakeFetch,
     );
-    const issues = await syncFetcher.fetchIssues("DEMO");
+    // Type-erased for the same RED-at-base reason as above.
+    const issues = (await syncFetcher.fetchIssues("DEMO")) as unknown as Array<{
+      meta?: unknown;
+    }>;
     expect(issues).toHaveLength(1);
     expect(issues[0].meta).toBeUndefined();
   });
