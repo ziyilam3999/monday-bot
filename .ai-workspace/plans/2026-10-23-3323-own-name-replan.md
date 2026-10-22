@@ -108,3 +108,31 @@ Shape: delegate -- one briefable coherent surface (src/llm/generate.ts plus its 
 - Live-model check that the revised clause stops the weekday misread on "Monday, can provide business rules...?" -- file-when-triggered: the orchestrator's optional live smoke or the ask log shows a misread; then file an S ticket for a prompt/allowlist tweak.
 - Retrieval-seam cleaning of name-calls -- none (no evidence recall suffers; file-when-triggered if it does).
 - A bare-"Monday" colon arm or trailing arm -- none (decided NOT arms in B3; would need a new plan and plan-review).
+
+## Review
+
+Reviewer seat: plan-review, round 4 (Claude fallback after 2 z.ai quota strikes). Did not author this plan or any prior round.
+
+Decision: PASS
+
+The inversion is the right class fix: default keep, a closed allowlist of addressing shapes, and the date judgement moved to the model. I checked the load-bearing premises by execution, not from the narrative.
+
+### Verified by execution
+
+- Counterexample coverage: every probe sentence from execution-review rounds 1-3 (.ai-workspace/reviews/3323-execution-review.md) appears as a `keep` entry. Round 1: all 8 in AC-2. Round 2: all 13 in AC-3. Round 3: 7 greeting, 2 colon plus the flipped "Monday: where do I find the onboarding checklist", 12 leading word-list gaps, and 4 trailing in AC-4.
+- AC-7 really fails a denylist-only fix. I ran the round-3 head cleaner (`git archive f4122cc` into a scratch dir, src identical to cc0e42a) on all 8 named AC-7 strings. Every one is stripped, for example "Monday, zorblax deploys - who is on call?" becomes "zorblax deploys - who is on call?" and "hey Monday, payroll - when does it run?" becomes "hey, payroll - when does it run?". So AC-17's RED claim holds for the AC-4 colon and greeting entries, the AC-6 entries and the AC-7 entries (also probed: "Monday, can provide business rules...", "Monday, who is on call?", "Monday: who is on call?", "hi Monday, Tuesday and Wednesday: ...", all stripped at f4122cc).
+- B2 premise: `BOT_NAME_TOKENS = ["monday", "monday-bot"]` (src/telegram/helpGate.ts:51), so the ambiguous/unambiguous split is derivable from the constant as claimed.
+- Held-out families on both sides: AC-8 (keep) and AC-11 (fire).
+- Routing labels: flush-left `size: M` and `data-class: public` are present. M is correct (one code file, but a new fixture corpus, a rewritten suite and prompt-integrity changes). The cairn: line is valid: `cairn-find "allowlist"` returns the cited 2026-09-27 and 2026-10-02 T1 hits, and `cairn-find "denylist"` returns the cited 2026-10-08 T1 hit.
+- Monotonicity (#1590): the stronger claim is "byte-identical" (keep), and it is the default. Every arm only adds a removal on positive proof of an addressing shape, and nothing in B3 lets an unknown word reach a removal. The weaker claim cannot erase the stronger one.
+
+### Findings (all non-blocking; the executor folds them in)
+
+1. NOTE (internal AC conflict): AC-12's `command grep -c "\"monday-bot\"" src/llm/generate.ts` must return 0, but B4 tells the clause to say the bot is addressed as "Monday" / "monday-bot", and AC-15(a) needs "monday-bot" in SYSTEM_PROMPT. Today line 41 escapes the quotes (`\"monday-bot\"`), which does not match, but line 216 (a doc comment: `"monday-bot" as it lives in BOT_NAME_TOKENS`) does match, so AC-12 is red at head. Executor: keep the prompt's quotes escaped or backticked, and reword that comment. AC-12's intent is "no second name list", not "never spell the name".
+2. NOTE (B3 vs AC-9 wording): B3 arm A says it "removes only the name and its announcing comma", but AC-9 expects "hey Monday, can you..." -> "hey, can you..." (the comma moves to the salutation, as today's code does). The AC is the contract. Follow AC-9 and fix the B3 sentence in the close file.
+3. NOTE (AC-15(c) is not yet binary): "states a weekday needed for the question's meaning keeps its date meaning" needs a fixed substring to assert. Pin B4(3)'s two literal examples ("on the 3rd, Monday?" and "Monday: who is on call?") as `toContain` checks. Make (d) case-insensitive (`/never a date/i`), because a lower-case rewording would otherwise slip through. B4(4) ("a name-call is never something to answer about") has no assertion. Pin one fixed phrase for it too.
+4. NOTE (salutation set must stay SALUTATIONS): arm A's "one salutation word" must keep using the set without good/morning/afternoon/evening (the R1-2 fix). No AC catches a regression to GREETING_LEXICON on an opener shape such as "evening Monday, can you cover the shift?". Keep the existing set.
+5. NOTE / NAMED-RISK (registered as 3323-please-opener-date): the "please" opener can front a real weekday in memo shapes, for example "Monday, please submit timesheets - is that the rule?", which loses its date. The plan's named risk covers only the "you" openers. This is a constructed counterexample (a round-4 note, not a blocker). Execution-review should probe it and say whether it is accepted. Do not answer it by adding AC arms.
+6. NOTE (Rule 18, original ticket property): the operator's literal example "Monday, can provide business rules for dispute resolution?" is now protected ONLY by the prompt clause, and that clause's effect is not measured. AC-15(b) proves the sentence is in the prompt, not that the model reads it as a name. Run the "optional" live smoke (one real ask of the example plus "is the deploy on the 3rd, Monday?") before ship-tail and record it in the close file, so this ticket's own reported input is proven fixed.
+7. NOTE (AC-16 is brittle): `grep -c "stripNameCall("` = 2 breaks if a doc comment mentions `stripNameCall(`. Keep comments free of that token, or count call sites only.
+8. NOTE (AC-14 scope): `stripNameCall.toString()` does not show module-level helper bodies unless they are exported. Export or inline any helper so the check reaches it, as the AC already says, and delete the date sets (WEEKDAY_WORDS, MONTH_WORDS, ORDINAL_WORDS, DATE_ABBREV_WORDS, DATE_TIME_WORDS) along with isDatePhraseWord.
