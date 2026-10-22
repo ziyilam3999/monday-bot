@@ -13,6 +13,25 @@ function stripMrkdwn(s: string): string {
 }
 
 /**
+ * #3324 — undo the Slack escaping on citation titles at the Slack→Telegram
+ * boundary. Slack's `sanitizeTitle` escapes `& < >` because Slack's API
+ * requires it (and Slack decodes on display); Telegram sends plain text with
+ * no parse_mode, so nothing there ever decodes them and users saw raw
+ * `&amp;`/`&lt;` in Sources lines. This is the exact inverse of that encode
+ * set — `&amp;` LAST, mirroring the encode order — applied once per string,
+ * so a title whose source text literally contains `&amp;` round-trips
+ * byte-identically (`&` → `&amp;amp;` → `&amp;`). Sequences outside the
+ * encode set (`&quot;`, `&#39;`, …) are never decoded: they were never
+ * encoded, so touching them would corrupt source text.
+ */
+function decodeSlackEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/**
  * Render a query-handler payload as Telegram plain text: the answer body plus,
  * when citation context blocks are present, their lines under a `Sources:`
  * separator (mrkdwn emphasis stripped).
@@ -24,7 +43,9 @@ export function renderTelegramReply(payload: QueryHandlerResult): string {
     if (block.type !== "context") continue;
     for (const element of block.elements ?? []) {
       if (typeof element?.text === "string" && element.text.length > 0) {
-        citationLines.push(stripMrkdwn(element.text));
+        // #3324 — decode the Slack escapes on every context-element text as a
+        // class (source, heading, any future citation line), never the body.
+        citationLines.push(decodeSlackEntities(stripMrkdwn(element.text)));
       }
     }
   }

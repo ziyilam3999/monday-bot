@@ -22,6 +22,11 @@ import {
   TgUpdate,
 } from "../src/telegram/transport";
 import { renderTelegramReply, splitMessage } from "../src/telegram/formatter";
+import {
+  formatAnswer,
+  formatAskDefectsBlocks,
+  SlackBlock,
+} from "../src/slack/formatter";
 import { chatIdHash, recordAsk } from "../src/telegram/askLog";
 
 // ---------------------------------------------------------------------------
@@ -775,6 +780,152 @@ describe("telegram/formatter", () => {
 
   it("splitMessage leaves short text as a single part", () => {
     expect(splitMessage("short", 4096)).toEqual(["short"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // #3324 — Slack escape entities must not survive into Telegram plain text.
+  // Every arm below drives the REAL seam: formatAnswer (Slack payload builder)
+  // → renderTelegramReply (Telegram renderer). No hand-built citation lines.
+  // -------------------------------------------------------------------------
+
+  it("AC-1 — field report: '&' heading renders plain, no entities in reply", () => {
+    const payload = formatAnswer({
+      answer: "See the policy. [1]",
+      citations: [
+        { num: 1, source: "confluence:DEMO-1", heading: "General Dispute Resolution & Customer Support" },
+      ],
+    });
+    const rendered = renderTelegramReply(payload);
+    expect(rendered).toContain(
+      "Sources:\n[1] confluence:DEMO-1 — General Dispute Resolution & Customer Support",
+    );
+    expect(rendered).not.toContain("&amp;");
+    expect(rendered).not.toContain("&lt;");
+    expect(rendered).not.toContain("&gt;");
+  });
+
+  it("AC-2 — '<', '>' and quotes restored byte-identically", () => {
+    const heading = 'Refund policy: "fast" <v2> track';
+    const rendered = renderTelegramReply(
+      formatAnswer({
+        answer: "Use the fast track. [1]",
+        citations: [{ num: 1, source: "confluence:DEMO-2", heading }],
+      }),
+    );
+    expect(rendered).toContain(`[1] confluence:DEMO-2 — ${heading}`);
+    expect(rendered).not.toContain("&lt;");
+    expect(rendered).not.toContain("&gt;");
+  });
+
+  it("AC-3 — class coverage: BOTH source and heading decode at the real seam", () => {
+    const rendered = renderTelegramReply(
+      formatAnswer({
+        answer: "Both fields. [1]",
+        citations: [
+          { num: 1, source: "confluence:DEMO-3 & <extras>", heading: "A < b & c > d" },
+        ],
+      }),
+    );
+    expect(rendered).toContain("[1] confluence:DEMO-3 & <extras> — A < b & c > d");
+    expect(rendered).not.toContain("&amp;");
+    expect(rendered).not.toContain("&lt;");
+    expect(rendered).not.toContain("&gt;");
+  });
+
+  it("AC-4 — round-trip identity: stored title text is what the user sees", () => {
+    const corpus = ["Intro", "A & B", "a<b&c>d"];
+    for (const heading of corpus) {
+      const rendered = renderTelegramReply(
+        formatAnswer({
+          answer: "Body. [1]",
+          citations: [{ num: 1, source: "doc-a.md", heading }],
+        }),
+      );
+      expect(rendered).toContain(`[1] doc-a.md — ${heading}`);
+    }
+  });
+
+  it("AC-5 — exactly once, exactly the encoded set: literal entities survive, foreign ones untouched", () => {
+    // Titles whose SOURCE TEXT literally contains entity spellings: one decode
+    // must return them to their written form, never a double decode.
+    for (const heading of ["Costs &amp; Billing", "Fees &lt; Guide"]) {
+      const rendered = renderTelegramReply(
+        formatAnswer({
+          answer: "Body. [1]",
+          citations: [{ num: 1, source: "doc-a.md", heading }],
+        }),
+      );
+      expect(rendered).toContain(`[1] doc-a.md — ${heading}`);
+    }
+    // Sequences outside the Slack escape set were never encoded, so they are
+    // never decoded: &quot;/&#39; pass through exactly as written.
+    const foreign = "Keep &quot;A&quot; and &#39;B&#39; plain";
+    const rendered = renderTelegramReply(
+      formatAnswer({
+        answer: "Body. [1]",
+        citations: [{ num: 1, source: "doc-a.md", heading: foreign }],
+      }),
+    );
+    expect(rendered).toContain(`[1] doc-a.md — ${foreign}`);
+    expect(rendered).not.toContain('Keep "A"');
+    expect(rendered).not.toContain("Keep 'A'");
+  });
+
+  it("AC-6 — Telegram format stays safe: no '*', Sources structure and split identity unchanged", () => {
+    const markup = "Star *x* _under_ [k] `tick` <v3>";
+    const rendered = renderTelegramReply(
+      formatAnswer({
+        answer: "Body. [1]",
+        citations: [
+          { num: 1, source: "doc-a.md", heading: markup },
+          { num: 2, source: "doc-b.md", heading: "Intro" },
+        ],
+      }),
+    );
+    expect(rendered).not.toContain("*");
+    expect(rendered).toContain("Sources:\n");
+    expect(rendered).toContain("doc-a.md — Star x _under_ [k] tick <v3>");
+    expect(rendered).toContain("\n[2] doc-b.md — Intro");
+    // Decoding does not perturb splitting: concat of parts is byte-exact.
+    const parts = splitMessage(rendered + "\n" + "z".repeat(9000), 4096);
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(4096);
+    expect(parts.join("")).toBe(rendered + "\n" + "z".repeat(9000));
+  });
+
+  it("AC-7 — Slack untouched: golden escapes still emitted, body and defects blocks not decoded", () => {
+    // Slack context elements keep the required escapes (byte-golden vs master).
+    const contextTexts = (blocks: SlackBlock[]) =>
+      blocks.flatMap((b) => (b.type === "context" ? b.elements.map((e) => e.text) : []));
+    const ac1 = formatAnswer({
+      answer: "See the policy. [1]",
+      citations: [
+        { num: 1, source: "confluence:DEMO-1", heading: "General Dispute Resolution & Customer Support" },
+      ],
+    });
+    expect(contextTexts(ac1.blocks)).toEqual([
+      "*[1]* confluence:DEMO-1 — General Dispute Resolution &amp; Customer Support",
+    ]);
+    const ac2 = formatAnswer({
+      answer: "Use the fast track. [1]",
+      citations: [{ num: 1, source: "confluence:DEMO-2", heading: 'Refund policy: "fast" <v2> track' }],
+    });
+    expect(contextTexts(ac2.blocks)).toEqual([
+      '*[1]* confluence:DEMO-2 — Refund policy: "fast" &lt;v2&gt; track',
+    ]);
+    // The answer BODY never carried these escapes — and is never decoded.
+    const body = renderTelegramReply(
+      formatAnswer({
+        answer: "Literal &amp; stays and &lt; too",
+        citations: [{ num: 1, source: "doc-a.md", heading: "Intro" }],
+      }),
+    );
+    expect(body).toContain("Literal &amp; stays and &lt; too");
+    // Defects blocks (section blocks) are unchanged and dropped by the renderer.
+    const defects = formatAskDefectsBlocks({
+      issues: [{ key: "DEMO-9", summary: "Refund & Escalation <fast>" }],
+    });
+    expect(JSON.stringify(defects)).toContain("• DEMO-9 — Refund &amp; Escalation &lt;fast&gt;");
+    expect(renderTelegramReply({ text: "Answer", blocks: defects })).toBe("Answer");
   });
 });
 
