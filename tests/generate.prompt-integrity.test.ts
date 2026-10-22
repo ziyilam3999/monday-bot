@@ -91,21 +91,28 @@ describe("SYSTEM_PROMPT integrity", () => {
     expect(SYSTEM_PROMPT).toMatch(/does NOT relax the on-topic gate/);
   });
 
-  // #3323 — identity/vocative clause (the bot knows its own name).
+  // #3323 — identity clause (the bot knows its own name).
   it("names the assistant and its address forms (#3323)", () => {
-    expect(SYSTEM_PROMPT).toMatch(/YOU ARE MONDAY BOT/);
-    expect(SYSTEM_PROMPT).toMatch(/"Monday" or "monday-bot"/);
+    expect(SYSTEM_PROMPT).toContain("Monday Bot");
+    expect(SYSTEM_PROMPT).toContain('"Monday"');
+    expect(SYSTEM_PROMPT).toContain("monday-bot");
   });
 
-  it("defines name-call positions as vocatives — never a date, never content (#3323)", () => {
-    expect(SYSTEM_PROMPT).toMatch(/CALL POSITION/);
-    expect(SYSTEM_PROMPT).toMatch(/VOCATIVE/);
-    expect(SYSTEM_PROMPT).toMatch(/NEVER a date/);
-    expect(SYSTEM_PROMPT).toMatch(/part of the question's content/);
+  it("gives the operator example as a name-call (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("Monday, can provide business rules for dispute resolution?");
   });
 
-  it("preserves weekday-as-date readings outside name-call positions (#3323)", () => {
-    expect(SYSTEM_PROMPT).toMatch(/what was deployed on Monday/);
-    expect(SYSTEM_PROMPT).toMatch(/KEEPS its date meaning/);
+  it("keeps the date meaning when the weekday is needed for sense (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("on the 3rd, Monday?");
+    expect(SYSTEM_PROMPT).toContain("Monday: who is on call?");
+    expect(SYSTEM_PROMPT).toContain("keeps its date meaning");
+  });
+
+  it("says a name-call is never something to answer about (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("never something to answer about");
+  });
+
+  it("does not assert call position is unconditionally never a date (#3323)", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/never a date/i);
   });
 });
