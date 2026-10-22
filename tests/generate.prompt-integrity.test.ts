@@ -90,4 +90,22 @@ describe("SYSTEM_PROMPT integrity", () => {
     // It must NOT relax the on-topic gate.
     expect(SYSTEM_PROMPT).toMatch(/does NOT relax the on-topic gate/);
   });
+
+  // #3323 — identity/vocative clause (the bot knows its own name).
+  it("names the assistant and its address forms (#3323)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/YOU ARE MONDAY BOT/);
+    expect(SYSTEM_PROMPT).toMatch(/"Monday" or "monday-bot"/);
+  });
+
+  it("defines name-call positions as vocatives — never a date, never content (#3323)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/CALL POSITION/);
+    expect(SYSTEM_PROMPT).toMatch(/VOCATIVE/);
+    expect(SYSTEM_PROMPT).toMatch(/NEVER a date/);
+    expect(SYSTEM_PROMPT).toMatch(/part of the question's content/);
+  });
+
+  it("preserves weekday-as-date readings outside name-call positions (#3323)", () => {
+    expect(SYSTEM_PROMPT).toMatch(/what was deployed on Monday/);
+    expect(SYSTEM_PROMPT).toMatch(/KEEPS its date meaning/);
+  });
 });

@@ -1,5 +1,9 @@
 import { getClient, warnMaxTokensStop } from "./anthropicClient";
 import { resolveModel } from "./modelConfig";
+// #3323 — the bot's own name vocabulary is borrowed from the ONE list the
+// Telegram greeting gate already ships (B2: matcher data is borrowed, never
+// copied; helpGate.ts itself is untouched). Pure constants, no I/O.
+import { BOT_NAME_TOKENS, GREETING_LEXICON } from "../telegram/helpGate";
 
 const MODEL = resolveModel();
 // #3136 fix 1: Haiku 5.5's DEFAULT (unset-effort) thinking budget spends tokens
@@ -29,10 +33,130 @@ export const SYSTEM_PROMPT =
   "PHASED / PLANNED ROLLOUTS: when the relevant doc describes a PLANNED or PHASED rollout or roadmap, answer with what is LIVE now and what is NAMED-planned and cite the doc [N]; do NOT dismiss a roadmap as \"no comprehensive list.\" " +
   "Never cite outside the numbered list. " +
   "If the context contains no relevant information, say you couldn't find the information (a clean refusal with no citations). " +
-  "Keep answers concise (target 50-400 words) and suitable for a Slack message.";
+  "Keep answers concise (target 50-400 words) and suitable for a Slack message. " +
+  // #3323 — identity/vocative clause (B4). Scoped to INTERPRETATION, not
+  // persona: it tells the model how to read the name, never how to sign or
+  // address users. (1) name the assistant, (2) define name-call positions as
+  // vocatives, (3) preserve weekday-as-date readings elsewhere.
+  "YOU ARE MONDAY BOT: this team's knowledge assistant, and users address you by name as \"Monday\" or \"monday-bot\". " +
+  "When the question contains that name in CALL POSITION — leading (\"Monday, …\"), right after a greeting (\"hey Monday …\"), trailing (\"…, Monday?\"), or an @-mention — it is a VOCATIVE: the user talking TO you. " +
+  "A vocative name is NEVER a date, a deadline, or part of the question's content — do not answer about the weekday and do not treat it as something the user is waiting for. " +
+  "Elsewhere in the question, a weekday word used as an actual date (\"what was deployed on Monday\") KEEPS its date meaning.";
 
 export const NO_CONTEXT_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
+
+/**
+ * #3323 — the bot knows its own name. A name in CALL POSITION ("Monday, …")
+ * used to reach the model as question content and get read as the weekday.
+ * This pure, total cleaner removes exactly those name-call tokens before the
+ * `Question:` line is built; every non-match returns the input BYTE-IDENTICAL
+ * (the #3299 parity convention applied at this seam). Arms (B3, conservative:
+ * ambiguity → keep), independent and composable:
+ *
+ *   leading          first token is a name AND comma-announced → drop both
+ *   greeting-adjacent greeting word then a name → drop the name, keep greeting
+ *   trailing         last token is a name AND the previous token ends in a
+ *                    comma → drop the name and that comma
+ *   @-mention        any "@name" token whose folded remainder is a name → drop
+ *
+ * The name vocabulary IS `BOT_NAME_TOKENS` from the Telegram greeting gate —
+ * imported, never duplicated (B2), so a token added there is covered here with
+ * no edit. Matching normalization (case-fold, trailing-punctuation strip,
+ * "_"→"-" fold for mention usernames) is INTERNAL to this function.
+ */
+
+/** Split one raw token into its word, its trailing punctuation, and whether
+ * that punctuation included a comma (the announcing-comma signal). */
+function splitTrailingPunctuation(raw: string): {
+  word: string;
+  tail: string;
+  hadComma: boolean;
+} {
+  let end = raw.length;
+  let hadComma = false;
+  while (end > 0 && /[!?.,…]/.test(raw[end - 1])) {
+    if (raw[end - 1] === ",") hadComma = true;
+    end -= 1;
+  }
+  return { word: raw.slice(0, end), tail: raw.slice(end), hadComma };
+}
+
+/** Separator-folded, case-folded comparison form ("@monday_bot," → the token
+ * "monday-bot" as it lives in BOT_NAME_TOKENS). */
+function nameComparisonForm(raw: string): string {
+  return splitTrailingPunctuation(raw).word.toLowerCase().replace(/_/g, "-");
+}
+
+/** Is this raw token one of the bot's own names (ignoring case, trailing
+ * punctuation, and the "_"-vs-"-" username separator)? */
+function isNameToken(raw: string): boolean {
+  return BOT_NAME_TOKENS.includes(nameComparisonForm(raw));
+}
+
+export function stripNameCall(question: string): string {
+  const rawTokens = question.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (rawTokens.length === 0) return question;
+
+  const remove = new Set<number>();
+  const n = rawTokens.length;
+
+  // Leading arm: comma-gated on purpose — "Monday what was deployed" (no
+  // comma) is genuinely ambiguous between vocative and date-subject, and the
+  // doctrine keeps it (the prompt clause is the guard there).
+  if (isNameToken(rawTokens[0])) {
+    const first = splitTrailingPunctuation(rawTokens[0]);
+    if (first.hadComma || rawTokens[1] === ",") {
+      remove.add(0);
+      if (!first.hadComma) remove.add(1); // the standalone comma token
+    }
+  }
+
+  // Greeting-adjacent arm: "hey Monday, …" — the greeting itself is today's
+  // noise and is never misread as a date; only the name-call goes.
+  if (
+    remove.size === 0 &&
+    rawTokens.length > 1 &&
+    GREETING_LEXICON.has(nameComparisonForm(rawTokens[0])) &&
+    isNameToken(rawTokens[1])
+  ) {
+    remove.add(1);
+    // Keep the comma that announced the name, parked on the greeting word
+    // ("hey Monday, can…" → "hey, can…"), unless it already ends punctuated.
+    const second = splitTrailingPunctuation(rawTokens[1]);
+    if (second.hadComma && !/[!?.,…]$/.test(rawTokens[0])) {
+      rawTokens[0] += ",";
+    }
+  }
+
+  // Trailing arm: the announcing comma is what separates "can you help,
+  // Monday?" from "what was deployed on Monday?" — without it, never fire.
+  if (
+    rawTokens.length > 1 &&
+    isNameToken(rawTokens[n - 1]) &&
+    splitTrailingPunctuation(rawTokens[n - 2]).hadComma
+  ) {
+    remove.add(n - 1);
+    // The comma that announced the name goes with it.
+    rawTokens[n - 2] = rawTokens[n - 2].replace(/,+$/, "");
+  }
+
+  // @-mention arm: position-free but name-matched — a mention of THE bot is a
+  // call to the bot, never question content; mentions of anyone else stay.
+  for (let i = 0; i < n; i += 1) {
+    if (rawTokens[i].startsWith("@") && BOT_NAME_TOKENS.includes(nameComparisonForm(rawTokens[i].slice(1)))) {
+      remove.add(i);
+    }
+  }
+
+  if (remove.size === 0) return question; // byte-identical default path (B3)
+
+  const kept = rawTokens.filter((_, i) => !remove.has(i));
+  // Nothing but a name-call: hand the question through untouched rather than
+  // feeding the model an empty question.
+  if (kept.length === 0) return question;
+  return kept.join(" ");
+}
 
 /**
  * #1374b — refusal-opener backstop.
@@ -470,8 +594,13 @@ export async function generateAnswer(
   }
 
   const context = formatContext(chunks);
+  // #3323 — strip the name-call BEFORE the model sees the question; upstream
+  // (adapters, help gate, exact-key leg, ask log, retrieval) keeps the ORIGINAL
+  // text byte-for-byte (B5). The backstop retry below reuses this same cleaned
+  // user content for free.
+  const cleanedQuestion = stripNameCall(question);
   const userContent =
-    `Question: ${question}\n\n` +
+    `Question: ${cleanedQuestion}\n\n` +
     `Context:\n${context}\n\n` +
     `Answer the question using only facts from the context. Cite each claim with [N].`;
 
