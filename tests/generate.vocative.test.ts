@@ -273,3 +273,108 @@ describe("stripNameCall — fix cycle 1: oversized input fails closed", () => {
     expect(stripNameCall(input)).toBe(input);
   });
 });
+
+/**
+ * Fix cycle 2 (execution review round 2): the date-word guard covers EVERY
+ * date/time word form on BOTH arms — weekday/month abbreviations ("Tue",
+ * "Jan", "Sept"), plural weekdays ("Mondays"), day/time words ("tomorrow",
+ * "noon", "next week", "at 9am"), and a date or time right before a trailing
+ * "Monday?" ("on May 5th, Monday?", "to 9am, Monday?") all keep the weekday.
+ * All must-not-fire rows below are RED at the fix-cycle-1 head (377e57c).
+ */
+describe("stripNameCall — fix cycle 2: abbreviated/plural/time date words (leading)", () => {
+  const kept = [
+    // review round-2 probes
+    "Monday, Tue and Wed: who is on call?",
+    "Monday, Jan 5th: what is due?",
+    "Monday, Sept 3 - office open?",
+    "Monday, Mondays and Fridays are deploy days?",
+    "Monday, tomorrow or Friday - which is the deadline?",
+    "Monday, morning shift - who is on?",
+    "Monday, noon - is the deploy window open?",
+    "Monday, next week, who is on call?",
+    "Monday, at 9am, is standup on?",
+    // my own held-out variants
+    "Monday, Thu or Sat: when is the audit?",
+    "Monday, Oct 14 - is the office closed?",
+    "Monday, tonight or Sunday - when is the backup?",
+    "Monday, weekend or weekday - which is the deploy?",
+    "Monday, a.m. or p.m. handover - who is on?",
+    "Monday, thurs or fri - who runs the review?",
+    "Monday, this Friday - is the release cut?",
+  ];
+  for (const input of kept) {
+    it(`keeps the abbreviated/plural/time date phrase "${input}" byte-identical`, () => {
+      expect(stripNameCall(input)).toBe(input);
+    });
+  }
+});
+
+describe("stripNameCall — fix cycle 2: trailing arm vs a date before the comma", () => {
+  const kept = [
+    // review round-2 probes
+    "the launch is on May 5th, Monday?",
+    "is the deploy on the 3rd, Monday?",
+    "standup moved to 9am, Monday?",
+    "deploy days are Tue, Monday?",
+    // my own held-out variants
+    "the audit is due on Dec 1st, Monday?",
+    "the freeze lands in feb, Monday?",
+    "shift handover is at noon, Monday?",
+  ];
+  for (const input of kept) {
+    it(`keeps the trailing weekday confirming a date "${input}" byte-identical`, () => {
+      expect(stripNameCall(input)).toBe(input);
+    });
+  }
+});
+
+describe("stripNameCall — fix cycle 2: the cleaner still fires on real name-calls", () => {
+  const cases: Array<[string, string]> = [
+    // dispatch held-out set, plus my own replacements (see the close note's
+    // PR-TABLE: "thanks Monday, …" is a conservative keep — "thanks" is not
+    // in GREETING_LEXICON and this cycle's scope is the date-word guard)
+    ["Monday, please list the open support tickets?", "please list the open support tickets?"],
+    ["can you check the invoice status, Monday?", "can you check the invoice status"],
+    ["Monday, what is the refund window?", "what is the refund window?"],
+    ["file the expense report, Monday?", "file the expense report"],
+    ["can you summarise the refund policy, Monday?", "can you summarise the refund policy"],
+  ];
+  for (const [input, expected] of cases) {
+    it(`strips the name-call from "${input}"`, () => {
+      expect(stripNameCall(input)).toBe(expected);
+    });
+  }
+});
+
+describe("stripNameCall — fix cycle 2: dispatch held-out variants", () => {
+  const fire: Array<[string, string]> = [
+    [
+      "Monday, what is the refund window for annual plans?",
+      "what is the refund window for annual plans?",
+    ],
+    [
+      "hey monday-bot, can you list the escalation contacts?",
+      "hey, can you list the escalation contacts?",
+    ],
+    [
+      "Monday: where do I find the onboarding checklist",
+      "where do I find the onboarding checklist",
+    ],
+  ];
+  for (const [input, expected] of fire) {
+    it(`fires on the vocative "${input}"`, () => {
+      expect(stripNameCall(input)).toBe(expected);
+    });
+  }
+  const keep = [
+    "Can we ship this on Monday, Oct 27?",
+    "Is the office open Monday morning?",
+    "Deadline is the 3rd, Monday.",
+  ];
+  for (const input of keep) {
+    it(`keeps the calendar reading "${input}" byte-identical`, () => {
+      expect(stripNameCall(input)).toBe(input);
+    });
+  }
+});

@@ -45,6 +45,7 @@ export const SYSTEM_PROMPT =
 
 export const NO_CONTEXT_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
+
 /**
  * #3323 — the bot knows its own name. A name in CALL POSITION ("Monday, …")
  * used to reach the model as question content and get read as the weekday.
@@ -57,7 +58,7 @@ export const NO_CONTEXT_ANSWER =
  *                    word is not the start of a date phrase → drop both
  *   greeting-adjacent true salutation then a name → drop the name, keep greeting
  *   trailing         last token is a name AND the previous token ends in a
- *                    comma AND is not itself a weekday → drop name and comma
+ *                    comma AND does not end a date phrase → drop name/comma
  *   @-mention        any "@name" token whose folded remainder is a name → drop
  *
  * The name vocabulary IS `BOT_NAME_TOKENS` from the Telegram greeting gate —
@@ -70,6 +71,12 @@ export const NO_CONTEXT_ANSWER =
  * Wednesday", "Monday, May 5th", "morning Monday standup" all keep their
  * weekday. And a fired arm removes only its own tokens plus the whitespace
  * that announced them; every other newline and space run survives verbatim.
+ *
+ * Fix cycle 2 (execution review round 2): the date-word guard covers EVERY
+ * date/time word form — abbreviations ("Tue", "Jan"), plural weekdays
+ * ("Mondays"), day/time words ("noon", "tomorrow", "next week") — on BOTH
+ * the leading and the trailing arm, so "on May 5th, Monday?" keeps its
+ * weekday too. Ambiguity keeps the weekday (conservative miss).
  */
 
 /** Telegram's own hard message cap — past it the cleaner declines entirely
@@ -135,6 +142,60 @@ const SALUTATIONS: ReadonlySet<string> = new Set(
   [...GREETING_LEXICON].filter((w) => !TIME_OF_DAY_WORDS.has(w)),
 );
 
+/** Weekday and month ABBREVIATIONS: "Monday, Tue and Wed" and "Monday,
+ * Jan 5th" are date phrases just like their full-name forms. */
+const DATE_ABBREV_WORDS: ReadonlySet<string> = new Set([
+  // weekday abbreviations
+  "mon",
+  "tue",
+  "tues",
+  "wed",
+  "weds",
+  "thu",
+  "thur",
+  "thurs",
+  "fri",
+  "sat",
+  "sun",
+  // month abbreviations
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "sept",
+  "oct",
+  "nov",
+  "dec",
+]);
+
+/** Plain day/time and relative-time words ("Monday, noon", "Monday, next
+ * week", "Monday, tomorrow"). The time-of-day words are borrowed from
+ * TIME_OF_DAY_WORDS (minus "good", which is only ever a greeting) so this
+ * seam keeps a single vocabulary for them. */
+const DATE_TIME_WORDS: ReadonlySet<string> = new Set([
+  ...[...TIME_OF_DAY_WORDS].filter((w) => w !== "good"),
+  "today",
+  "tomorrow",
+  "yesterday",
+  "tonight",
+  "night",
+  "noon",
+  "midnight",
+  "week",
+  "weekend",
+  "month",
+  "year",
+  "day",
+  "next",
+  "this",
+  "last",
+  "at",
+]);
+
 /** Split one raw token into its word, its trailing punctuation, and whether
  * that punctuation included a comma (the announcing-comma signal). */
 function splitTrailingPunctuation(raw: string): {
@@ -158,22 +219,34 @@ function nameComparisonForm(raw: string): string {
 }
 
 /** Is this raw token one of the bot's own names (ignoring case, trailing
- * punctuation, and the "_"-vs"-" username separator)? */
+ * punctuation, and the "_"-vs-"-" username separator)? */
 function isNameToken(raw: string): boolean {
   return BOT_NAME_TOKENS.includes(nameComparisonForm(raw));
 }
 
-/** Does this raw token READ as the start of a date phrase (weekday, month,
- * ordinal, number, or "the") rather than the body of a question addressed to
- * the bot? Fix cycle 1: such a word after "Monday," means the weekday is a
- * date, not a name-call. */
+/** Does this raw token READ as the start of a date phrase (a weekday or
+ * month in full, abbreviated, or plural form; an ordinal, number, "the";
+ * or a plain day/time word) rather than the body of a question addressed
+ * to the bot? Fix cycle 1: such a word after "Monday," means the weekday
+ * is a date, not a name-call. Fix cycle 2: widened past the full names —
+ * abbreviations, plurals and time words also read as dates, and a wider
+ * guard only costs conservative misses (ambiguity → keep), which the
+ * doctrine accepts. */
 function isDatePhraseWord(raw: string): boolean {
   const word = nameComparisonForm(raw);
+  // Plural weekday/month forms ("Mondays and Fridays") fold to the singular.
+  const singular = word.endsWith("s") ? word.slice(0, -1) : word;
   return (
     WEEKDAY_WORDS.has(word) ||
     MONTH_WORDS.has(word) ||
     ORDINAL_WORDS.has(word) ||
+    DATE_ABBREV_WORDS.has(word) ||
+    DATE_TIME_WORDS.has(word) ||
+    WEEKDAY_WORDS.has(singular) ||
+    MONTH_WORDS.has(singular) ||
+    DATE_ABBREV_WORDS.has(singular) ||
     word === "the" ||
+    /^[ap]\.m$/.test(word) || // "a.m."/"p.m." (trailing period already folded)
     /^\d/.test(word)
   );
 }
@@ -201,7 +274,15 @@ export function stripNameCall(question: string): string {
   // doctrine keeps it (the prompt clause is the guard there). Fix cycle 1:
   // even comma-announced, the arm must NOT fire when the next word continues
   // a date ("Monday, Tuesday …", "Monday, May 5th", "Monday, the 3rd").
-  if (isNameToken(rawTokens[0])) {
+  // Colon form ("Monday: where do I find …") announces the name as firmly as
+  // a comma; the same date-word guard on the next word applies.
+  const colonName =
+    rawTokens[0].endsWith(":") && isNameToken(rawTokens[0].slice(0, -1));
+  if (colonName) {
+    if (!(rawTokens[1] !== undefined && isDatePhraseWord(rawTokens[1]))) {
+      remove.add(0);
+    }
+  } else if (isNameToken(rawTokens[0])) {
     const first = splitTrailingPunctuation(rawTokens[0]);
     if (first.hadComma || rawTokens[1] === ",") {
       const bodyIndex = first.hadComma ? 1 : 2; // skip a standalone comma token
@@ -234,12 +315,15 @@ export function stripNameCall(question: string): string {
   // Trailing arm: the announcing comma is what separates "can you help,
   // Monday?" from "what was deployed on Monday?" — without it, never fire.
   // Fix cycle 1: a weekday before the comma announces a day LIST ("Tuesday,
-  // Monday?"), not a name-call, so it guards this arm too.
+  // Monday?"), not a name-call, so it guards this arm too. Fix cycle 2: the
+  // guard is the FULL date-phrase check — a date before the comma ("on
+  // May 5th, Monday?", "to 9am, Monday?") makes the trailing weekday a
+  // confirmation of that date, not a name-call.
   if (
     rawTokens.length > 1 &&
     isNameToken(rawTokens[n - 1]) &&
     splitTrailingPunctuation(rawTokens[n - 2]).hadComma &&
-    !WEEKDAY_WORDS.has(nameComparisonForm(rawTokens[n - 2]))
+    !isDatePhraseWord(rawTokens[n - 2])
   ) {
     remove.add(n - 1);
     // The comma that announced the name goes with it.
