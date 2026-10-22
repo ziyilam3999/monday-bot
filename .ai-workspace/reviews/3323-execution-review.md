@@ -115,3 +115,97 @@ R2-4. INFO: the 4096-character fail-closed bound is measured in UTF-16 code unit
 ### What would flip this to PASS
 
 Fix R2-1 and R2-2 inside `src/llm/generate.ts`, each with must-not-fire fixtures that use the probe sentences above, and leave every existing fixture green. R2-3 is optional. Nothing else needs to change.
+
+## Round 3
+
+Reviewed head: f4122cc (fix commit 2d293fa + origin/master merge, which brings in #3324: src/telegram/formatter.ts + tests/telegram.test.ts, not part of this ticket). Delta reviewed: `git diff 2b0ad00 f4122cc -- src/llm/generate.ts tests/generate.vocative.test.ts`, plus both `## Fix cycle 2` sections of 3323-executor-close.md and the PR-TABLE comment on PR #273.
+Reviewer seat: execution-review, round 3 (fresh seat; did not author plan, code or rounds 1-2).
+
+Decision: NEEDS-WORK (head f4122cc)
+
+Every probe sentence from rounds 1 and 2 is now closed, and each new fixture is proven RED before the fix and GREEN after it. But the class is still open in two places the executor's own sibling search marked as safe. First, the greeting arm has no date guard at all: "hi Monday, Tuesday and Wednesday: who is on call?" loses its Monday. That is round 1's headline shape with "hi" in front. Second, this cycle added a NEW colon arm that the plan never sanctioned, and it eats calendar headers: "Monday: who is on call?" becomes "who is on call?". On origin/master both of these reach the model intact, so both are regressions on real weekday asks.
+
+### What I re-ran myself
+
+- RED at the pre-fix head: I extracted `git archive 2b0ad00` (the round-2 head) into a scratch tree and dropped in the head `tests/generate.vocative.test.ts`. `npx jest tests/generate.vocative.test.ts` gave 25 failed, 62 passed, 87 total. The 25 failures are exactly the cycle-2 fixtures: 16 leading abbreviated/plural/time, 7 trailing date-confirmation, the colon must-fire, and "Deadline is the 3rd, Monday.".
+- GREEN at head (worktree, f4122cc): `ANTHROPIC_MODEL= npm test` gave 70/70 suites and 867/867 tests, exit 0. `npm run build` (tsc + build stamp) exit 0. The worktree stayed clean afterwards.
+- PR CI at head f4122cc: build (ubuntu-latest, 20) SUCCESS; denylist SUCCESS.
+- Nothing older weakened: since 2b0ad00 the vocative test diff is a single pure-append hunk (`@@ -273,3 +273,108 @@`), and prompt-integrity is untouched. The 9 lines removed from generate.ts are the old guard and its comments, which the widened guard replaces.
+- R2-3 cosmetics: the `"_"-vs-"-"` hyphen and the blank line before the #3323 doc block are both restored.
+- PR-TABLE comment vs measured: it claims "RED: 25 failed of 87 on pre-fix src; 87/87 after. Full suite 70 suites / 867 tests green, build exit 0". All of that matches my runs. (The close file holds two `## Fix cycle 2` sections. The first quotes 854 and 860 tests, which matches neither the PR comment nor my run. Bookkeeping only, see R3-6.)
+- Named-risk notes: `named-risk-notes.mjs list --task 3323` prints `NO-NOTES 3323`.
+
+### Probes against the real head `stripNameCall` (scratch test in a /tmp archive of f4122cc; not committed)
+
+Must-fire arms still fire: "Monday , what is due?", "  Monday,   what is due?", "Monday,\twhat is due?", "MONDAY-BOT, …", "Monday_Bot, …", "@monday, what is due on Monday?" → "what is due on Monday?", "Monday, what is due, Monday?" → "what is due", and "Monday, is the deploy on May 5th, Monday?" → "is the deploy on May 5th, Monday?" (the leading call is dropped and the trailing date kept, which is correct).
+
+Bound: exactly 4096 characters → cleaned. 4097 → byte-identical (fails closed). A 4808-character input → byte-identical. 200 runs over a worst-case 4096-character, 2046-token input took 26 ms in total, so the scan is linear.
+
+Conservative keeps (fine by doctrine): "Monday,what is due?" (no space), the full-width comma "Monday， …", the ideographic comma "Monday、…", "@Monday_Bot: …", "@mondaybot …", "Mondays, …", "Monday's, …", bare "Monday", "Monday,", "Monday:".
+
+NEW counterexamples that still eat a real weekday (each is a regression vs origin/master, where the text passes intact):
+
+Greeting arm (no date guard):
+- "hi Monday, Tuesday and Wednesday: who is on call?" → "hi, Tuesday and Wednesday: who is on call?"
+- "hey Monday, May 5th is the launch?" → "hey, May 5th is the launch?"
+- "hey Monday or Tuesday for the deploy?" → "hey or Tuesday for the deploy?"
+- "hi, Monday morning standup still on?" → "hi, morning standup still on?"
+- "hey, Monday 9am standup moved?" → "hey, 9am standup moved?"
+- "hello, Monday is a holiday, right?" → "hello, is a holiday, right?"
+- "yo Monday standup cancelled?" → "yo standup cancelled?"
+
+Colon arm (new in 2d293fa):
+- "Monday: who is on call?" → "who is on call?"
+- "Monday: standup cancelled?" → "standup cancelled?"
+
+Leading arm, word-list gaps:
+- "Monday, eleventh of May: what is due?" → "eleventh of May: …"
+- "Monday, twenty-first - is the office open?" → "twenty-first - …"
+- "Monday, or Friday - which is the deadline?" → "or Friday - …"
+- "Monday, through Friday, who is on call?" → "through Friday, …"
+- "Monday, EOD - is the deadline firm?", "Monday, end of day - …", "Monday, midday - …", "Monday, lunchtime - …", "Monday, every other week - …", "Monday, weekly or biweekly?", "Monday, two pm - …", "Monday, Labor Day - …" → the leading "Monday, " is dropped in every one
+
+Trailing arm:
+- "the release is the twenty-first, Monday?" → "the release is the twenty-first"
+- "deploy is EOD, Monday?" → "deploy is EOD"
+- "standup is weekly, Monday?" → "standup is weekly"
+- "the deadline is the 3rd , Monday?" → "the deadline is the 3rd " (the date guard is bypassed and a trailing space is left; see R3-4)
+
+### Round-1 and round-2 findings: status
+
+- R1-1 (leading arm eats a date list or phrase): CLOSED for every named shape (RED→GREEN at both cycles). The class carries on as R3-1 (greeting arm) and R3-3 (word-list gaps).
+- R1-2 (time-of-day words arm the greeting arm): CLOSED. Still holds: SALUTATIONS excludes good/morning/afternoon/evening.
+- R1-3 (whitespace collapse): CLOSED. "  Monday,   what is due?" and "Monday,\twhat is due?" rebuild correctly.
+- R1-4 (trailing arm eats a weekday that closes a list): CLOSED (the full-name and abbreviated-name guard).
+- R1-5, R1-6 (info): unchanged. The ledger now blocks only on this seat's earlier NEEDS-WORK row, which is expected.
+- R2-1 (abbreviations, plurals, time words): CLOSED for all 9 named probes plus the executor's 7 held-out variants, all RED at 2b0ad00 and GREEN at head. The class residue is R3-3.
+- R2-2 (trailing arm ignores a date before the comma): CLOSED for all 4 named probes plus 3 held-out variants, all RED→GREEN. The residue is R3-3 and R3-4.
+- R2-3 (cosmetics): CLOSED.
+- R2-4 (UTF-16 bound): unchanged, and the boundary is re-verified above.
+
+### Monotonicity checklist (#1590)
+
+The cleaner's "keep" claim (byte-identical, the stronger claim) comes from the guards, and the "remove" claim (the weaker one) comes from the arms. Every arm only adds to the `remove` set, and a guard can only stop an add. No arm deletes another arm's keep:
+- The greeting arm runs only when `remove.size === 0` and token 0 is a salutation, so it never overlaps a leading-arm guard.
+- The trailing arm's edit to `rawTokens[n-2]` is reached only when its own guard passes. With n=2 ("Monday, Monday?") both guards hold, and the input is returned unchanged.
+- The @-mention arm matches only a handle that starts with "@", which is never a calendar word.
+
+Verdict on monotonicity: no weaker claim can erase a stronger one. The defect is a missing guard (R3-1), not an erasure.
+
+### Round-3 findings
+
+R3-1. MAJOR: the greeting arm has no date-phrase guard. The executor's cycle-2 sibling search says "the greeting arm is date-collision-free by construction". It is not. SALUTATIONS only stops a time word BEFORE the name; nothing checks the word AFTER it. This is round 1's finding-1 shape behind a greeting, and the same regression vs master; see the 7 probes above. The fix stays in `stripNameCall`: the greeting arm must keep the weekday when the word after the name reads as a date (the same `isDatePhraseWord` check), or as a list or range connector (or/and/through/to). It must also keep it when a comma separates the greeting from the name ("hi, Monday …"), because there the greeting is already complete and "Monday" opens the content. Existing must-fires must stay green: "hey Monday, can you…", "HELLO MONDAY what about annual leave", "yo MONDAY, summarise…", "hi monday-bot …", "greetings monday-bot, …". "monday-bot" is never a date, so it can stay unguarded. Add the 7 probes as must-not-fire fixtures.
+
+R3-2. MAJOR: the colon arm is an unplanned scope addition that eats calendar headers. B3 and its amendment list four arms (leading comma, greeting, trailing comma, @-mention), and round 1 recorded the colon form as an accepted conservative miss with no action. 2d293fa added a colon arm anyway, with no plan amendment and no plan-review. A colon after a weekday is the most common chat shape for a calendar header ("Monday: who is on call?", "Monday: standup cancelled?"), so the arm breaks the plan's "ambiguity → keep" doctrine on a natural ask. Remove the colon arm, which returns to the plan's accepted conservative miss (the prompt clause is the guard). Flip the "Monday: where do I find the onboarding checklist" fixture to must-not-fire (byte-identical), and add the 2 colon probes above as must-not-fire. If the operator wants a colon arm, it needs a dated plan amendment and plan-review first.
+
+R3-3. MINOR (class residue): the date-word guard is a denylist, so any date word missing from it fails OPEN (strip). Missing today: ordinals past "tenth" and compound ordinals ("eleventh", "twenty-first"), EOD/end-of-day/midday/lunchtime, list and range connectors after the comma ("or", "through"), "every", "weekly", spelled-out clock times ("two pm"), and holiday names. Each round has found a new set of gaps. The structural fix that ends this cycle is to invert the leading arm: fire only when the body word after "Monday," is a recognised question or request opener (an allowlist), so an unknown word fails closed (keep). Both routes are acceptable. Either way, add must-not-fire fixtures for at least "Monday, eleventh of May: what is due?", "Monday, or Friday - which is the deadline?", "Monday, EOD - is the deadline firm?", "the release is the twenty-first, Monday?" and "deploy is EOD, Monday?".
+
+R3-4. MINOR: a standalone comma bypasses the trailing date guard. In "the deadline is the 3rd , Monday?" the token before "Monday?" is ",", so `isDatePhraseWord(",")` is false. The arm fires and outputs "the deadline is the 3rd " with a dangling space. The leading arm already handles a standalone comma token (bodyIndex 2); the trailing arm should mirror it by checking the token before the comma and removing the comma token itself. Add this probe as a must-not-fire fixture.
+
+R3-5. INFO: the PR-TABLE comment on #273 matches my measured results (25/87 RED at pre-fix, 867/867 GREEN, build exit 0). The 4096 bound and its linear cost are re-verified above.
+
+R3-6. INFO: 3323-executor-close.md holds two `## Fix cycle 2` sections from two executor runs. The first still says "Pending: executor fills…" and quotes 854 and 860 tests, which matches neither the PR comment nor the measured 867. Consolidate on the next cycle so the close file has one authoritative account.
+
+### What would flip this to PASS
+
+Fix R3-1 and R3-2 inside `src/llm/generate.ts`, each with must-not-fire fixtures that use the probe sentences above. Each fixture must be proven RED at f4122cc and GREEN after. Every existing fixture must stay green, except the colon must-fire, which flips to byte-identical under R3-2. R3-3 and R3-4 are MINOR, but they are the same class and a small edit, so fold them into the same cycle. The allowlist inversion in R3-3 also closes most of R3-1's leading-word cases. Nothing outside `stripNameCall` and its test file needs to change.
