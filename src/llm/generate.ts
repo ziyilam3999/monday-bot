@@ -45,7 +45,6 @@ export const SYSTEM_PROMPT =
 
 export const NO_CONTEXT_ANSWER =
   "I couldn't find any relevant information in the indexed documents to answer this question.";
-
 /**
  * #3323 — the bot knows its own name. A name in CALL POSITION ("Monday, …")
  * used to reach the model as question content and get read as the weekday.
@@ -54,17 +53,87 @@ export const NO_CONTEXT_ANSWER =
  * (the #3299 parity convention applied at this seam). Arms (B3, conservative:
  * ambiguity → keep), independent and composable:
  *
- *   leading          first token is a name AND comma-announced → drop both
- *   greeting-adjacent greeting word then a name → drop the name, keep greeting
+ *   leading          first token is a name AND comma-announced AND the next
+ *                    word is not the start of a date phrase → drop both
+ *   greeting-adjacent true salutation then a name → drop the name, keep greeting
  *   trailing         last token is a name AND the previous token ends in a
- *                    comma → drop the name and that comma
+ *                    comma AND is not itself a weekday → drop name and comma
  *   @-mention        any "@name" token whose folded remainder is a name → drop
  *
  * The name vocabulary IS `BOT_NAME_TOKENS` from the Telegram greeting gate —
  * imported, never duplicated (B2), so a token added there is covered here with
  * no edit. Matching normalization (case-fold, trailing-punctuation strip,
  * "_"→"-" fold for mention usernames) is INTERNAL to this function.
+ *
+ * Fix cycle 1 (execution review #3323): a comma alone does not mark a vocative
+ * when the neighbouring words continue a DATE — "Monday, Tuesday and
+ * Wednesday", "Monday, May 5th", "morning Monday standup" all keep their
+ * weekday. And a fired arm removes only its own tokens plus the whitespace
+ * that announced them; every other newline and space run survives verbatim.
  */
+
+/** Telegram's own hard message cap — past it the cleaner declines entirely
+ * (fails closed: input returned byte-identical, no tokenization loop). */
+const MAX_CLEANABLE_LENGTH = 4096;
+
+/** Weekday names: a name token followed by another weekday opens a day LIST
+ * ("Monday, Tuesday and Wednesday: who is on call?"), not a vocative. */
+const WEEKDAY_WORDS: ReadonlySet<string> = new Set([
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]);
+
+/** Month names: "Monday, May 5th" is a date phrase, not a vocative. */
+const MONTH_WORDS: ReadonlySet<string> = new Set([
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+]);
+
+/** Ordinal words: "Monday, third of May" is a date phrase, not a vocative. */
+const ORDINAL_WORDS: ReadonlySet<string> = new Set([
+  "first",
+  "second",
+  "third",
+  "fourth",
+  "fifth",
+  "sixth",
+  "seventh",
+  "eighth",
+  "ninth",
+  "tenth",
+]);
+
+/** GREETING_LEXICON words that double as times of day. At this seam they are
+ * NOT salutations: "morning Monday standup?" is a date phrase, so they never
+ * arm the greeting-adjacent cleaner (helpGate's own card gate is untouched
+ * and keeps the full lexicon). */
+const TIME_OF_DAY_WORDS: ReadonlySet<string> = new Set([
+  "good",
+  "morning",
+  "afternoon",
+  "evening",
+]);
+
+/** The greeting-adjacent arm's salutations: GREETING_LEXICON borrowed from
+ * the help gate (B2, no second list) minus the time-of-day words above. */
+const SALUTATIONS: ReadonlySet<string> = new Set(
+  [...GREETING_LEXICON].filter((w) => !TIME_OF_DAY_WORDS.has(w)),
+);
 
 /** Split one raw token into its word, its trailing punctuation, and whether
  * that punctuation included a comma (the announcing-comma signal). */
@@ -89,13 +158,39 @@ function nameComparisonForm(raw: string): string {
 }
 
 /** Is this raw token one of the bot's own names (ignoring case, trailing
- * punctuation, and the "_"-vs-"-" username separator)? */
+ * punctuation, and the "_"-vs"-" username separator)? */
 function isNameToken(raw: string): boolean {
   return BOT_NAME_TOKENS.includes(nameComparisonForm(raw));
 }
 
+/** Does this raw token READ as the start of a date phrase (weekday, month,
+ * ordinal, number, or "the") rather than the body of a question addressed to
+ * the bot? Fix cycle 1: such a word after "Monday," means the weekday is a
+ * date, not a name-call. */
+function isDatePhraseWord(raw: string): boolean {
+  const word = nameComparisonForm(raw);
+  return (
+    WEEKDAY_WORDS.has(word) ||
+    MONTH_WORDS.has(word) ||
+    ORDINAL_WORDS.has(word) ||
+    word === "the" ||
+    /^\d/.test(word)
+  );
+}
+
 export function stripNameCall(question: string): string {
-  const rawTokens = question.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (question.length > MAX_CLEANABLE_LENGTH) return question; // fail closed
+
+  // Tokens with their spans in the ORIGINAL string, so a fired arm removes
+  // only its own tokens and the whitespace that announced them.
+  const rawTokens: string[] = [];
+  const spans: Array<{ start: number; end: number }> = [];
+  const tokenRe = /\S+/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenRe.exec(question)) !== null) {
+    rawTokens.push(match[0]);
+    spans.push({ start: match.index, end: match.index + match[0].length });
+  }
   if (rawTokens.length === 0) return question;
 
   const remove = new Set<number>();
@@ -103,21 +198,28 @@ export function stripNameCall(question: string): string {
 
   // Leading arm: comma-gated on purpose — "Monday what was deployed" (no
   // comma) is genuinely ambiguous between vocative and date-subject, and the
-  // doctrine keeps it (the prompt clause is the guard there).
+  // doctrine keeps it (the prompt clause is the guard there). Fix cycle 1:
+  // even comma-announced, the arm must NOT fire when the next word continues
+  // a date ("Monday, Tuesday …", "Monday, May 5th", "Monday, the 3rd").
   if (isNameToken(rawTokens[0])) {
     const first = splitTrailingPunctuation(rawTokens[0]);
     if (first.hadComma || rawTokens[1] === ",") {
-      remove.add(0);
-      if (!first.hadComma) remove.add(1); // the standalone comma token
+      const bodyIndex = first.hadComma ? 1 : 2; // skip a standalone comma token
+      if (!(rawTokens[bodyIndex] !== undefined && isDatePhraseWord(rawTokens[bodyIndex]))) {
+        remove.add(0);
+        if (!first.hadComma) remove.add(1); // the standalone comma token
+      }
     }
   }
 
   // Greeting-adjacent arm: "hey Monday, …" — the greeting itself is today's
-  // noise and is never misread as a date; only the name-call goes.
+  // noise and is never misread as a date; only the name-call goes. Fix cycle
+  // 1: only TRUE salutations arm this ("morning Monday standup?" keeps its
+  // weekday), via SALUTATIONS (GREETING_LEXICON minus time-of-day words).
   if (
     remove.size === 0 &&
     rawTokens.length > 1 &&
-    GREETING_LEXICON.has(nameComparisonForm(rawTokens[0])) &&
+    SALUTATIONS.has(nameComparisonForm(rawTokens[0])) &&
     isNameToken(rawTokens[1])
   ) {
     remove.add(1);
@@ -131,10 +233,13 @@ export function stripNameCall(question: string): string {
 
   // Trailing arm: the announcing comma is what separates "can you help,
   // Monday?" from "what was deployed on Monday?" — without it, never fire.
+  // Fix cycle 1: a weekday before the comma announces a day LIST ("Tuesday,
+  // Monday?"), not a name-call, so it guards this arm too.
   if (
     rawTokens.length > 1 &&
     isNameToken(rawTokens[n - 1]) &&
-    splitTrailingPunctuation(rawTokens[n - 2]).hadComma
+    splitTrailingPunctuation(rawTokens[n - 2]).hadComma &&
+    !WEEKDAY_WORDS.has(nameComparisonForm(rawTokens[n - 2]))
   ) {
     remove.add(n - 1);
     // The comma that announced the name goes with it.
@@ -151,11 +256,23 @@ export function stripNameCall(question: string): string {
 
   if (remove.size === 0) return question; // byte-identical default path (B3)
 
-  const kept = rawTokens.filter((_, i) => !remove.has(i));
   // Nothing but a name-call: hand the question through untouched rather than
   // feeding the model an empty question.
-  if (kept.length === 0) return question;
-  return kept.join(" ");
+  if (remove.size >= n) return question;
+
+  // Rebuild from the original string (fix cycle 1: whitespace survives). A
+  // kept token keeps the exact whitespace run that preceded it in the input;
+  // the gap in front of a token whose predecessor was removed collapses to
+  // one space, and the first kept token starts the output (no leading gap).
+  let out = "";
+  for (let i = 0; i < n; i += 1) {
+    if (remove.has(i)) continue;
+    if (out.length > 0) {
+      out += remove.has(i - 1) ? " " : question.slice(spans[i - 1].end, spans[i].start);
+    }
+    out += rawTokens[i];
+  }
+  return out;
 }
 
 /**

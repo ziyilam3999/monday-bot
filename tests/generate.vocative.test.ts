@@ -175,3 +175,101 @@ describe("stripNameCall — degenerate inputs", () => {
     expect(stripNameCall("   ")).toBe("   ");
   });
 });
+
+/**
+ * Fix cycle 1 (execution review #3323): a comma after "Monday" is not by
+ * itself a vocative marker — when the next word continues a date (another
+ * weekday, a month, a number/ordinal, or "the"), the leading weekday is a
+ * DATE and stays. A time-of-day word before "Monday" ("morning Monday
+ * standup?") is not a salutation either. And when an arm does fire, every
+ * newline/space run that did not announce a removed token survives verbatim.
+ */
+describe("stripNameCall — fix cycle 1: leading arm vs date phrases", () => {
+  const kept = [
+    "Monday, Tuesday and Wednesday: who is on call?",
+    "Monday, May 5th is the launch?",
+    "Monday, the 3rd - is the office open?",
+    "Monday, Wednesday, Friday deploys - what is the schedule?",
+    "MONDAY , Tuesday standup - who runs it?",
+    "Monday, 5 May - who is on call?",
+    "Monday, first of May - is the office open?",
+  ];
+  for (const input of kept) {
+    it(`keeps the date-list/date-phrase leading "${input}" byte-identical`, () => {
+      expect(stripNameCall(input)).toBe(input);
+    });
+  }
+});
+
+describe("stripNameCall — fix cycle 1: time-of-day words are not salutations", () => {
+  const kept = [
+    "morning Monday standup?",
+    "Afternoon monday meeting cancelled?",
+    "evening Monday shift - who is on?",
+    "good morning, is the deploy on Monday?",
+    "good Monday morning standup?",
+  ];
+  for (const input of kept) {
+    it(`keeps the time-of-day "${input}" byte-identical`, () => {
+      expect(stripNameCall(input)).toBe(input);
+    });
+  }
+
+  it("still fires after a true salutation", () => {
+    expect(stripNameCall("yo MONDAY, summarise the refund policy?")).toBe(
+      "yo, summarise the refund policy?",
+    );
+  });
+
+  it("still fires after 'greetings'", () => {
+    expect(stripNameCall("greetings monday-bot, what about annual leave?")).toBe(
+      "greetings, what about annual leave?",
+    );
+  });
+});
+
+describe("stripNameCall — fix cycle 1: trailing arm vs weekday lists", () => {
+  it("keeps a trailing weekday that closes a day list", () => {
+    const input = "which days are deploy days: Tuesday, Monday?";
+    expect(stripNameCall(input)).toBe(input);
+  });
+
+  it("keeps a trailing weekday list with a mid-sentence weekday", () => {
+    const input = "rotating on Friday, Monday and Wednesday?";
+    expect(stripNameCall(input)).toBe(input);
+  });
+});
+
+describe("stripNameCall — fix cycle 1: whitespace survives a fired arm", () => {
+  it("preserves interior newlines when the leading arm fires", () => {
+    expect(stripNameCall("Monday,\nwhat about leave?\nsecond line")).toBe(
+      "what about leave?\nsecond line",
+    );
+  });
+
+  it("preserves interior space runs when the leading arm fires", () => {
+    expect(stripNameCall("Monday,  what   about leave?")).toBe(
+      "what   about leave?",
+    );
+  });
+
+  it("preserves interior newlines when the greeting arm fires", () => {
+    expect(stripNameCall("hey Monday,\nsummarise\nthe refund policy?")).toBe(
+      "hey, summarise\nthe refund policy?",
+    );
+  });
+
+  it("preserves interior newlines when the trailing arm fires", () => {
+    expect(stripNameCall("can you help\nwith leave,\nMonday?")).toBe(
+      "can you help\nwith leave",
+    );
+  });
+});
+
+describe("stripNameCall — fix cycle 1: oversized input fails closed", () => {
+  it("returns a past-4096-character input byte-identical without cleaning", () => {
+    const input = `Monday, ${"x".repeat(4100)}`;
+    expect(input.length).toBeGreaterThan(4096);
+    expect(stripNameCall(input)).toBe(input);
+  });
+});
