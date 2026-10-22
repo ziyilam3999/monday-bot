@@ -30,3 +30,32 @@ unset" contract) the full suite is green, including that test. Pre-existing on
 origin/master; unrelated to this diff.
 
 Executor-close: PR #273 (draft, into master) ships commit 21a9912 — the stripNameCall vocative cleaner + SYSTEM_PROMPT identity clause in src/llm/generate.ts with fixture-only tests, all ten Binary AC observed green, full suite (70/805) and npm run build green.
+
+## Fix cycle 1 — 2026-10-22 (dispatch OR-NONCE-77781f7506a25693, findings 1/2/3 from 3323-execution-review.md)
+
+Commit 62a4f06 on 3323-own-name. All three findings fixed in the one seam
+(src/llm/generate.ts stripNameCall) plus review finding 4 via the shared
+weekday-neighbour guard. helpGate.ts untouched (its tests green).
+
+- RULE: a name-call is removed only when "Monday" is clearly addressed to the bot; any reading where "Monday" could be a date keeps it — a comma after a weekday/month-adjacent token is not by itself a vocative marker (date-word collision class), and a fired arm must not disturb whitespace it did not consume.
+- SIBLING-SEARCH: `command grep -rn "GREETING_LEXICON\|BOT_NAME_TOKENS" src tests` — 17 sibling(s) found; walked every arm of the cleaner (leading, greeting-adjacent, trailing, @-mention): leading and trailing carried the same date-collision shape (both now guarded by weekday/month/ordinal/digit/"the" neighbour checks), the greeting arm collided via the time-of-day words in GREETING_LEXICON (now filtered to SALUTATIONS at this seam only), and the @-mention arm is name-matched with no comma involvement (no date reading possible). helpGate's own use of the lexicon is the card gate, deliberately untouched per the brief.
+- HELD-OUT: 8 must-fire and 13 must-not-fire variants, all as fixtures in tests/generate.vocative.test.ts ("fix cycle 1" describes), run against the real stripNameCall; 17 of them FAILED on pre-fix head e671c9b (measured: `npx jest tests/generate.vocative.test.ts` exit 1, "17 failed, 36 passed") and all PASS after (exit 0).
+- PR-TABLE: below; observed column = measured `npx jest tests/generate.vocative.test.ts` (pre-fix head exit 1 with the listed failures; post-fix exit 0, 53/53).
+- INPUT-BOUND: stripNameCall returns the input byte-identical (fails closed) when question.length > 4096 — Telegram's own hard message cap, so no real ask is declined and no tokenization loop can be driven by oversized input; every per-token step is O(n) over one linear scan with fixed-size constant sets (no backtracking regex).
+
+| variant | direction | expected | observed |
+|---|---|---|---|
+| "Monday, can provide business rules for dispute resolution?" | must-fire | "can provide business rules for dispute resolution?" | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+| "hey Monday, can you summarise the refund policy?" | must-fire | "hey, can you summarise the refund policy?" | npx jest tests/generate.vocative.test.ts — post-fix exit 0 (green) |
+| "can you help, Monday?" | must-fire | "can you help" | npx jest tests/generate.vocative.test.ts — post-fix exit 0 (green) |
+| "yo MONDAY, summarise the refund policy?" | must-fire | "yo, summarise the refund policy?" | npx jest tests/generate.vocative.test.ts — post-fix exit 0 (green) |
+| "Monday, Tuesday and Wednesday: who is on call?" | must-not-fire | unchanged | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+| "Monday, May 5th is the launch?" | must-not-fire | unchanged | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+| "morning Monday standup?" | must-not-fire | unchanged | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+| "good morning, is the deploy on Monday?" | must-not-fire | unchanged | npx jest tests/generate.vocative.test.ts — post-fix exit 0 (green) |
+| "Monday,\nwhat about leave?\nsecond line" | must-fire (whitespace kept) | "what about leave?\nsecond line" | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+| 4105-char "Monday, xxx…" | must-not-fire (bound) | unchanged | npx jest tests/generate.vocative.test.ts — pre-fix exit 1 (red), post-fix exit 0 (green) |
+
+Suite/build at 62a4f06: `ANTHROPIC_MODEL= npm test` 70 suites / 826 tests green, exit 0 (the single generate.test.ts model-id failure seen with the session's stray ANTHROPIC_MODEL export is the pre-existing environment note above); `npm run build` exit 0. Full-fix run also re-verified helpGate suites untouched and green.
+
+Executor-close: PR ziyilam3999/monday-bot#273 branch 3323-own-name pushed 62a4f06 — fix cycle 1: date-word guards on the leading/trailing arms, true-salutation filter on the greeting arm, whitespace-preserving rebuild, 4096-char fail-closed bound, 17 held-out fixtures RED→GREEN; suite and build green.
