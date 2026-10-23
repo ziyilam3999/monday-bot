@@ -563,3 +563,54 @@ describe("timeout (AC-11)", () => {
     expect(genCalls.length).toBe(0);
   });
 });
+
+// ===========================================================================
+// #3378 — field-question phrase ("status of demo 673") reaches the exact-key leg
+// ===========================================================================
+
+describe("3378 field phrase", () => {
+  const keys = ["DEMO"];
+  it("3378 must-fire: the exact operator text", () => {
+    expect(extractKeys("Hi Monday, what's the status of demo 673?", keys)).toEqual(["DEMO-673"]);
+  });
+  it("3378 must-fire: spaced upper-case key", () => {
+    expect(extractKeys("status of DEMO 673", keys)).toEqual(["DEMO-673"]);
+  });
+  it("3378 must-fire: fused key after assignee of", () => {
+    expect(extractKeys("assignee of demo673", keys)).toEqual(["DEMO-673"]);
+  });
+  it("3378 must-fire: mixed case and trailing punctuation", () => {
+    expect(extractKeys("priority of Demo 673?", keys)).toEqual(["DEMO-673"]);
+  });
+  it("3378 must-fire: for and on prepositions", () => {
+    expect(extractKeys("priority for DEMO 9", keys)).toEqual(["DEMO-9"]);
+    expect(extractKeys("status on demo 673", keys)).toEqual(["DEMO-673"]);
+  });
+});
+
+describe("3378 must-not-fire", () => {
+  const keys = ["DEMO"];
+  const sentences = [
+    "can I demo 2 volunteers?",
+    "demo 3 reviewers then check status",
+    "how do I demo 10 tickets done",
+    "what's the status of 673?",
+    "our priority is to demo 2 hotfixes out",
+    "what's the status, can we demo 2 more people?",
+    "status update: demo 5 people on it",
+    "priority: demo 3 reviewers",
+    "the assignee should demo 2 days off",
+    "status, of demo 2 things",
+    "status - of demo 2 things",
+    "status of, demo 2 things",
+    "status of about demo 2 things",
+  ];
+  for (const q of sentences) {
+    it(`3378 must-not-fire: ${q}`, () => {
+      expect(extractKeys(q, keys)).toEqual([]);
+    });
+  }
+  it("3378 must-not-fire: unconfigured project", () => {
+    expect(extractKeys("status of XYZ 673", keys)).toEqual([]);
+  });
+});
