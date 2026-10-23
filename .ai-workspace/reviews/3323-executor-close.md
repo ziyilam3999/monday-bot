@@ -60,3 +60,8 @@ The orchestrator must re-run `env -u MONDAY_TEST_MODE node <smoke script> <workt
 
 - override env vars used: none.
 - Merged origin/master: not needed (0 commits behind).
+
+## Live smoke (plan-review note 6) — MEASURED 2026-10-23 by orchestrator
+Run with the monday-bot API key (not the operator login). rc=0.
+- Q "Monday, can provide business rules for dispute resolution?" -> input unchanged; answer lists the 3 dispute rules from [1] (Monday read as the bot name, not a date). PASS.
+- Q "is the deploy on the 3rd, Monday?" -> input unchanged; answer "No, the deploy on the 3rd is not on Monday ... moved to Wednesday" (Monday kept as a weekday). PASS.
