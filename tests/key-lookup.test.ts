@@ -565,45 +565,45 @@ describe("timeout (AC-11)", () => {
 });
 
 // ===========================================================================
-// #3378 — field-question phrase ("status of get 673") reaches the exact-key leg
+// #3378 — field-question phrase ("status of demo 673") reaches the exact-key leg
 // ===========================================================================
 
 describe("3378 field phrase", () => {
-  const keys = ["GET"];
+  const keys = ["DEMO"];
   it("3378 must-fire: the exact operator text", () => {
-    expect(extractKeys("Hi Monday, what's the status of get 673?", keys)).toEqual(["GET-673"]);
+    expect(extractKeys("Hi Monday, what's the status of demo 673?", keys)).toEqual(["DEMO-673"]);
   });
   it("3378 must-fire: spaced upper-case key", () => {
-    expect(extractKeys("status of GET 673", keys)).toEqual(["GET-673"]);
+    expect(extractKeys("status of DEMO 673", keys)).toEqual(["DEMO-673"]);
   });
   it("3378 must-fire: fused key after assignee of", () => {
-    expect(extractKeys("assignee of get673", keys)).toEqual(["GET-673"]);
+    expect(extractKeys("assignee of demo673", keys)).toEqual(["DEMO-673"]);
   });
   it("3378 must-fire: mixed case and trailing punctuation", () => {
-    expect(extractKeys("priority of Get 673?", keys)).toEqual(["GET-673"]);
+    expect(extractKeys("priority of Demo 673?", keys)).toEqual(["DEMO-673"]);
   });
   it("3378 must-fire: for and on prepositions", () => {
-    expect(extractKeys("priority for GET 9", keys)).toEqual(["GET-9"]);
-    expect(extractKeys("status on get 673", keys)).toEqual(["GET-673"]);
+    expect(extractKeys("priority for DEMO 9", keys)).toEqual(["DEMO-9"]);
+    expect(extractKeys("status on demo 673", keys)).toEqual(["DEMO-673"]);
   });
 });
 
 describe("3378 must-not-fire", () => {
-  const keys = ["GET"];
+  const keys = ["DEMO"];
   const sentences = [
-    "can I get 2 volunteers?",
-    "get 3 reviewers then check status",
-    "how do I get 10 tickets done",
+    "can I demo 2 volunteers?",
+    "demo 3 reviewers then check status",
+    "how do I demo 10 tickets done",
     "what's the status of 673?",
-    "our priority is to get 2 hotfixes out",
-    "what's the status, can we get 2 more people?",
-    "status update: get 5 people on it",
-    "priority: get 3 reviewers",
-    "the assignee should get 2 days off",
-    "status, of get 2 things",
-    "status - of get 2 things",
-    "status of, get 2 things",
-    "status of about get 2 things",
+    "our priority is to demo 2 hotfixes out",
+    "what's the status, can we demo 2 more people?",
+    "status update: demo 5 people on it",
+    "priority: demo 3 reviewers",
+    "the assignee should demo 2 days off",
+    "status, of demo 2 things",
+    "status - of demo 2 things",
+    "status of, demo 2 things",
+    "status of about demo 2 things",
   ];
   for (const q of sentences) {
     it(`3378 must-not-fire: ${q}`, () => {

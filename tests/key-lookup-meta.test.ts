@@ -523,11 +523,11 @@ describe("fields lock (AC-9)", () => {
 // ===========================================================================
 
 describe("3378 field phrase end-to-end", () => {
-  it("3378: 'what's the status of get 673?' → live facts line, one fetch of GET-673", async () => {
+  it("3378: 'what's the status of demo 673?' → live facts line, one fetch of DEMO-673", async () => {
     const { generator } = makeGenerator();
     const { calls: fetchCalls, fetcher } = makeFetcher({
-      "GET-673": {
-        key: "GET-673",
+      "DEMO-673": {
+        key: "DEMO-673",
         summary: "Fixture summary",
         descriptionText: "Fixture description",
         commentTexts: [],
@@ -536,11 +536,11 @@ describe("3378 field phrase end-to-end", () => {
     });
     const svc = makeService({
       generator,
-      lookup: { projectKeys: ["GET"], issueFetcher: fetcher },
+      lookup: { projectKeys: ["DEMO"], issueFetcher: fetcher },
     });
     await indexNeighbours(svc);
-    const result = await svc.query("Hi Monday, what's the status of get 673?");
-    expect(fetchCalls).toEqual(["GET-673"]);
-    expect(result.answer).toContain("GET-673 — Status: In Progress");
+    const result = await svc.query("Hi Monday, what's the status of demo 673?");
+    expect(fetchCalls).toEqual(["DEMO-673"]);
+    expect(result.answer).toContain("DEMO-673 — Status: In Progress");
   });
 });
