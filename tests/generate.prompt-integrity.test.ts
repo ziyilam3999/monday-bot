@@ -90,4 +90,29 @@ describe("SYSTEM_PROMPT integrity", () => {
     // It must NOT relax the on-topic gate.
     expect(SYSTEM_PROMPT).toMatch(/does NOT relax the on-topic gate/);
   });
+
+  // #3323 — identity clause (the bot knows its own name).
+  it("names the assistant and its address forms (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("Monday Bot");
+    expect(SYSTEM_PROMPT).toContain('"Monday"');
+    expect(SYSTEM_PROMPT).toContain("monday-bot");
+  });
+
+  it("gives the operator example as a name-call (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("Monday, can provide business rules for dispute resolution?");
+  });
+
+  it("keeps the date meaning when the weekday is needed for sense (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("on the 3rd, Monday?");
+    expect(SYSTEM_PROMPT).toContain("Monday: who is on call?");
+    expect(SYSTEM_PROMPT).toContain("keeps its date meaning");
+  });
+
+  it("says a name-call is never something to answer about (#3323)", () => {
+    expect(SYSTEM_PROMPT).toContain("never something to answer about");
+  });
+
+  it("does not assert call position is unconditionally never a date (#3323)", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/never a date/i);
+  });
 });

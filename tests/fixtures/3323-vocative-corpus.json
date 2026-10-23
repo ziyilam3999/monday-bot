@@ -1,0 +1,190 @@
+{
+  "keep": [
+    "Monday, Tuesday and Wednesday: who is on call?",
+    "Monday, Wednesday, Friday deploys - what is the schedule?",
+    "Monday, May 5th: what is due?",
+    "Monday, the 3rd - is the office open?",
+    "morning Monday standup?",
+    "Afternoon monday meeting cancelled?",
+    "evening Monday shift - who is on?",
+    "which days are deploy days: Tuesday, Monday?",
+    "Monday, Tue and Wed: who is on call?",
+    "Monday, Jan 5th: what is due?",
+    "Monday, Sept 3 - office open?",
+    "Monday, Mondays and Fridays are deploy days?",
+    "Monday, tomorrow or Friday - which is the deadline?",
+    "Monday, morning shift - who is on?",
+    "Monday, noon - is the deploy window open?",
+    "Monday, next week, who is on call?",
+    "Monday, at 9am, is standup on?",
+    "the launch is on May 5th, Monday?",
+    "is the deploy on the 3rd, Monday?",
+    "standup moved to 9am, Monday?",
+    "deploy days are Tue, Monday?",
+    "hi Monday, Tuesday and Wednesday: who is on call?",
+    "hey Monday, May 5th is the launch?",
+    "hey Monday or Tuesday for the deploy?",
+    "hi, Monday morning standup still on?",
+    "hey, Monday 9am standup moved?",
+    "hello, Monday is a holiday, right?",
+    "yo Monday standup cancelled?",
+    "Monday: who is on call?",
+    "Monday: standup cancelled?",
+    "Monday: where do I find the onboarding checklist",
+    "Monday, eleventh of May: what is due?",
+    "Monday, twenty-first - is the office open?",
+    "Monday, or Friday - which is the deadline?",
+    "Monday, through Friday, who is on call?",
+    "Monday, EOD - is the deadline firm?",
+    "Monday, end of day - is the deadline firm?",
+    "Monday, midday - is the office open?",
+    "Monday, lunchtime - is the office open?",
+    "Monday, every other week - is standup on?",
+    "Monday, weekly or biweekly?",
+    "Monday, two pm - is the office open?",
+    "Monday, Labor Day - is the office open?",
+    "the release is the twenty-first, Monday?",
+    "deploy is EOD, Monday?",
+    "standup is weekly, Monday?",
+    "the deadline is the 3rd , Monday?",
+    "what was deployed on Monday?",
+    "is the standup on Monday?",
+    "deploy runs every Monday at noon",
+    "what changed in the Monday release?",
+    "Monday, May 5th is the launch?",
+    "Monday, the 3rd?",
+    "good morning, is the deploy on Monday?",
+    "Monday's release notes?",
+    "on Monday, what shipped?",
+    "every Monday we deploy, right?",
+    "Monday morning standup?",
+    "is it due Friday or Monday?",
+    "standups are Tuesday, Thursday, and Monday",
+    "Monday what was deployed",
+    "the Monday deploy checklist",
+    "Monday, can provide business rules for dispute resolution?",
+    "MONDAY, what about the refund policy?",
+    "Monday, what is due on Monday?",
+    "Monday, who is on call?",
+    "can you help, Monday?",
+    "what about annual leave, Monday?",
+    "HELLO MONDAY what about annual leave",
+    "Monday, what is due, Monday?",
+    "Monday, zorblax deploys - who is on call?",
+    "Monday, quuxday rota - who is on?",
+    "Monday, quarterly review - is it on?",
+    "Monday, payroll - when does it run?",
+    "Monday, holiday party - still on?",
+    "Monday, sprint demo - who presents?",
+    "hi Monday, zorblax deploys - who is on call?",
+    "hey Monday, payroll - when does it run?",
+    "Monday, frobnitz handover - who covers?",
+    "Monday, retro notes - where are they?",
+    "hello Monday, onboarding checklist - where is it?",
+    "Monday, wibble - is that on?",
+    "Monday, can we move standup?",
+    "Monday, which room is standup in?",
+    "Monday, list the deploys",
+    "Monday, could the deploy slip?",
+    "Monday,can you help?",
+    "Monday， can you help?",
+    "Monday",
+    "Monday,",
+    "Monday:",
+    "Mondays, can you check?",
+    "Monday's, can you check?",
+    "what is the monday-bot repo?",
+    "ask @monday_fan about leave",
+    "Monday, please submit timesheets - is that the rule?",
+    "evening Monday, can you cover the shift?",
+    "good Monday, can you cover the shift?",
+    "morning Monday, can you cover the shift?",
+    "afternoon Monday, can you cover the shift?",
+    "Monday, please bring the laptop - is that required?",
+    "Monday, are the offices open?",
+    "Monday, tell the team about standup",
+    "hi Monday, can we meet?"
+  ],
+  "fire": [
+    {
+      "in": "Monday, can you summarise the refund policy?",
+      "out": "can you summarise the refund policy?"
+    },
+    {
+      "in": "hey Monday, can you summarise the refund policy?",
+      "out": "hey, can you summarise the refund policy?"
+    },
+    {
+      "in": "Monday, please list the leave rules",
+      "out": "please list the leave rules"
+    },
+    {
+      "in": "Monday, tell me who is on call Monday",
+      "out": "tell me who is on call Monday"
+    },
+    {
+      "in": "Monday , could you check the 3rd?",
+      "out": "could you check the 3rd?"
+    },
+    {
+      "in": "hey @monday_bot what is due on Monday?",
+      "out": "hey what is due on Monday?"
+    },
+    {
+      "in": "@monday-bot, what about annual leave?",
+      "out": "what about annual leave?"
+    },
+    {
+      "in": "hi monday-bot what about annual leave",
+      "out": "hi what about annual leave"
+    },
+    {
+      "in": "monday-bot: who is on call Monday?",
+      "out": "who is on call Monday?"
+    },
+    {
+      "in": "what is the refund policy, monday-bot?",
+      "out": "what is the refund policy?"
+    },
+    {
+      "in": "Monday, would you explain the escalation path?",
+      "out": "would you explain the escalation path?"
+    },
+    {
+      "in": "hello Monday, could you help me?",
+      "out": "hello, could you help me?"
+    },
+    {
+      "in": "Monday, show me the leave rules",
+      "out": "show me the leave rules"
+    },
+    {
+      "in": "Monday, give me the onboarding link",
+      "out": "give me the onboarding link"
+    },
+    {
+      "in": "Monday, help me find the refund policy",
+      "out": "help me find the refund policy"
+    },
+    {
+      "in": "MONDAY, CAN YOU HELP?",
+      "out": "CAN YOU HELP?"
+    },
+    {
+      "in": "Monday_Bot, what is due?",
+      "out": "what is due?"
+    },
+    {
+      "in": "Monday,\ncan you help?\nsecond line",
+      "out": "can you help?\nsecond line"
+    },
+    {
+      "in": "hi, Monday, can you cover the 3rd?",
+      "out": "hi, can you cover the 3rd?"
+    },
+    {
+      "in": "Monday, do you know the leave policy?",
+      "out": "do you know the leave policy?"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"id":"3323-please-opener-date","condition":"The allowlist cleaner strips a real weekday fronting a 'please' memo shape: stripNameCall('Monday, please submit timesheets - is that the rule?') returns a string that no longer contains 'Monday'."}
