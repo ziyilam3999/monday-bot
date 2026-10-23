@@ -135,6 +135,43 @@ function hasContextWordBefore(toks: Token[], keyIdx: number): boolean {
   return false;
 }
 
+/**
+ * #3378 — field-question phrase directly before the key token. Words that name
+ * a Jira field a user asks about. Any case.
+ */
+export const JIRA_FIELD_WORDS: ReadonlySet<string> = new Set([
+  "status",
+  "assignee",
+  "priority",
+]);
+
+/** Prepositions that may join a field word to the key ("status OF get 673"). */
+const FIELD_PREPOSITIONS: ReadonlySet<string> = new Set(["of", "for", "on"]);
+
+/**
+ * True when the key token at `keyIdx` is directly preceded by
+ * `<field> <of|for|on>` with ONLY whitespace between the three. Punctuation
+ * anywhere in the phrase ("status, of get 2", "priority: get 3") blocks it, and
+ * a field word elsewhere in the sentence does not count. Narrow by design: the
+ * project key can be an everyday verb ("get"), so a loose field word would
+ * false-fire on prose like "our priority is to get 2 hotfixes out".
+ */
+function hasFieldPhraseBefore(toks: Token[], keyIdx: number): boolean {
+  let i = keyIdx - 1;
+  const skipWs = () => {
+    while (i >= 0 && toks[i].kind === "other" && /^\s$/.test(toks[i].text)) i--;
+  };
+  skipWs();
+  const prep = toks[i];
+  if (!prep || prep.kind !== "word" || !FIELD_PREPOSITIONS.has(prep.text.toLowerCase())) {
+    return false;
+  }
+  i--;
+  skipWs();
+  const field = toks[i];
+  return !!field && field.kind === "word" && JIRA_FIELD_WORDS.has(field.text.toLowerCase());
+}
+
 interface NumberMatch {
   digits: string;
   shape: "hyphen" | "spaced" | "fused";
@@ -221,7 +258,13 @@ export function extractIssueKeys(
     if (!m) continue;
     // Loose shapes need a Jira-context word BEFORE the key; hyphenated is
     // unambiguous and fires unconditionally.
-    if (m.shape !== "hyphen" && !hasContextWordBefore(toks, i)) continue;
+    if (
+      m.shape !== "hyphen" &&
+      !hasContextWordBefore(toks, i) &&
+      !hasFieldPhraseBefore(toks, i)
+    ) {
+      continue;
+    }
     // Normalize leading zeros only (DEMO-0673 -> DEMO-673); never through
     // Number(), which would go scientific on very long digit runs.
     const digits = m.digits.replace(/^0+(?=\d)/, "");

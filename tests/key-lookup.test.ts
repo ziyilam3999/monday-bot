@@ -563,3 +563,54 @@ describe("timeout (AC-11)", () => {
     expect(genCalls.length).toBe(0);
   });
 });
+
+// ===========================================================================
+// #3378 — field-question phrase ("status of get 673") reaches the exact-key leg
+// ===========================================================================
+
+describe("3378 field phrase", () => {
+  const keys = ["GET"];
+  it("3378 must-fire: the exact operator text", () => {
+    expect(extractKeys("Hi Monday, what's the status of get 673?", keys)).toEqual(["GET-673"]);
+  });
+  it("3378 must-fire: spaced upper-case key", () => {
+    expect(extractKeys("status of GET 673", keys)).toEqual(["GET-673"]);
+  });
+  it("3378 must-fire: fused key after assignee of", () => {
+    expect(extractKeys("assignee of get673", keys)).toEqual(["GET-673"]);
+  });
+  it("3378 must-fire: mixed case and trailing punctuation", () => {
+    expect(extractKeys("priority of Get 673?", keys)).toEqual(["GET-673"]);
+  });
+  it("3378 must-fire: for and on prepositions", () => {
+    expect(extractKeys("priority for GET 9", keys)).toEqual(["GET-9"]);
+    expect(extractKeys("status on get 673", keys)).toEqual(["GET-673"]);
+  });
+});
+
+describe("3378 must-not-fire", () => {
+  const keys = ["GET"];
+  const sentences = [
+    "can I get 2 volunteers?",
+    "get 3 reviewers then check status",
+    "how do I get 10 tickets done",
+    "what's the status of 673?",
+    "our priority is to get 2 hotfixes out",
+    "what's the status, can we get 2 more people?",
+    "status update: get 5 people on it",
+    "priority: get 3 reviewers",
+    "the assignee should get 2 days off",
+    "status, of get 2 things",
+    "status - of get 2 things",
+    "status of, get 2 things",
+    "status of about get 2 things",
+  ];
+  for (const q of sentences) {
+    it(`3378 must-not-fire: ${q}`, () => {
+      expect(extractKeys(q, keys)).toEqual([]);
+    });
+  }
+  it("3378 must-not-fire: unconfigured project", () => {
+    expect(extractKeys("status of XYZ 673", keys)).toEqual([]);
+  });
+});

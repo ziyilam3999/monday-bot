@@ -517,3 +517,30 @@ describe("fields lock (AC-9)", () => {
     expect(issues[0].meta).toBeUndefined();
   });
 });
+
+// ===========================================================================
+// #3378 — the operator's field-phrase question reaches the live facts line
+// ===========================================================================
+
+describe("3378 field phrase end-to-end", () => {
+  it("3378: 'what's the status of get 673?' → live facts line, one fetch of GET-673", async () => {
+    const { generator } = makeGenerator();
+    const { calls: fetchCalls, fetcher } = makeFetcher({
+      "GET-673": {
+        key: "GET-673",
+        summary: "Fixture summary",
+        descriptionText: "Fixture description",
+        commentTexts: [],
+        meta: { status: "In Progress" },
+      },
+    });
+    const svc = makeService({
+      generator,
+      lookup: { projectKeys: ["GET"], issueFetcher: fetcher },
+    });
+    await indexNeighbours(svc);
+    const result = await svc.query("Hi Monday, what's the status of get 673?");
+    expect(fetchCalls).toEqual(["GET-673"]);
+    expect(result.answer).toContain("GET-673 — Status: In Progress");
+  });
+});
