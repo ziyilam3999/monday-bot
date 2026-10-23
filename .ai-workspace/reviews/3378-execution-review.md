@@ -36,10 +36,10 @@ The implementation is exactly `<status|assignee|priority> <of|for|on> <KEY> <n>`
 
 ## Ask vs build
 
-The operator asked, in Telegram, "Hi Monday, what's the status of get 673?" and the bot said it could not find the ticket.
+The operator asked, in Telegram, "Hi Monday, what's the status of <the ticket key>?" and the bot said it could not find the ticket.
 
 At head, I replayed that exact text through the real `KnowledgeService` with `buildIssueLookupFromEnv`, env loaded via `process.loadEnvFile` from the bot's env file, and an empty-login HOME. Results:
-- The key was extracted (project key GET, number 673).
+- The key was extracted (the ticket key, redacted).
 - The direct Jira read returned HTTP 200, status name `in design solution`.
 - The answer carries the live facts line `— Status: in design solution`, which matches the direct read. I checked this by grep on the log.
 

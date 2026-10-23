@@ -145,16 +145,16 @@ export const JIRA_FIELD_WORDS: ReadonlySet<string> = new Set([
   "priority",
 ]);
 
-/** Prepositions that may join a field word to the key ("status OF get 673"). */
+/** Prepositions that may join a field word to the key ("status OF demo 673"). */
 const FIELD_PREPOSITIONS: ReadonlySet<string> = new Set(["of", "for", "on"]);
 
 /**
  * True when the key token at `keyIdx` is directly preceded by
  * `<field> <of|for|on>` with ONLY whitespace between the three. Punctuation
- * anywhere in the phrase ("status, of get 2", "priority: get 3") blocks it, and
+ * anywhere in the phrase ("status, of demo 2", "priority: demo 3") blocks it, and
  * a field word elsewhere in the sentence does not count. Narrow by design: the
  * project key can be an everyday verb ("get"), so a loose field word would
- * false-fire on prose like "our priority is to get 2 hotfixes out".
+ * false-fire on prose like "our priority is to demo 2 hotfixes out".
  */
 function hasFieldPhraseBefore(toks: Token[], keyIdx: number): boolean {
   let i = keyIdx - 1;
