@@ -1,0 +1,1 @@
+{"id":"docs-check","program":"scripts/gate-docs.sh","args":[],"timeout_ms":60000,"max_output_bytes":65536,"both_ends":false}
