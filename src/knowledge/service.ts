@@ -583,12 +583,32 @@ export class KnowledgeService {
    * `{ id?, text, source, heading?, section? }` objects. Each chunk's `source`
    * counts toward `documentCount` once. `id` is optional — VectorIndex will
    * synthesize one from `(source, text)` if omitted.
+   *
+   * `opts.replace` (#151): opt-in replace-on-reindex. When true, every `source`
+   * named in the new batch is cleared from the index FIRST (the same
+   * `removeBySource` replace-on-resync path `indexConfluencePage` uses), so the
+   * batch becomes the canonical version of those sources rather than an append.
+   * Only sources PRESENT IN THE BATCH are replaced — chunks of any other source
+   * stay untouched. Append remains the default (omitted/false), preserving the
+   * pre-#151 behavior.
    */
-  async indexChunks(chunks: IndexChunk[]): Promise<void> {
+  async indexChunks(
+    chunks: IndexChunk[],
+    opts: { replace?: boolean } = {},
+  ): Promise<void> {
     if (!Array.isArray(chunks)) {
       throw new TypeError("KnowledgeService.indexChunks: chunks must be an array");
     }
+    if (opts.replace !== undefined && typeof opts.replace !== "boolean") {
+      throw new TypeError("KnowledgeService.indexChunks: opts.replace must be a boolean");
+    }
     if (chunks.length === 0) return;
+    if (opts.replace) {
+      const sources = new Set(chunks.map((c) => c.source));
+      for (const source of sources) {
+        await this.vectorIndex.removeBySource(source);
+      }
+    }
     await this.vectorIndex.add(chunks);
     for (const c of chunks) this.indexedSources.add(c.source);
   }
