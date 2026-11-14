@@ -127,6 +127,31 @@ describe("KnowledgeService", () => {
         svc.query(undefined as unknown as string),
       ).rejects.toThrow(TypeError);
     });
+
+    it.each(["", "   ", "\n\t "])(
+      "rejects blank question %j on an empty index without calling the generator",
+      async (blank) => {
+        const generator = jest.fn();
+        const svc = new KnowledgeService({ generator });
+        const p = svc.query(blank);
+        await expect(p).rejects.toThrow(TypeError);
+        await expect(p).rejects.toThrow("KnowledgeService.query");
+        expect(generator).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["", "   ", "\n\t "])(
+      "rejects blank question %j on a non-empty index without calling the generator",
+      async (blank) => {
+        const generator = jest.fn();
+        const svc = new KnowledgeService({ generator });
+        await svc.indexChunks([{ text: "The firewall blocks port 80.", source: "s1" }]);
+        const p = svc.query(blank);
+        await expect(p).rejects.toThrow(TypeError);
+        await expect(p).rejects.toThrow("KnowledgeService.query");
+        expect(generator).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe("indexChunks { replace: true } (#151)", () => {

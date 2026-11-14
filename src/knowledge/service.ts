@@ -297,6 +297,9 @@ export class KnowledgeService {
     if (typeof question !== "string") {
       throw new TypeError("KnowledgeService.query: question must be a string");
     }
+    if (question.trim().length === 0) {
+      throw new TypeError("KnowledgeService.query: question must be a non-empty string");
+    }
     if (this.vectorIndex.size() === 0) {
       // 3286 AC-3: empty index + first sync in flight → warming-up copy; every
       // initial sync errored → sync-failed copy; anything else (no sources
