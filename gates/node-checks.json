@@ -1,0 +1,1 @@
+{"id":"node-checks","program":"gates/node-checks.sh","args":[],"timeout_ms":900000,"max_output_bytes":262144,"both_ends":false}
