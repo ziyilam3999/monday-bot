@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { KnowledgeService } from "../src/knowledge/service";
+import { VectorIndex } from "../src/index/vectorIndex";
 import { Chunk as LlmChunk, Citation } from "../src/llm/generate";
 
 jest.setTimeout(60_000);
@@ -124,6 +125,69 @@ describe("KnowledgeService", () => {
       const svc = new KnowledgeService();
       await expect(
         svc.query(undefined as unknown as string),
+      ).rejects.toThrow(TypeError);
+    });
+  });
+
+  describe("indexChunks { replace: true } (#151)", () => {
+    it("a replace batch under the same source replaces the prior chunks", async () => {
+      const index = new VectorIndex();
+      const svc = new KnowledgeService({ index });
+      await svc.indexChunks([
+        { text: "first passage of doc one", source: "s1" },
+        { text: "second passage of doc one", source: "s1" },
+      ]);
+      expect(index.size()).toBe(2);
+
+      await svc.indexChunks([{ text: "rewritten passage of doc one", source: "s1" }], {
+        replace: true,
+      });
+
+      expect(index.size()).toBe(1);
+      expect(svc.getStatus().documentCount).toBe(1);
+      expect(svc.getChunkCountForSource("s1")).toBe(1);
+    });
+
+    it("without the option, batches append (the default is unchanged)", async () => {
+      const index = new VectorIndex();
+      const svc = new KnowledgeService({ index });
+      await svc.indexChunks([
+        { text: "first passage of doc one", source: "s1" },
+        { text: "second passage of doc one", source: "s1" },
+      ]);
+      await svc.indexChunks([{ text: "rewritten passage of doc one", source: "s1" }]);
+
+      expect(index.size()).toBe(3);
+      expect(svc.getStatus().documentCount).toBe(1);
+    });
+
+    it("replace removes only the sources named in the new batch", async () => {
+      const index = new VectorIndex();
+      const svc = new KnowledgeService({ index });
+      await svc.indexChunks([
+        { text: "first passage of doc one", source: "s1" },
+        { text: "second passage of doc one", source: "s1" },
+      ]);
+      await svc.indexChunks([{ text: "the only passage of doc two", source: "s2" }]);
+
+      await svc.indexChunks([{ text: "rewritten passage of doc one", source: "s1" }], {
+        replace: true,
+      });
+
+      // s1's two old chunks are gone (one new chunk in their place); s2's
+      // chunk survives untouched.
+      expect(index.size()).toBe(2);
+      expect(svc.getChunkCountForSource("s1")).toBe(1);
+      expect(svc.getChunkCountForSource("s2")).toBe(1);
+      expect(svc.getStatus().documentCount).toBe(2);
+    });
+
+    it("rejects a non-boolean replace option", async () => {
+      const svc = new KnowledgeService();
+      await expect(
+        svc.indexChunks([{ text: "a passage", source: "s1" }], {
+          replace: "yes" as unknown as boolean,
+        }),
       ).rejects.toThrow(TypeError);
     });
   });
