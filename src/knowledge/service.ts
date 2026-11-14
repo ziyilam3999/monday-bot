@@ -607,6 +607,15 @@ export class KnowledgeService {
     }
     if (chunks.length === 0) return;
     if (opts.replace) {
+      // Validate EVERY chunk before removing anything: a bad chunk later in the
+      // batch must not leave earlier sources already cleared from the index.
+      for (const c of chunks) {
+        if (!c || typeof c.text !== "string" || typeof c.source !== "string" || c.source.length === 0) {
+          throw new TypeError(
+            "KnowledgeService.indexChunks: each chunk must have text and a non-empty source",
+          );
+        }
+      }
       const sources = new Set(chunks.map((c) => c.source));
       for (const source of sources) {
         await this.vectorIndex.removeBySource(source);

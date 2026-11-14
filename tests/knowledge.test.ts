@@ -207,6 +207,30 @@ describe("KnowledgeService", () => {
       expect(svc.getStatus().documentCount).toBe(2);
     });
 
+    it.each([
+      ["an empty-string source", { text: "bad chunk", source: "" }],
+      ["a missing source", { text: "bad chunk" }],
+    ])("a replace batch with %s rejects and leaves the index untouched", async (_name, bad) => {
+      const index = new VectorIndex();
+      const svc = new KnowledgeService({ index });
+      await svc.indexChunks([
+        { text: "first passage of doc one", source: "s1" },
+        { text: "second passage of doc one", source: "s1" },
+      ]);
+      const before = index.size();
+
+      await expect(
+        svc.indexChunks(
+          [{ text: "rewritten passage of doc one", source: "s1" }, bad as never],
+          { replace: true },
+        ),
+      ).rejects.toThrow(TypeError);
+
+      expect(index.size()).toBe(before);
+      expect(svc.getChunkCountForSource("s1")).toBe(2);
+      expect(svc.getStatus().documentCount).toBe(1);
+    });
+
     it("rejects a non-boolean replace option", async () => {
       const svc = new KnowledgeService();
       await expect(
