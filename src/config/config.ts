@@ -139,8 +139,8 @@ function requireStringArray(
  * Hand-written checks — no schema dependency. Unknown keys, `recall`, and
  * absent keys are deliberately untouched (pass through unchanged) so partial
  * and forward-compatible configs keep loading. Only keys the loader claims
- * to understand are type-checked, because a wrongly-typed known key fails
- * far downstream (cron parser, path joiner) with a much worse message.
+ * to understand are type-checked, so a wrongly-typed known key is refused
+ * at load time with a message that names the key.
  */
 function validateKnownKeys(
   cfg: Record<string, unknown>,
