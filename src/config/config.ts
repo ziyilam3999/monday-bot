@@ -52,13 +52,125 @@ export class ConfigLoadError extends Error {
 
 const DEFAULT_CONFIG_FILENAME = "config.yaml";
 
+/** Human-readable YAML-ish type name for error messages ("null", "array", ...). */
+function typeName(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
+}
+
+/** Refuse a present-but-wrongly-typed key. Absent keys (undefined) pass. */
+function requireString(
+  value: unknown,
+  keyPath: string,
+  resolved: string
+): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new ConfigLoadError(
+      `Config key "${keyPath}" in ${resolved} must be a string, ` +
+        `got ${typeName(value)}.`
+    );
+  }
+}
+
+function requireNumber(
+  value: unknown,
+  keyPath: string,
+  resolved: string
+): void {
+  if (value !== undefined && typeof value !== "number") {
+    throw new ConfigLoadError(
+      `Config key "${keyPath}" in ${resolved} must be a number, ` +
+        `got ${typeName(value)}.`
+    );
+  }
+}
+
+function requireMapping(
+  value: unknown,
+  keyPath: string,
+  resolved: string
+): void {
+  if (
+    value !== undefined &&
+    (typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value))
+  ) {
+    throw new ConfigLoadError(
+      `Config key "${keyPath}" in ${resolved} must be a mapping ` +
+        `(key: value pairs), got ${typeName(value)}.`
+    );
+  }
+}
+
+function requireStringArray(
+  value: unknown,
+  keyPath: string,
+  resolved: string
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const offender =
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string");
+  if (offender) {
+    throw new ConfigLoadError(
+      `Config key "${keyPath}" in ${resolved} must be an array of ` +
+        `strings, got ${typeName(value)}${
+          Array.isArray(value)
+            ? ` containing a non-string entry (${typeName(
+                value.find((entry) => typeof entry !== "string")
+              )})`
+            : ""
+        }.`
+    );
+  }
+}
+
+/**
+ * Validate the known keys of an already-parsed config mapping (#145).
+ *
+ * Hand-written checks — no schema dependency. Unknown keys, `recall`, and
+ * absent keys are deliberately untouched (pass through unchanged) so partial
+ * and forward-compatible configs keep loading. Only keys the loader claims
+ * to understand are type-checked, so a wrongly-typed known key is refused
+ * at load time with a message that names the key.
+ */
+function validateKnownKeys(
+  cfg: Record<string, unknown>,
+  resolved: string
+): void {
+  requireString(cfg.indexPath, "indexPath", resolved);
+  requireString(cfg.confluenceSchedule, "confluenceSchedule", resolved);
+  requireMapping(cfg.confluence, "confluence", resolved);
+  requireMapping(cfg.jira, "jira", resolved);
+
+  if (cfg.confluence !== undefined) {
+    const confluence = cfg.confluence as Record<string, unknown>;
+    requireString(confluence.schedule, "confluence.schedule", resolved);
+    requireStringArray(confluence.spaces, "confluence.spaces", resolved);
+    requireNumber(confluence.pageLimit, "confluence.pageLimit", resolved);
+  }
+  if (cfg.jira !== undefined) {
+    const jira = cfg.jira as Record<string, unknown>;
+    requireString(jira.schedule, "jira.schedule", resolved);
+  }
+}
+
 /**
  * Read and parse `config.yaml` from the project root (or a provided path).
  *
  * Returns an empty object if the file is empty (a YAML doc of `null` or `{}`),
  * never undefined. Throws `ConfigLoadError` with a friendly message on a
- * missing file or YAML parse error — matches the US-10 graceful-error
- * precedent (no raw stack traces leaking to the operator).
+ * missing file, YAML parse error, or a wrongly-typed known key (#145) —
+ * matches the US-10 graceful-error precedent (no raw stack traces leaking
+ * to the operator).
  */
 export function loadConfig(configPath?: string): AppConfig {
   const resolved =
@@ -105,5 +217,7 @@ export function loadConfig(configPath?: string): AppConfig {
     );
   }
 
-  return parsed as AppConfig;
+  const cfg = parsed as Record<string, unknown>;
+  validateKnownKeys(cfg, resolved);
+  return cfg as AppConfig;
 }
