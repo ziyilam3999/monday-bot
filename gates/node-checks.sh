@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gate check for code paths (src, tests, config, build files): runs the same checks CI runs, OFFLINE.
 #   typecheck (tsc --noEmit for src and tests), build (tsc -> dist, dist/index.js must exist), jest, plus
-#   `bash -n` on every tracked shell script and `node --check` on every tracked scripts/*.js.
+#   `bash -n` on every tracked shell script (scripts/ and gates/) and `node --check` on every tracked scripts/*.js.
 # Assumption: node_modules is present. This gate NEVER runs npm install/ci (no network). If node_modules is
 # missing it FAILS (exit 1) with a clear line, it never passes by skipping. The one convenience: when the gate
 # runs in a fresh clone of a ticket tree (origin = that tree), a node_modules folder or link next to it is
@@ -40,6 +40,6 @@ while IFS= read -r f; do
     *.sh) step "bash -n $f" bash -n "$f" ;;
     scripts/*.js) step "node --check $f" node --check "$f" ;;
   esac
-done < <(git ls-files scripts)
+done < <(git ls-files scripts gates)
 
 echo "node-checks: ok"
