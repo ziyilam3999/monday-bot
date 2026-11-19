@@ -1,6 +1,6 @@
-# Monday — Team Slack Knowledge Assistant
+# Monday — Team Knowledge Assistant (Slack and Telegram)
 
-A Slack bot that answers team questions from internal documents (shared folders, Confluence) with cited, fact-based summaries. Built as a single-process Node/TypeScript service.
+A Slack and Telegram bot that answers team questions from internal documents (Confluence pages, Jira tickets, ingested files) with cited, fact-based summaries. Built as a single-process Node/TypeScript service.
 
 ## Status
 
@@ -8,18 +8,18 @@ A Slack bot that answers team questions from internal documents (shared folders,
 
 ## What Monday does
 
-- A user asks a question in Slack (`@Monday ...` or `/ask ...`)
-- Monday searches the indexed corpus (local docs + Confluence pages)
+- A user asks a question in Slack (`@Monday ...` or `/ask ...`) or in an allowed Telegram chat (see [docs/telegram.md](docs/telegram.md))
+- Monday searches the indexed corpus (Confluence pages, Jira tickets, ingested files)
 - Returns a concise answer with **inline citations** `[1]` and a visible source list
 - If the docs don't cover the question, Monday says so explicitly — never fabricates
 
-Quality bar: facts-only, every claim traceable to a cited chunk, ~15s end-to-end on CPU.
+Quality bar: facts-only, every claim traceable to a cited chunk.
 
 ## Stack
 
 - **Runtime**: Node.js 20 + TypeScript 5
 - **Test**: jest + ts-jest
-- **Inference**: local-first (LLM runs on the same box, not via external API) — chosen for data residency and cost
+- **Inference**: search (embeddings and re-ranking) runs on the same box; the answer is written by a cloud model through the Anthropic API (default in `src/llm/modelConfig.ts`, override with `ANTHROPIC_MODEL`), so the question and the retrieved passages leave the box
 - **Deployment**: single long-running Node process, supervised locally (macOS launchd)
 - **Slack**: Socket Mode (Bolt SDK) — no public ingress required
 
@@ -159,7 +159,7 @@ bash scripts/install-launchd.sh uninstall            # bootout + remove the plis
 
 ## Out of scope (v1)
 
-Web UI, CLI/terminal query, desktop app, WhatsApp/Teams/Telegram integration, multi-tenant SaaS, advanced reasoning (chain-of-thought, multi-hop synthesis). See PRD §6.
+Web UI, CLI/terminal query, desktop app, WhatsApp/Teams integration, multi-tenant SaaS, advanced reasoning (chain-of-thought, multi-hop synthesis). See PRD §6.
 
 The retrieval core stays platform-agnostic so a future non-Slack adapter is a thin shim, not a rewrite.
 
