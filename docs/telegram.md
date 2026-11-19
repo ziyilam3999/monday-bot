@@ -51,9 +51,15 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789
 - Replies are plain text, split at Telegram's 4096-char ceiling when needed.
 - A Telegram outage never takes the bot down: mid-run poll failures back off
   (5s doubling to 60s) for up to 10 consecutive tries, then the channel parks
-  itself (one log line) while Slack keeps running. Restart to re-enable.
-  A bad token or a competing poller at boot, however, is treated as
-  misconfiguration: startup fails loudly.
+  itself (one log line) while Slack keeps running. A parked channel probes
+  again by itself every 5 minutes and, after the first good probe, prints a
+  "channel is back" line and resumes polling on the normal schedule — no
+  restart is needed. A bad token or a competing poller at boot, however, is
+  treated as misconfiguration: startup fails loudly.
+- Messages sent while the channel is parked are answered when the channel
+  comes back — also when that is hours later (Telegram holds them for a
+  limited time). This differs from the boot drain at start-up, which
+  discards the queued backlog.
 
 ## 5. The ask log (2-week measure)
 
