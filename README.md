@@ -1,6 +1,6 @@
-# Monday — Team Slack Knowledge Assistant
+# Monday — Team Knowledge Assistant (Slack and Telegram)
 
-A Slack bot that answers team questions from internal documents (shared folders, Confluence) with cited, fact-based summaries. Built as a single-process Node/TypeScript service.
+A Slack and Telegram bot that answers team questions from internal documents (Confluence pages, Jira tickets) with cited, fact-based summaries. Built as a single-process Node/TypeScript service.
 
 ## Status
 
@@ -8,18 +8,18 @@ A Slack bot that answers team questions from internal documents (shared folders,
 
 ## What Monday does
 
-- A user asks a question in Slack (`@Monday ...` or `/ask ...`)
-- Monday searches the indexed corpus (local docs + Confluence pages)
+- A user asks a question in Slack (`@Monday ...` or `/ask ...`) or, when the optional Telegram adapter is switched on (`TELEGRAM_BOT_TOKEN`, a trial), in an allow-listed Telegram chat (see [docs/telegram.md](docs/telegram.md))
+- Monday searches the indexed corpus (Confluence pages, Jira tickets)
 - Returns a concise answer with **inline citations** `[1]` and a visible source list
 - If the docs don't cover the question, Monday says so explicitly — never fabricates
 
-Quality bar: facts-only, every claim traceable to a cited chunk, ~15s end-to-end on CPU.
+Quality bar: facts-only, every claim traceable to a cited chunk.
 
 ## Stack
 
 - **Runtime**: Node.js 20 + TypeScript 5
 - **Test**: jest + ts-jest
-- **Inference**: local-first (LLM runs on the same box, not via external API) — chosen for data residency and cost
+- **Inference**: search runs on the same box (embeddings; the optional re-ranker, off by default in `config.yaml`, also runs locally when switched on); the answer is written by a cloud model through the Anthropic API (default in `src/llm/modelConfig.ts`, override with `ANTHROPIC_MODEL`), so the question and the retrieved passages leave the box
 - **Deployment**: single long-running Node process, supervised locally (macOS launchd)
 - **Slack**: Socket Mode (Bolt SDK) — no public ingress required
 
@@ -53,7 +53,8 @@ Set these in the shell, a `.env` file, or your process manager's env block:
 
 Optional (depending on which stories are enabled in your build):
 
-- `ANTHROPIC_API_KEY` — only if the Anthropic LLM path is wired in
+- `ANTHROPIC_API_KEY` — used to write answers when no local Claude OAuth credential is found; with neither, Monday falls back to an offline answer stitched from the top passages
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_CHAT_IDS` — optional Telegram channel; see [docs/telegram.md](docs/telegram.md)
 - `MONDAY_DEBUG=1` — enables stack traces on startup failure
 
 A template lives in [`.env.example`](./.env.example). Application config
@@ -159,9 +160,9 @@ bash scripts/install-launchd.sh uninstall            # bootout + remove the plis
 
 ## Out of scope (v1)
 
-Web UI, CLI/terminal query, desktop app, WhatsApp/Teams/Telegram integration, multi-tenant SaaS, advanced reasoning (chain-of-thought, multi-hop synthesis). See PRD §6.
+Web UI, CLI/terminal query, desktop app, WhatsApp/Teams integration, multi-tenant SaaS, advanced reasoning (chain-of-thought, multi-hop synthesis). See PRD §6 (which predates the Telegram adapter).
 
-The retrieval core stays platform-agnostic so a future non-Slack adapter is a thin shim, not a rewrite.
+The retrieval core stays platform-agnostic, so a non-Slack adapter (Telegram today) is a thin shim, not a rewrite.
 
 ## Repo layout (so far)
 
