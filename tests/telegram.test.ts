@@ -570,6 +570,55 @@ describe("telegram/adapter — poll loop policy", () => {
     errSpy.mockRestore();
   });
 
+  it("a parked channel resumes after the network returns", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    script.push({ kind: "ok", updates: [] }); // good probe 1
+    script.push({ kind: "ok", updates: [] }); // good poll 2
+    // default step: pending — the script's end holds the loop
+    const transport = new FakeTransport(script);
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+      sleepFn: sleep.sleepFn,
+      // default minPollIntervalMs (1000): each good empty poll holds the loop
+      // in a pace sleep, so the 13th call is the last one made.
+    });
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 10th failure → park → probe sleep pending
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11);
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11); // held: probe sleep pending
+    sleep.resolvePending(); // the network is back
+    await settle();
+    // twelfth call: the good probe
+    expect(transport.getUpdatesCalls.length).toBe(12);
+    expect(sleep.delays[9]).toBe(300000); // first probe sleep: PARKED_PROBE_MS
+    sleep.resolvePending(); // pace sleep after the good probe
+    await settle();
+    // thirteenth call: the loop is back on the normal schedule
+    expect(transport.getUpdatesCalls.length).toBe(13);
+    expect(errSpy).toHaveBeenCalledTimes(2); // park line + back line, nothing more
+    const parkLine = errSpy.mock.calls[0]?.join(" ") ?? "";
+    const backLine = errSpy.mock.calls[1]?.join(" ") ?? "";
+    expect(parkLine).toContain("parking");
+    expect(backLine).toBe("Telegram adapter: channel is back after 10 failed polls");
+    errSpy.mockRestore();
+    await adapter.stop();
+    await adapter._loopDone();
+  });
+
   it("AC13 — stop() during a pending backoff sleep: loop settles, no further getUpdates, fetch aborted", async () => {
     const sleep = makeSleep();
     const { adapter, transport } = makeAdapter(
