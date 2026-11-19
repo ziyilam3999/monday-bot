@@ -16,7 +16,10 @@
  *     (a bad token or a competing poller at boot is a misconfiguration).
  *   - Mid-run poll failures are NEVER process-fatal: bounded exponential
  *     backoff (5s doubling to a 60s cap), then self-park after 10 consecutive
- *     failed polls. Slack keeps running; a restart re-enables Telegram.
+ *     failed polls (one park line). A parked channel probes again on its own
+ *     every PARKED_PROBE_MS and, after the first good probe, prints one back
+ *     line and resumes the normal schedule — no restart is needed. Slack
+ *     keeps running.
  */
 import { handleQuery, QueryHandlerResult } from "../slack/queryHandler";
 import {
@@ -77,6 +80,8 @@ export class TelegramConfigError extends Error {
 const DEFAULT_BACKOFF_MS = 5000;
 const MAX_BACKOFF_MS = 60000;
 const MAX_CONSECUTIVE_FAILURES = 10;
+/** Spacing of the single probe poll a PARKED channel makes (5 minutes). */
+const PARKED_PROBE_MS = 300000;
 const POLL_TIMEOUT_SEC = 25;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 
@@ -239,9 +244,12 @@ export class TelegramAdapter {
    * Park-boundary arithmetic (#3277 execution-review MINOR 1 — check-then-park):
    * after the Nth consecutive failure the streak count is checked BEFORE any
    * sleep; at the 10th failure the adapter parks immediately with NO 10th
-   * sleep. A full 10-failure streak therefore spans exactly 9 sleeps —
-   * 5+10+20+40+60+60+60+60+60 = 320s ≈ 5.3 min. Once parked no further poll
-   * occurs, so no 10-minute window can hold more than 10 failed polls.
+   * backoff sleep. A full 10-failure streak therefore spans exactly 9 sleeps —
+   * 5+10+20+40+60+60+60+60+60 = 375s. A parked channel is not dead: it makes
+   * ONE probe poll per PARKED_PROBE_MS sleep (same offset, same 25s timeout),
+   * so while it stays parked no 10-minute window that starts at or after the
+   * park holds more than 3 calls. The first good probe prints the back line and the loop returns
+   * to the normal backoff schedule; stop() ends the parked wait.
    */
   private async pollLoop(offset: number): Promise<void> {
     let streak = 0;
@@ -254,12 +262,22 @@ export class TelegramAdapter {
         if (this.stopped) return; // stop() aborted the in-flight poll
         streak += 1;
         if (streak >= MAX_CONSECUTIVE_FAILURES) {
-          this.stopped = true; // parked: no further getUpdates, stop()-equivalent
+          // Park: one line, then the probe wait. The line names the probe
+          // cadence and the self-recovery — a restart is not part of it.
           console.error(
             `Telegram adapter: parking after ${streak} consecutive failed polls ` +
-              `(${safeErrorText(err)}). Slack continues; restart the bot to re-enable Telegram.`,
+              `(${safeErrorText(err)}). The channel probes again every 5 minutes ` +
+              `and comes back on its own; Slack keeps running.`,
           );
-          return;
+          const probe = await this.parkedProbe(offset);
+          if (probe === null) return; // stop() ended the parked wait
+          streak += probe.failedProbes;
+          // The back line counts every failed poll since the last good one,
+          // failed probes included. It carries no error text.
+          console.error(`Telegram adapter: channel is back after ${streak} failed polls`);
+          streak = 0; // back on the normal schedule: next failure backs off 5s
+          offset = await this.consumeBatch(probe.batch, probe.startedAt, offset);
+          continue;
         }
         // A sleep precedes EVERY retry — no zero-delay re-poll path exists.
         const delay = Math.min(DEFAULT_BACKOFF_MS * 2 ** (streak - 1), MAX_BACKOFF_MS);
@@ -267,23 +285,65 @@ export class TelegramAdapter {
         continue;
       }
       streak = 0; // one successful poll resets the schedule to the 5s floor
-      for (const updateItem of batch) {
-        if (this.stopped) return;
-        await this.processUpdate(updateItem); // never throws; sends caught inside
-      }
-      if (batch.length > 0) {
-        // Offset advances past the batch even if a sendMessage inside it
-        // failed (see processUpdate) — no duplicate partial re-sends.
-        offset = batch[batch.length - 1].update_id + 1;
-      } else if (this.minPollIntervalMs > 0) {
-        // Minimum pace (fix round 1, finding 3): an instantly-returning
-        // empty transport must not spin the loop microtask-only — the next
-        // poll is held to at least minPollIntervalMs after this poll STARTED.
-        // A non-empty batch takes the branch above with no added delay.
-        const floor = this.minPollIntervalMs - (this.nowFn() - pollStartedAt);
-        if (floor > 0) await this.sleepOrStop(floor);
+      offset = await this.consumeBatch(batch, pollStartedAt, offset);
+    }
+  }
+
+  /**
+   * The parked wait: ONE probe poll per PARKED_PROBE_MS through the injectable
+   * sleep — a sleep comes before each probe, so no zero-delay re-poll path
+   * exists. A failed probe prints nothing and keeps the channel parked; the
+   * caller's streak still counts it. The first good probe ends the wait and
+   * returns its batch; stop() ends the wait with null.
+   */
+  private async parkedProbe(
+    offset: number,
+  ): Promise<{ batch: TgUpdate[]; startedAt: number; failedProbes: number } | null> {
+    let failedProbes = 0;
+    while (!this.stopped) {
+      await this.sleepOrStop(PARKED_PROBE_MS);
+      if (this.stopped) return null;
+      const startedAt = this.nowFn();
+      try {
+        const batch = await this.transport.getUpdates(offset, POLL_TIMEOUT_SEC);
+        if (this.stopped) return null;
+        return { batch, startedAt, failedProbes };
+      } catch {
+        if (this.stopped) return null;
+        failedProbes += 1; // failed probe: stay parked, print nothing
       }
     }
+    return null;
+  }
+
+  /**
+   * Handle one successful batch (normal poll or good probe): answer its
+   * updates, advance the offset past it, and hold the minimum pace after an
+   * instant empty batch. Returns the offset the next poll must use.
+   */
+  private async consumeBatch(
+    batch: TgUpdate[],
+    pollStartedAt: number,
+    offset: number,
+  ): Promise<number> {
+    for (const updateItem of batch) {
+      if (this.stopped) return offset;
+      await this.processUpdate(updateItem); // never throws; sends caught inside
+    }
+    if (batch.length > 0) {
+      // Offset advances past the batch even if a sendMessage inside it
+      // failed (see processUpdate) — no duplicate partial re-sends.
+      return batch[batch.length - 1].update_id + 1;
+    }
+    if (this.minPollIntervalMs > 0) {
+      // Minimum pace (fix round 1, finding 3): an instantly-returning
+      // empty transport must not spin the loop microtask-only — the next
+      // poll is held to at least minPollIntervalMs after this poll STARTED.
+      // A non-empty batch takes the branch above with no added delay.
+      const floor = this.minPollIntervalMs - (this.nowFn() - pollStartedAt);
+      if (floor > 0) await this.sleepOrStop(floor);
+    }
+    return offset;
   }
 
   /** Sleep that a `stop()` can cut short (resolves immediately when stopped). */
@@ -312,7 +372,8 @@ export class TelegramAdapter {
     this.transport.abortInFlight?.();
   }
 
-  /** Test-only: resolves once the background poll loop has settled (parked or stopped). */
+  /** Test-only: resolves once the background poll loop has settled. A parked
+   * loop stays alive (probing) — only stop() settles it. */
   _loopDone(): Promise<void> {
     return this.loopDone;
   }

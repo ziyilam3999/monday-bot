@@ -453,6 +453,8 @@ describe("fix1-F1 — ask-log determinism (injected clock)", () => {
 // ---------------------------------------------------------------------------
 
 describe("telegram/adapter — poll loop policy", () => {
+  // a failed assertion must not leave a console spy in place for the next test
+  afterEach(() => jest.restoreAllMocks());
   function makeAdapter(script: ScriptStep[], sleep: ReturnType<typeof makeSleep>) {
     const transport = new FakeTransport(script);
     const adapter = new TelegramAdapter({
@@ -544,7 +546,7 @@ describe("telegram/adapter — poll loop policy", () => {
     await adapter.stop();
   });
 
-  it("AC13 — 10 consecutive rejections → getUpdates frozen, exactly one park line", async () => {
+  it("AC13 — 10 consecutive rejections → parked, exactly one park line", async () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     const sleep = makeSleep();
     const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
@@ -558,16 +560,245 @@ describe("telegram/adapter — poll loop policy", () => {
     }
     sleep.resolvePending();
     await settle();
-    await adapter._loopDone();
-    // 1 boot + 10 failed polls = 11 calls, then frozen (no 12th).
+    // 1 boot + 10 failed polls = 11 calls; the park's probe sleep is pending.
     expect(transport.getUpdatesCalls.length).toBe(11);
+    expect(sleep.delays[9]).toBe(300000); // tenth recorded sleep: the probe pace
     await settle();
-    expect(transport.getUpdatesCalls.length).toBe(11);
+    expect(transport.getUpdatesCalls.length).toBe(11); // no 12th while it pends
     expect(errSpy).toHaveBeenCalledTimes(1);
     const line = errSpy.mock.calls[0]?.join(" ") ?? "";
     expect(line).toContain("parking");
+    expect(line).toContain("probes again every 5 minutes");
+    expect(line).not.toContain("restart"); // no restart is needed any more
     expect(line).not.toContain("down"); // normalized text only — never the raw cause
     errSpy.mockRestore();
+    await adapter.stop();
+  });
+
+  it("a parked channel resumes after the network returns", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    script.push({ kind: "ok", updates: [] }); // good probe 1
+    script.push({ kind: "ok", updates: [] }); // good poll 2
+    // default step: pending — the script's end holds the loop
+    const transport = new FakeTransport(script);
+    const adapter = new TelegramAdapter({
+      botToken: "tg-token-1",
+      allowedChatIds: ALLOWED,
+      knowledgeService: fakeKnowledge(),
+      transportFactory: () => transport,
+      askLogPath: tmpLogPath(),
+      sleepFn: sleep.sleepFn,
+      // default minPollIntervalMs (1000): each good empty poll holds the loop
+      // in a pace sleep, so the 13th call is the last one made.
+    });
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 10th failure → park → probe sleep pending
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11);
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11); // held: probe sleep pending
+    sleep.resolvePending(); // the network is back
+    await settle();
+    // twelfth call: the good probe
+    expect(transport.getUpdatesCalls.length).toBe(12);
+    expect(sleep.delays[9]).toBe(300000); // first probe sleep: PARKED_PROBE_MS
+    sleep.resolvePending(); // pace sleep after the good probe
+    await settle();
+    // thirteenth call: the loop is back on the normal schedule
+    expect(transport.getUpdatesCalls.length).toBe(13);
+    expect(errSpy).toHaveBeenCalledTimes(2); // park line + back line, nothing more
+    const parkLine = errSpy.mock.calls[0]?.join(" ") ?? "";
+    const backLine = errSpy.mock.calls[1]?.join(" ") ?? "";
+    expect(parkLine).toContain("parking");
+    expect(backLine).toBe("Telegram adapter: channel is back after 10 failed polls");
+    errSpy.mockRestore();
+    await adapter.stop();
+    await adapter._loopDone();
+  });
+
+  it("the back line counts every failed poll since the last good one (10 + 6 failed probes = 16)", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 16; i++) script.push({ kind: "err", error: new Error("down") });
+    script.push({ kind: "ok", updates: [] }); // the good probe
+    const { adapter } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 10th failure → park
+    await settle();
+    for (let i = 0; i < 6; i++) {
+      sleep.resolvePending(); // a failed probe: silent, still parked
+      await settle();
+    }
+    sleep.resolvePending(); // the good probe
+    await settle();
+    expect(errSpy).toHaveBeenCalledTimes(2); // park line + back line, probes print nothing
+    expect(errSpy.mock.calls[1]?.join(" ")).toBe(
+      "Telegram adapter: channel is back after 16 failed polls",
+    );
+    errSpy.mockRestore();
+    await adapter.stop();
+  });
+
+  it("a recovery from a streak shorter than 10 prints no back line", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 3; i++) script.push({ kind: "err", error: new Error("blip") });
+    script.push({ kind: "ok", updates: [] });
+    const { adapter } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 3) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 3 failures, then a good poll — no park, no back line
+    await settle();
+    expect(errSpy).toHaveBeenCalledTimes(0); // zero error lines
+    errSpy.mockRestore();
+    await adapter.stop();
+  });
+
+  it("a second park after a recovery prints a second park line", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    script.push({ kind: "ok", updates: [] }); // good probe → recovery
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    const { adapter, transport } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // park #1 → probe sleep (delays[9])
+    await settle();
+    sleep.resolvePending(); // good probe → back line → normal schedule
+    await settle();
+    // back on the normal schedule: the first sleep after the next failure is 5s
+    expect(sleep.delays[10]).toBe(5000);
+    // 9 backoff sleeps precede the second park
+    while (sleep.delays.length < 19) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 10th failure of the new streak → park #2
+    await settle();
+    const lines = errSpy.mock.calls.map((call) => call.join(" "));
+    expect(lines.filter((l) => l.includes("parking")).length).toBe(2);
+    expect(lines.filter((l) => l.includes("channel is back")).length).toBe(1);
+    expect(transport.getUpdatesCalls.length).toBe(22); // 1 boot + 10 + probe + 10
+    errSpy.mockRestore();
+    await adapter.stop();
+  });
+
+  it("parked probes are paced by the probe sleep", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => undefined); // keep the park line out of the test output
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 16; i++) script.push({ kind: "err", error: new Error("down") });
+    const { adapter, transport } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // 10th failure → park
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11);
+    for (let i = 0; i < 6; i++) {
+      expect(sleep.delays[9 + i]).toBe(300000); // every sleep past the ninth
+      const before = transport.getUpdatesCalls.length;
+      await settle();
+      expect(transport.getUpdatesCalls.length).toBe(before); // +0 while pending
+      sleep.resolvePending();
+      await settle();
+      expect(transport.getUpdatesCalls.length).toBe(before + 1); // +1 per sleep
+    }
+    expect(sleep.delays.slice(9)).toEqual([
+      300000, 300000, 300000, 300000, 300000, 300000, 300000,
+    ]);
+    await adapter.stop();
+  });
+
+  it("stop() while parked ends the probe wait", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    const { adapter, transport } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // park → probe sleep pending
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11);
+    adapter.stop(); // cuts the probe sleep short
+    // race the settle promise against a short timer: fail by assertion, not timeout
+    const outcome = await Promise.race([
+      adapter._loopDone().then(() => "settled"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 1000)),
+    ]);
+    expect(outcome).toBe("settled");
+    await settle();
+    expect(transport.getUpdatesCalls.length).toBe(11); // no probe after stop
+    errSpy.mockRestore();
+  });
+
+  it("a parked channel answers a message queued during the park", async () => {
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const sleep = makeSleep();
+    const script: ScriptStep[] = [
+      // boot drain returns one old update (discarded), so the held offset is 21, not 0
+      { kind: "ok", updates: [update(20, 42, "sent while the bot was down")] },
+    ];
+    for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
+    script.push({ kind: "ok", updates: [update(30, 42, "what is the leave policy?")] });
+    const { adapter, transport } = makeAdapter(script, sleep);
+    await adapter.start();
+    while (sleep.delays.length < 9) {
+      await settle();
+      sleep.resolvePending();
+      await settle();
+    }
+    sleep.resolvePending(); // park → probe sleep pending
+    await settle();
+    const heldOffset = transport.getUpdatesCalls[10]?.offset; // a failed poll's offset
+    sleep.resolvePending(); // the good probe
+    await settle();
+    const probe = transport.getUpdatesCalls[11];
+    expect(heldOffset).toBe(21); // boot drain id 20 + 1: a probe at offset 0 would differ
+    expect(probe?.offset).toBe(21); // same offset the loop already held
+    expect(probe?.timeout).toBe(25); // same 25s timeout as a normal poll
+    expect(transport.sendMessageCalls.length).toBe(1); // the queued message is answered
+    expect(transport.sendMessageCalls[0]?.chatId).toBe(42);
+    expect(transport.getUpdatesCalls[12]?.offset).toBe(31); // next poll: update id + 1
+    expect(errSpy.mock.calls[1]?.join(" ")).toBe(
+      "Telegram adapter: channel is back after 10 failed polls",
+    );
+    errSpy.mockRestore();
+    await adapter.stop();
   });
 
   it("AC13 — stop() during a pending backoff sleep: loop settles, no further getUpdates, fetch aborted", async () => {
