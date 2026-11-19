@@ -453,6 +453,8 @@ describe("fix1-F1 — ask-log determinism (injected clock)", () => {
 // ---------------------------------------------------------------------------
 
 describe("telegram/adapter — poll loop policy", () => {
+  // a failed assertion must not leave a console spy in place for the next test
+  afterEach(() => jest.restoreAllMocks());
   function makeAdapter(script: ScriptStep[], sleep: ReturnType<typeof makeSleep>) {
     const transport = new FakeTransport(script);
     const adapter = new TelegramAdapter({
@@ -566,6 +568,8 @@ describe("telegram/adapter — poll loop policy", () => {
     expect(errSpy).toHaveBeenCalledTimes(1);
     const line = errSpy.mock.calls[0]?.join(" ") ?? "";
     expect(line).toContain("parking");
+    expect(line).toContain("probes again every 5 minutes");
+    expect(line).not.toContain("restart"); // no restart is needed any more
     expect(line).not.toContain("down"); // normalized text only — never the raw cause
     errSpy.mockRestore();
     await adapter.stop();
@@ -706,6 +710,7 @@ describe("telegram/adapter — poll loop policy", () => {
   });
 
   it("parked probes are paced by the probe sleep", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => undefined); // keep the park line out of the test output
     const sleep = makeSleep();
     const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
     for (let i = 0; i < 16; i++) script.push({ kind: "err", error: new Error("down") });
@@ -764,7 +769,10 @@ describe("telegram/adapter — poll loop policy", () => {
   it("a parked channel answers a message queued during the park", async () => {
     const errSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
     const sleep = makeSleep();
-    const script: ScriptStep[] = [{ kind: "ok", updates: [] }];
+    const script: ScriptStep[] = [
+      // boot drain returns one old update (discarded), so the held offset is 21, not 0
+      { kind: "ok", updates: [update(20, 42, "sent while the bot was down")] },
+    ];
     for (let i = 0; i < 10; i++) script.push({ kind: "err", error: new Error("down") });
     script.push({ kind: "ok", updates: [update(30, 42, "what is the leave policy?")] });
     const { adapter, transport } = makeAdapter(script, sleep);
@@ -780,7 +788,8 @@ describe("telegram/adapter — poll loop policy", () => {
     sleep.resolvePending(); // the good probe
     await settle();
     const probe = transport.getUpdatesCalls[11];
-    expect(probe?.offset).toBe(heldOffset); // same offset the loop already held
+    expect(heldOffset).toBe(21); // boot drain id 20 + 1: a probe at offset 0 would differ
+    expect(probe?.offset).toBe(21); // same offset the loop already held
     expect(probe?.timeout).toBe(25); // same 25s timeout as a normal poll
     expect(transport.sendMessageCalls.length).toBe(1); // the queued message is answered
     expect(transport.sendMessageCalls[0]?.chatId).toBe(42);

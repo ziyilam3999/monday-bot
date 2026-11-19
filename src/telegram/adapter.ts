@@ -247,8 +247,8 @@ export class TelegramAdapter {
    * backoff sleep. A full 10-failure streak therefore spans exactly 9 sleeps —
    * 5+10+20+40+60+60+60+60+60 = 375s. A parked channel is not dead: it makes
    * ONE probe poll per PARKED_PROBE_MS sleep (same offset, same 25s timeout),
-   * so no 10-minute window that starts at or after the park holds more than
-   * 3 calls. The first good probe prints the back line and the loop returns
+   * so while it stays parked no 10-minute window that starts at or after the
+   * park holds more than 3 calls. The first good probe prints the back line and the loop returns
    * to the normal backoff schedule; stop() ends the parked wait.
    */
   private async pollLoop(offset: number): Promise<void> {
